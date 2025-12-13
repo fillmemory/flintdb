@@ -21,11 +21,15 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifndef _WIN32
+#include <sys/uio.h>
+#endif
 
 #define HEADER_SIZE 4096  // Match filesystem block size for atomic writes
 #define DEFAULT_BATCH_SIZE 10000
-#define BATCH_BUFFER_SIZE (4 * 1024 * 1024) // 4MB batch buffer
+#define DEFAULT_BATCH_BUFFER_SIZE (4 * 1024 * 1024) // 4MB batch buffer
 #define DEFAULT_COMPRESSION_THRESHOLD 8192 // Compress if data > 8KB bytes
+#define DEFAULT_DIRECT_WRITE_THRESHOLD (64 * 1024) // Direct-write large records to avoid memcpy into batch buffer
 #define FLAG_COMPRESSED 0x01
 #define FLAG_METADATA_ONLY 0x02
 
@@ -58,19 +62,126 @@ struct wal_impl {
     char *batch_buffer;        // Batch buffer
     i32 batch_size;            // Current batch size
     i32 batch_count;           // Batch record count
+    i32 batch_capacity;         // Batch buffer capacity (bytes)
     i32 batch_size_limit;      // Batch size limit (configurable)
     i32 compression_threshold; // Compression threshold (configurable)
+
+    // Sync behavior
+    i32 sync_mode;             // WAL_SYNC_DEFAULT|WAL_SYNC_OFF|WAL_SYNC_NORMAL|WAL_SYNC_FULL
+
+    // WAL payload policy
+    i32 log_page_data;         // 1=log page images for UPDATE/DELETE, 0=metadata only
+
+    // Large record policy
+    i32 direct_write_threshold; // If record size exceeds this, write directly (writev) instead of copying into batch buffer
     
     // Multiple storages management
     struct hashmap *storages;  // Map of file -> wal_storage
 };
 
-// Dirty page entry for uncommitted UPDATE/DELETE operations
+#ifdef _WIN32
+static ssize_t wal_write_all(int fd, const void *buf, size_t len) {
+    const char *p = (const char*)buf;
+    size_t remaining = len;
+    while (remaining > 0) {
+        ssize_t n = write(fd, p, remaining);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return (ssize_t)(len - remaining);
+        p += n;
+        remaining -= (size_t)n;
+    }
+    return (ssize_t)len;
+}
+#endif
+
+static ssize_t wal_pwrite_all(int fd, const void *buf, size_t len, off_t offset) {
+    const char *p = (const char*)buf;
+    size_t remaining = len;
+    off_t off = offset;
+    while (remaining > 0) {
+        ssize_t n;
+#if defined(_WIN32)
+    // Windows: prefer pwrite compatibility layer (OVERLAPPED-based) to avoid changing file offset.
+    // If EMULATE_PREAD_PWRITE_WIN32 is enabled, pwrite() is available.
+    // Otherwise fall back to pwrite_win32() using the underlying HANDLE.
+    #ifdef EMULATE_PREAD_PWRITE_WIN32
+        n = (ssize_t)pwrite(fd, p, (u64)remaining, (u64)off);
+    #else
+        HANDLE fh = (HANDLE)(_get_osfhandle(fd));
+        if (fh == INVALID_HANDLE_VALUE) return -1;
+        n = (ssize_t)pwrite_win32(fh, p, (u64)remaining, (u64)off);
+    #endif
+#else
+        n = pwrite(fd, p, remaining, off);
+#endif
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return (ssize_t)(len - remaining);
+        p += n;
+        off += n;
+        remaining -= (size_t)n;
+    }
+    return (ssize_t)len;
+}
+
+#ifndef _WIN32
+static ssize_t wal_pwritev_all(int fd, const struct iovec *iov, int iovcnt, off_t offset) {
+    // Portable-ish pwritev: write each segment with pwrite and advance offset.
+    // Avoids changing the file descriptor's seek position.
+    off_t off = offset;
+    for (int i = 0; i < iovcnt; i++) {
+        if (iov[i].iov_len == 0) continue;
+        if (wal_pwrite_all(fd, iov[i].iov_base, iov[i].iov_len, off) < 0) return -1;
+        off += (off_t)iov[i].iov_len;
+    }
+    return 1;
+}
+#endif
+
+static inline void wal_encode_record_header(
+    char *buf,
+    u8 operation,
+    i64 transaction_id,
+    i16 checksum,
+    i32 file_id,
+    i64 page_offset,
+    u8 flags,
+    i32 original_size
+) {
+    *(u8*)(buf + 0) = operation;
+    *(i64*)(buf + 1) = transaction_id;
+    *(i16*)(buf + 9) = checksum;
+    *(i32*)(buf + 11) = file_id;
+    *(i64*)(buf + 15) = page_offset;
+    *(u8*)(buf + 23) = flags;
+    *(i32*)(buf + 24) = original_size;
+}
+
+// Dirty page entry for uncommitted UPDATE/DELETE operations.
+// For UPDATE: store page bytes inline and expose a buffer view (free is no-op for callers).
+// For DELETE: data_size=0 and is_delete=1.
 struct dirty_page {
     i64 offset;                 // Page offset
-    struct buffer *data;        // Page data (NULL for DELETE)
     int is_delete;              // 1 if this is a DELETE operation
+    i32 data_size;              // Page data size (0 for DELETE)
+    struct buffer buf;          // Buffer view of data[] (free is no-op)
+    char data[];                // Flexible array for page bytes
 };
+
+static void dirty_page_buffer_free(struct buffer *me) {
+    (void)me;
+    // No-op: dirty pages are owned/freed by WAL storage.
+}
+
+static void dirty_page_free(struct dirty_page *page) {
+    if (!page) return;
+    FREE(page);
+}
 
 // Storage wrapper structure
 struct wal_storage {
@@ -114,11 +225,41 @@ struct wal WAL_NONE = {
 // Forward declarations
 static i64 wal_checkpoint(struct wal *me, char **e);
 static void wal_log(struct wal_impl *impl, u8 operation, i64 transaction_id, i32 file_id, i64 page_offset, const char *page_data, i32 data_size, int metadata_only);
-static void wal_flush_batch(struct wal_impl *impl);
+static void wal_flush_batch(struct wal_impl *impl, int do_sync);
 static void wal_flush_header(struct wal_impl *impl);
 static char* wal_compress_data(const char *data, i32 size, i32 *compressed_size);
 static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e);
 static void wal_storage_rollback(struct wal_storage *ws, i64 id);
+
+static void wal_do_sync(struct wal_impl *impl) {
+    if (!impl || impl->fd <= 0) return;
+    if (impl->sync_mode == WAL_SYNC_OFF) return;
+
+    // Platform default behavior (backward compatible)
+    i32 mode = impl->sync_mode;
+    if (mode == WAL_SYNC_DEFAULT) {
+        #ifdef __APPLE__
+            mode = WAL_SYNC_FULL;
+        #else
+            mode = WAL_SYNC_NORMAL;
+        #endif
+    }
+
+    #ifdef __APPLE__
+        if (mode == WAL_SYNC_FULL) {
+            fcntl(impl->fd, F_FULLFSYNC);
+        } else {
+            fsync(impl->fd);
+        }
+    #else
+        if (mode == WAL_SYNC_FULL) {
+            fsync(impl->fd);
+        } else {
+            // Linux/Unix/MinGW: fdatasync is faster than fsync (doesn't update metadata)
+            fdatasync(impl->fd);
+        }
+    #endif
+}
 
 static i64 wal_begin(struct wal *me, char **e) {
     struct wal_impl *impl = me->impl;
@@ -210,27 +351,21 @@ static void wal_flush_header(struct wal_impl *impl) {
     *(i32*)(header + 40) = impl->total_count;
     *(i32*)(header + 44) = impl->processed_count;
     
-    lseek(impl->fd, 0, SEEK_SET);
-    write(impl->fd, header, HEADER_SIZE);
+    // Best-effort; header flush happens on checkpoint/close.
+    wal_pwrite_all(impl->fd, header, HEADER_SIZE, 0);
 }
 
-static void wal_flush_batch(struct wal_impl *impl) {
+static void wal_flush_batch(struct wal_impl *impl, int do_sync) {
     if (impl->batch_count == 0 || impl->fd <= 0) return;
-    
-    lseek(impl->fd, impl->current_position, SEEK_SET);
-    ssize_t written = write(impl->fd, impl->batch_buffer, impl->batch_size);
-    if (written > 0) {
-        impl->current_position += written;
+
+    // Use pwrite to avoid lseek+write overhead and keep file offset untouched.
+    ssize_t written = wal_pwrite_all(impl->fd, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
+    if (written > 0) impl->current_position += written;
+
+    // Only sync when explicitly requested (commit/checkpoint/close)
+    if (do_sync) {
+        wal_do_sync(impl);
     }
-    
-    // Sync after batch flush for durability
-    // Platform-specific sync: macOS needs F_FULLFSYNC, Linux/MinGW use fdatasync
-    #ifdef __APPLE__
-        fcntl(impl->fd, F_FULLFSYNC);
-    #else
-        // Linux/Unix/MinGW: fdatasync is faster than fsync (doesn't update metadata)
-        fdatasync(impl->fd);
-    #endif
     
     impl->batch_size = 0;
     impl->batch_count = 0;
@@ -273,23 +408,61 @@ static void wal_log(struct wal_impl *impl, u8 operation, i64 transaction_id, i32
         record_size += final_size; // original data
     }
     
-    // Flush batch if not enough space
-    if (impl->batch_size + record_size > BATCH_BUFFER_SIZE) {
-        wal_flush_batch(impl);
+    // If record is large, bypass batch buffer to avoid memcpy of payload.
+    // This is especially impactful when logging full page images.
+    if (impl->direct_write_threshold > 0 && record_size >= impl->direct_write_threshold) {
+        // Flush pending batch first (no sync).
+        wal_flush_batch(impl, 0);
+
+        char header[28];
+        i16 checksum = 0; // Placeholder
+        wal_encode_record_header(header, operation, transaction_id, checksum, file_id, page_offset, flags, original_size);
+
+#ifndef _WIN32
+        struct iovec iov[3];
+        int iovcnt = 0;
+        iov[iovcnt++] = (struct iovec){ .iov_base = header, .iov_len = sizeof(header) };
+        i32 cs = compressed_size;
+        if ((flags & FLAG_COMPRESSED) != 0) {
+            iov[iovcnt++] = (struct iovec){ .iov_base = &cs, .iov_len = sizeof(i32) };
+            iov[iovcnt++] = (struct iovec){ .iov_base = compressed_data, .iov_len = (size_t)compressed_size };
+        } else if ((flags & FLAG_METADATA_ONLY) == 0 && page_data && final_size > 0) {
+            iov[iovcnt++] = (struct iovec){ .iov_base = (void*)page_data, .iov_len = (size_t)final_size };
+        }
+
+        // Offset-based direct write: no lseek.
+        wal_pwritev_all(impl->fd, iov, iovcnt, (off_t)impl->current_position);
+#else
+        // Windows/minimal fallback: offset-based writes (wal_pwrite_all may internally lseek).
+        off_t off = (off_t)impl->current_position;
+        wal_pwrite_all(impl->fd, header, sizeof(header), off);
+        off += (off_t)sizeof(header);
+        if ((flags & FLAG_COMPRESSED) != 0) {
+            wal_pwrite_all(impl->fd, &compressed_size, sizeof(i32), off);
+            off += (off_t)sizeof(i32);
+            wal_pwrite_all(impl->fd, compressed_data, (size_t)compressed_size, off);
+        } else if ((flags & FLAG_METADATA_ONLY) == 0 && page_data && final_size > 0) {
+            wal_pwrite_all(impl->fd, page_data, (size_t)final_size, off);
+        }
+#endif
+
+        impl->current_position += record_size;
+        if (compressed_data) FREE(compressed_data);
+        return;
     }
-    
+
+    // Flush batch if not enough space
+    if (impl->batch_size + record_size > impl->batch_capacity) {
+        // For throughput, do not sync on intermediate flushes.
+        wal_flush_batch(impl, 0);
+    }
+
     char *buf = impl->batch_buffer + impl->batch_size;
     i16 checksum = 0; // Placeholder
-    
+
     // Write record to batch buffer
-    *(u8*)(buf + 0) = operation;
-    *(i64*)(buf + 1) = transaction_id;
-    *(i16*)(buf + 9) = checksum;
-    *(i32*)(buf + 11) = file_id;
-    *(i64*)(buf + 15) = page_offset;
-    *(u8*)(buf + 23) = flags;
-    *(i32*)(buf + 24) = original_size;
-    
+    wal_encode_record_header(buf, operation, transaction_id, checksum, file_id, page_offset, flags, original_size);
+
     int pos = 28;
     if ((flags & FLAG_COMPRESSED) != 0) {
         // Write compressed data
@@ -301,13 +474,14 @@ static void wal_log(struct wal_impl *impl, u8 operation, i64 transaction_id, i32
         // Write original data
         memcpy(buf + pos, page_data, final_size);
     }
-    
+
     impl->batch_size += record_size;
     impl->batch_count++;
     
     // Flush batch if reached batch count limit
     if (impl->batch_count >= impl->batch_size_limit) {
-        wal_flush_batch(impl);
+        // For throughput, do not sync on intermediate flushes.
+        wal_flush_batch(impl, 0);
     }
 }
 
@@ -345,13 +519,14 @@ static i64 wal_checkpoint(struct wal *me, char **e) {
     struct wal_impl *impl = me->impl;
     
     // Flush any pending batch
-    wal_flush_batch(impl);
+    wal_flush_batch(impl, 0);
     wal_log(impl, OP_CHECKPOINT, impl->transaction_id, 0, 0, NULL, 0, 0);
-    wal_flush_batch(impl);
+    wal_flush_batch(impl, 1);
     
     impl->checkpoint_offset = impl->current_position;
     impl->total_count++;
     wal_flush_header(impl);
+    wal_do_sync(impl);
     
     // Only truncate if checkpoint is at the end (within 64 bytes tolerance)
     // This matches Java version behavior - prevents truncating mid-transaction batch
@@ -383,10 +558,7 @@ static void wal_storage_close(struct storage *me) {
         struct map_iterator it = {0};
         while (ws->dirty_pages->iterate(ws->dirty_pages, &it)) {
             struct dirty_page *page = (struct dirty_page*)(uintptr_t)it.val;
-            if (page) {
-                if (page->data) page->data->free(page->data);
-                FREE(page);
-            }
+            dirty_page_free(page);
         }
         ws->dirty_pages->free(ws->dirty_pages);
     }
@@ -419,8 +591,8 @@ static struct buffer* wal_storage_read(struct storage *me, i64 offset, char **e)
             if (page->is_delete) {
                 THROW(e, "Page %lld has been deleted in current transaction", offset);
             }
-            // Return dirty page data directly
-            return page->data;
+            // Return dirty page buffer view (caller may free; it's a no-op)
+            return &page->buf;
         }
     }
     
@@ -450,35 +622,43 @@ static i64 wal_storage_write_at(struct storage *me, i64 offset, struct buffer *i
     if (ws->transaction > 0) {
         // UPDATE within transaction: don't write to origin immediately
         // Store in dirty page cache and log to WAL
-        i32 data_size = in->limit - in->position;
-        wal_log(ws->logger, OP_UPDATE, ws->transaction, ws->identifier, offset, 
-                in->array + in->position, data_size, 0);
-        
-        // Cache the dirty page (make a copy)
-        struct dirty_page *page = CALLOC(1, sizeof(struct dirty_page));
+        i32 data_size = (i32)(in->limit - in->position);
+
+        // If this offset already has a dirty entry in this transaction, free it (avoid leaks).
+        if (ws->dirty_pages) {
+            valtype existing_val = (valtype)ws->dirty_pages->get(ws->dirty_pages, (keytype)offset);
+            if (existing_val != HASHMAP_INVALID_VAL) {
+                struct dirty_page *existing = (struct dirty_page*)(uintptr_t)existing_val;
+                dirty_page_free(existing);
+            }
+        }
+
+        // Allocate dirty page as a single block: struct + inline data.
+        struct dirty_page *page = CALLOC(1, (size_t)sizeof(struct dirty_page) + (size_t)data_size);
         if (!page) THROW(e, "Out of memory");
-        
+
         page->offset = offset;
-        // Allocate and copy data
-        char *data_copy = CALLOC(1, data_size);
-        if (!data_copy) {
-            FREE(page);
-            THROW(e, "Out of memory");
-        }
-        memcpy(data_copy, in->array + in->position, data_size);
-        
-        struct buffer *buf = CALLOC(1, sizeof(struct buffer));
-        if (!buf) {
-            FREE(data_copy);
-            FREE(page);
-            THROW(e, "Out of memory");
-        }
-        buffer_wrap(data_copy, data_size, buf);
-        buf->limit = data_size;
-        buf->position = 0;
-        page->data = buf;
         page->is_delete = 0;
-        
+        page->data_size = data_size;
+
+        // Copy updated bytes once.
+        memcpy(page->data, in->array + in->position, (size_t)data_size);
+
+        // Initialize buffer view backed by page->data.
+        buffer_wrap(page->data, (u32)data_size, &page->buf);
+        page->buf.limit = (u32)data_size;
+        page->buf.position = 0;
+        page->buf.free = &dirty_page_buffer_free;
+
+        // Log to WAL after we have a stable copy (enables direct-write path w/o extra memcpy).
+        if (ws->logger && ws->logger->log_page_data) {
+            wal_log(ws->logger, OP_UPDATE, ws->transaction, ws->identifier, offset,
+                    page->data, data_size, 0);
+        } else {
+            // Fast mode: record metadata only (reduces WAL I/O significantly)
+            wal_log(ws->logger, OP_UPDATE, ws->transaction, ws->identifier, offset, NULL, 0, 1);
+        }
+
         // Add to hashmap (O(1) insert)
         ws->dirty_pages->put(ws->dirty_pages, (keytype)offset, (valtype)(uintptr_t)page, NULL);
         
@@ -499,14 +679,27 @@ static i32 wal_storage_delete(struct storage *me, i64 offset, char **e) {
     if (ws->transaction > 0) {
         // DELETE within transaction: don't delete from origin immediately
         // Mark as deleted in cache and log to WAL
-        wal_log(ws->logger, OP_DELETE, ws->transaction, ws->identifier, offset, NULL, 0, 0);
+        if (ws->logger && ws->logger->log_page_data) {
+            wal_log(ws->logger, OP_DELETE, ws->transaction, ws->identifier, offset, NULL, 0, 0);
+        } else {
+            wal_log(ws->logger, OP_DELETE, ws->transaction, ws->identifier, offset, NULL, 0, 1);
+        }
         
+        // If this offset already has a dirty entry, replace it.
+        if (ws->dirty_pages) {
+            valtype existing_val = (valtype)ws->dirty_pages->get(ws->dirty_pages, (keytype)offset);
+            if (existing_val != HASHMAP_INVALID_VAL) {
+                struct dirty_page *existing = (struct dirty_page*)(uintptr_t)existing_val;
+                dirty_page_free(existing);
+            }
+        }
+
         struct dirty_page *page = CALLOC(1, sizeof(struct dirty_page));
         if (!page) THROW(e, "Out of memory");
-        
+
         page->offset = offset;
-        page->data = NULL;
         page->is_delete = 1;
+        page->data_size = 0;
         
         // Add to hashmap (O(1) insert)
         ws->dirty_pages->put(ws->dirty_pages, (keytype)offset, (valtype)(uintptr_t)page, NULL);
@@ -547,10 +740,10 @@ static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e) {
                 if (ws->callback) {
                     ws->callback(ws->callback_obj, page->offset);
                 }
-            } else if (page->data) {
+            } else if (page->data_size > 0) {
                 // Apply update
-                page->data->position = 0;
-                ws->origin->write_at(ws->origin, page->offset, page->data, e);
+                page->buf.position = 0;
+                ws->origin->write_at(ws->origin, page->offset, &page->buf, e);
                 if (e && *e) return;
             }
         }
@@ -559,8 +752,7 @@ static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e) {
         it = (struct map_iterator){0};
         while (ws->dirty_pages->iterate(ws->dirty_pages, &it)) {
             struct dirty_page *page = (struct dirty_page*)(uintptr_t)it.val;
-            if (page->data) page->data->free(page->data);
-            FREE(page);
+            dirty_page_free(page);
         }
         ws->dirty_pages->clear(ws->dirty_pages);
     }
@@ -578,8 +770,7 @@ static void wal_storage_rollback(struct wal_storage *ws, i64 id) {
         struct map_iterator it = {0};
         while (ws->dirty_pages->iterate(ws->dirty_pages, &it)) {
             struct dirty_page *page = (struct dirty_page*)(uintptr_t)it.val;
-            if (page->data) page->data->free(page->data);
-            FREE(page);
+            dirty_page_free(page);
         }
         ws->dirty_pages->clear(ws->dirty_pages);
     }
@@ -682,8 +873,9 @@ static void wal_close(struct wal *me) {
     if (me->impl) {
         struct wal_impl *impl = me->impl;
         // Flush any pending batch before closing
-        wal_flush_batch(impl);
+        wal_flush_batch(impl, 1);
         wal_flush_header(impl);
+        wal_do_sync(impl);
         
         // Close all registered storages (match Java: storages.forEach(entry -> IO.close(storage)))
         if (impl->storages) {
@@ -732,6 +924,14 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
     impl->checkpoint_interval = meta->wal_checkpoint_interval > 0 ? meta->wal_checkpoint_interval : get_env_int("FLINTDB_WAL_CHECKPOINT_INTERVAL", 10000);
     impl->batch_size_limit = meta->wal_batch_size > 0 ? meta->wal_batch_size : get_env_int("FLINTDB_WAL_BATCH_SIZE", DEFAULT_BATCH_SIZE);
     impl->compression_threshold = meta->wal_compression_threshold > 0 ? meta->wal_compression_threshold : get_env_int("FLINTDB_WAL_COMPRESSION_THRESHOLD", DEFAULT_COMPRESSION_THRESHOLD);
+    impl->sync_mode = meta->wal_sync != 0 ? meta->wal_sync : get_env_int("FLINTDB_WAL_SYNC", WAL_SYNC_DEFAULT);
+    impl->batch_capacity = meta->wal_buffer_size > 0 ? meta->wal_buffer_size : get_env_int("FLINTDB_WAL_BUFFER_SIZE", DEFAULT_BATCH_BUFFER_SIZE);
+    if (impl->batch_capacity < (256 * 1024)) impl->batch_capacity = (256 * 1024);
+    impl->log_page_data = meta->wal_page_data ? 1 : 0;
+    // Direct-write threshold: allow override via env, else default.
+    // If batch buffer is very small, keep threshold <= batch_capacity to avoid unnecessary flushes.
+    impl->direct_write_threshold = get_env_int("FLINTDB_WAL_DIRECT_WRITE_THRESHOLD", DEFAULT_DIRECT_WRITE_THRESHOLD);
+    if (impl->direct_write_threshold > impl->batch_capacity) impl->direct_write_threshold = impl->batch_capacity;
     strncpy(impl->path, path, PATH_MAX - 1);
 
     // Initialize storages map (match Java: Map<File, WALStorage> storages = new HashMap<>())
@@ -739,7 +939,7 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
     if (!impl->storages) THROW(e, "Failed to create storages map");
 
     // Allocate batch buffer
-    impl->batch_buffer = CALLOC(1, BATCH_BUFFER_SIZE);
+    impl->batch_buffer = CALLOC(1, impl->batch_capacity);
     if (!impl->batch_buffer) THROW(e, "Failed to allocate batch buffer");
     impl->batch_size = 0;
     impl->batch_count = 0;

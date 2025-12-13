@@ -95,6 +95,8 @@ struct flintdb_meta flintdb_meta_new(const char *name, char **e) {
     m.cache = 1024 * 1024; // 1Million rows
     m.delimiter = '\t';
     m.quote = '"';
+    // WAL defaults: keep page images enabled unless explicitly disabled
+    m.wal_page_data = 1;
     return m;
 
 EXCEPTION:

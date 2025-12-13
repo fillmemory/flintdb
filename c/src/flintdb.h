@@ -75,6 +75,16 @@ FLINTDB_BEGIN_DECLS
 #define WAL_OPT_LOG "LOG"
 #define WAL_OPT_TRUNCATE "TRUNCATE"
 
+// WAL sync modes (similar to SQLite semantics)
+// 0: platform default (backward compatible)
+// 1: NORMAL (fsync/fdatasync)
+// 2: FULL (macOS F_FULLFSYNC / others fsync)
+// -1: OFF (no sync)
+#define WAL_SYNC_DEFAULT 0
+#define WAL_SYNC_OFF -1
+#define WAL_SYNC_NORMAL 1
+#define WAL_SYNC_FULL 2
+
 
 enum flintdb_open_mode {
     FLINTDB_RDONLY = O_RDONLY,
@@ -193,6 +203,9 @@ struct flintdb_meta {
     i32 wal_checkpoint_interval;
     i32 wal_batch_size;
     i32 wal_compression_threshold;
+    i32 wal_sync; // WAL_SYNC_DEFAULT|WAL_SYNC_OFF|WAL_SYNC_NORMAL|WAL_SYNC_FULL
+    i32 wal_buffer_size; // WAL in-memory batch buffer capacity (bytes)
+    i32 wal_page_data; // 1=log page images for UPDATE/DELETE (default), 0=metadata only
     i32 increment;
     i32 cache;
 

@@ -74,6 +74,9 @@ struct flintdb_sql {
     i32 wal_checkpoint_interval;
     i32 wal_batch_size;
     i32 wal_compression_threshold;
+    i32 wal_sync;
+    i32 wal_buffer_size;
+    i32 wal_page_data;
     
     // Dynamically allocated large field (Phase 2)
     char *option;

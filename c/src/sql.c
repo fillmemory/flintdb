@@ -178,6 +178,24 @@ static inline int equals_ic(const char *a, const char *b) {
     return *a == '\0' && *b == '\0';
 }
 
+static i32 parse_wal_sync_mode(const char *v) {
+    if (!v || !*v) return 0;
+    if (equals_ic(v, "DEFAULT")) return WAL_SYNC_DEFAULT;
+    if (equals_ic(v, "OFF") || equals_ic(v, "0")) return WAL_SYNC_OFF;
+    if (equals_ic(v, "NORMAL") || equals_ic(v, "FSYNC") || equals_ic(v, "1")) return WAL_SYNC_NORMAL;
+    if (equals_ic(v, "FULL") || equals_ic(v, "FULLFSYNC") || equals_ic(v, "2")) return WAL_SYNC_FULL;
+    // Unknown: leave unset so platform default behavior applies
+    return WAL_SYNC_DEFAULT;
+}
+
+static i32 parse_on_off_default(const char *v, i32 default_value) {
+    if (!v || !*v) return default_value;
+    if (equals_ic(v, "DEFAULT")) return default_value;
+    if (equals_ic(v, "ON") || equals_ic(v, "TRUE") || equals_ic(v, "YES") || equals_ic(v, "1")) return 1;
+    if (equals_ic(v, "OFF") || equals_ic(v, "FALSE") || equals_ic(v, "NO") || equals_ic(v, "0")) return 0;
+    return default_value;
+}
+
 // s_copy, s_cat, trim now provided inline in internal.h
 
 // Helper function to set dynamically allocated string fields in struct flintdb_sql
@@ -1264,6 +1282,12 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
                 q->wal_batch_size = parse_long(v);
             else if (equals_ic(k, "WAL_CHECKPOINT_INTERVAL"))
                 q->wal_checkpoint_interval = parse_long(v);
+                        else if (equals_ic(k, "WAL_SYNC"))
+                            q->wal_sync = parse_wal_sync_mode(v);
+                        else if (equals_ic(k, "WAL_BUFFER_SIZE"))
+                            q->wal_buffer_size = parse_bytes(v);
+                        else if (equals_ic(k, "WAL_PAGE_DATA"))
+                            q->wal_page_data = parse_on_off_default(v, 1);
             else if (equals_ic(k, "WAL_COMPRESSION_THRESHOLD"))
                 q->wal_compression_threshold = parse_bytes(v);
             else if (equals_ic(k, "DICTIONARY"))
@@ -1773,6 +1797,12 @@ int flintdb_sql_to_meta(struct flintdb_sql *in, struct flintdb_meta *out, char *
         out->wal_checkpoint_interval = in->wal_checkpoint_interval;
     if (in->wal_compression_threshold > 0)
         out->wal_compression_threshold = in->wal_compression_threshold;
+        if (in->wal_sync != 0)
+            out->wal_sync = in->wal_sync;
+        if (in->wal_buffer_size > 0)
+            out->wal_buffer_size = in->wal_buffer_size;
+        if (in->wal_page_data == 0)
+            out->wal_page_data = 0;
     return 0;
 
 EXCEPTION:
@@ -2025,6 +2055,22 @@ int flintdb_meta_to_sql_string(const struct flintdb_meta *m, char *s, i32 len, c
             char ct[32];
             snprintf(ct, sizeof(ct), "%d", m->wal_compression_threshold);
             s_cat(tmp, sizeof(tmp), ct);
+        }
+        if (m->wal_sync != 0) {
+            s_cat(tmp, sizeof(tmp), ", WAL_SYNC=");
+            if (m->wal_sync == WAL_SYNC_OFF) s_cat(tmp, sizeof(tmp), "OFF");
+            else if (m->wal_sync == WAL_SYNC_NORMAL) s_cat(tmp, sizeof(tmp), "NORMAL");
+            else if (m->wal_sync == WAL_SYNC_FULL) s_cat(tmp, sizeof(tmp), "FULL");
+            else s_cat(tmp, sizeof(tmp), "DEFAULT");
+        }
+
+        if (m->wal_buffer_size > 0) {
+            s_cat(tmp, sizeof(tmp), ", WAL_BUFFER_SIZE=");
+            append_bytes_unit(tmp, sizeof(tmp), m->wal_buffer_size);
+        }
+
+        if (m->wal_page_data == 0) {
+            s_cat(tmp, sizeof(tmp), ", WAL_PAGE_DATA=OFF");
         }
     }
 
