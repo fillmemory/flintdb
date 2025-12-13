@@ -46,7 +46,7 @@ struct bplustree {
     i8   (*delete)(struct bplustree *me, i64 key, char **e);
 
     // Range scan find using a single-argument comparator: returns 0 while values are in range
-    struct cursor_i64 * (*find)(struct bplustree *me, enum order order, void *obj, int (*cmpr)(void *obj, i64 o), char **e);
+    struct flintdb_cursor_i64 * (*find)(struct bplustree *me, enum order order, void *obj, int (*cmpr)(void *obj, i64 o), char **e);
     i64 (*compare_get)(struct bplustree *me, void *obj, const void *r, int (*cmpr)(void *obj, const void *a, i64 b), char **e);
 };
 

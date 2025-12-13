@@ -308,6 +308,7 @@ pub const __MAC_15_6: u32 = 150600;
 pub const __MAC_16_0: u32 = 160000;
 pub const __MAC_26_0: u32 = 260000;
 pub const __MAC_26_1: u32 = 260100;
+pub const __MAC_26_2: u32 = 260200;
 pub const __IPHONE_2_0: u32 = 20000;
 pub const __IPHONE_2_1: u32 = 20100;
 pub const __IPHONE_2_2: u32 = 20200;
@@ -398,6 +399,7 @@ pub const __IPHONE_18_6: u32 = 180600;
 pub const __IPHONE_19_0: u32 = 190000;
 pub const __IPHONE_26_0: u32 = 260000;
 pub const __IPHONE_26_1: u32 = 260100;
+pub const __IPHONE_26_2: u32 = 260200;
 pub const __WATCHOS_1_0: u32 = 10000;
 pub const __WATCHOS_2_0: u32 = 20000;
 pub const __WATCHOS_2_1: u32 = 20100;
@@ -457,6 +459,7 @@ pub const __WATCHOS_11_6: u32 = 110600;
 pub const __WATCHOS_12_0: u32 = 120000;
 pub const __WATCHOS_26_0: u32 = 260000;
 pub const __WATCHOS_26_1: u32 = 260100;
+pub const __WATCHOS_26_2: u32 = 260200;
 pub const __TVOS_9_0: u32 = 90000;
 pub const __TVOS_9_1: u32 = 90100;
 pub const __TVOS_9_2: u32 = 90200;
@@ -516,6 +519,7 @@ pub const __TVOS_18_6: u32 = 180600;
 pub const __TVOS_19_0: u32 = 190000;
 pub const __TVOS_26_0: u32 = 260000;
 pub const __TVOS_26_1: u32 = 260100;
+pub const __TVOS_26_2: u32 = 260200;
 pub const __BRIDGEOS_2_0: u32 = 20000;
 pub const __BRIDGEOS_3_0: u32 = 30000;
 pub const __BRIDGEOS_3_1: u32 = 30100;
@@ -552,6 +556,7 @@ pub const __BRIDGEOS_9_5: u32 = 90500;
 pub const __BRIDGEOS_9_6: u32 = 90600;
 pub const __BRIDGEOS_10_0: u32 = 100000;
 pub const __BRIDGEOS_10_1: u32 = 100100;
+pub const __BRIDGEOS_10_2: u32 = 100200;
 pub const __DRIVERKIT_19_0: u32 = 190000;
 pub const __DRIVERKIT_20_0: u32 = 200000;
 pub const __DRIVERKIT_21_0: u32 = 210000;
@@ -575,6 +580,7 @@ pub const __DRIVERKIT_24_5: u32 = 240500;
 pub const __DRIVERKIT_24_6: u32 = 240600;
 pub const __DRIVERKIT_25_0: u32 = 250000;
 pub const __DRIVERKIT_25_1: u32 = 250100;
+pub const __DRIVERKIT_25_2: u32 = 250200;
 pub const __VISIONOS_1_0: u32 = 10000;
 pub const __VISIONOS_1_1: u32 = 10100;
 pub const __VISIONOS_1_2: u32 = 10200;
@@ -589,6 +595,7 @@ pub const __VISIONOS_2_6: u32 = 20600;
 pub const __VISIONOS_3_0: u32 = 30000;
 pub const __VISIONOS_26_0: u32 = 260000;
 pub const __VISIONOS_26_1: u32 = 260100;
+pub const __VISIONOS_26_2: u32 = 260200;
 pub const MAC_OS_X_VERSION_10_0: u32 = 1000;
 pub const MAC_OS_X_VERSION_10_1: u32 = 1010;
 pub const MAC_OS_X_VERSION_10_2: u32 = 1020;
@@ -663,10 +670,11 @@ pub const MAC_OS_VERSION_15_6: u32 = 150600;
 pub const MAC_OS_VERSION_16_0: u32 = 160000;
 pub const MAC_OS_VERSION_26_0: u32 = 260000;
 pub const MAC_OS_VERSION_26_1: u32 = 260100;
+pub const MAC_OS_VERSION_26_2: u32 = 260200;
 pub const __AVAILABILITY_VERSIONS_VERSION_HASH: u32 = 93585900;
 pub const __AVAILABILITY_VERSIONS_VERSION_STRING: &[u8; 6] = b"Local\0";
 pub const __AVAILABILITY_FILE: &[u8; 23] = b"AvailabilityVersions.h\0";
-pub const __MAC_OS_X_VERSION_MAX_ALLOWED: u32 = 260100;
+pub const __MAC_OS_X_VERSION_MAX_ALLOWED: u32 = 260200;
 pub const __ENABLE_LEGACY_MAC_AVAILABILITY: u32 = 1;
 pub const USE_CLANG_STDDEF: u32 = 0;
 pub const _USE_FORTIFY_LEVEL: u32 = 2;
@@ -904,7 +912,178 @@ pub const EXIT_SUCCESS: u32 = 0;
 pub const RAND_MAX: u32 = 2147483647;
 pub const _MALLOC_TYPE_MALLOC_BACKDEPLOY_PUBLIC: u32 = 1;
 pub const TIME_UTC: u32 = 1;
-pub const TABLE_NAME_SUFFIX: &[u8; 8] = b".flintdb\0";
+pub const O_RDONLY: u32 = 0;
+pub const O_WRONLY: u32 = 1;
+pub const O_RDWR: u32 = 2;
+pub const O_ACCMODE: u32 = 3;
+pub const FREAD: u32 = 1;
+pub const FWRITE: u32 = 2;
+pub const O_NONBLOCK: u32 = 4;
+pub const O_APPEND: u32 = 8;
+pub const O_SYNC: u32 = 128;
+pub const O_SHLOCK: u32 = 16;
+pub const O_EXLOCK: u32 = 32;
+pub const O_ASYNC: u32 = 64;
+pub const O_FSYNC: u32 = 128;
+pub const O_NOFOLLOW: u32 = 256;
+pub const O_CREAT: u32 = 512;
+pub const O_TRUNC: u32 = 1024;
+pub const O_EXCL: u32 = 2048;
+pub const O_RESOLVE_BENEATH: u32 = 4096;
+pub const O_UNIQUE: u32 = 8192;
+pub const O_EVTONLY: u32 = 32768;
+pub const O_NOCTTY: u32 = 131072;
+pub const O_DIRECTORY: u32 = 1048576;
+pub const O_SYMLINK: u32 = 2097152;
+pub const O_DSYNC: u32 = 4194304;
+pub const O_CLOEXEC: u32 = 16777216;
+pub const O_NOFOLLOW_ANY: u32 = 536870912;
+pub const O_EXEC: u32 = 1073741824;
+pub const O_SEARCH: u32 = 1074790400;
+pub const AT_FDCWD: i32 = -2;
+pub const AT_EACCESS: u32 = 16;
+pub const AT_SYMLINK_NOFOLLOW: u32 = 32;
+pub const AT_SYMLINK_FOLLOW: u32 = 64;
+pub const AT_REMOVEDIR: u32 = 128;
+pub const AT_REALDEV: u32 = 512;
+pub const AT_FDONLY: u32 = 1024;
+pub const AT_SYMLINK_NOFOLLOW_ANY: u32 = 2048;
+pub const AT_RESOLVE_BENEATH: u32 = 8192;
+pub const AT_NODELETEBUSY: u32 = 16384;
+pub const AT_UNIQUE: u32 = 32768;
+pub const O_DP_GETRAWENCRYPTED: u32 = 1;
+pub const O_DP_GETRAWUNENCRYPTED: u32 = 2;
+pub const O_DP_AUTHENTICATE: u32 = 4;
+pub const AUTH_OPEN_NOAUTHFD: i32 = -1;
+pub const FAPPEND: u32 = 8;
+pub const FASYNC: u32 = 64;
+pub const FFSYNC: u32 = 128;
+pub const FFDSYNC: u32 = 4194304;
+pub const FNONBLOCK: u32 = 4;
+pub const FNDELAY: u32 = 4;
+pub const O_NDELAY: u32 = 4;
+pub const CPF_OVERWRITE: u32 = 1;
+pub const CPF_IGNORE_MODE: u32 = 2;
+pub const CPF_MASK: u32 = 3;
+pub const F_DUPFD: u32 = 0;
+pub const F_GETFD: u32 = 1;
+pub const F_SETFD: u32 = 2;
+pub const F_GETFL: u32 = 3;
+pub const F_SETFL: u32 = 4;
+pub const F_GETOWN: u32 = 5;
+pub const F_SETOWN: u32 = 6;
+pub const F_GETLK: u32 = 7;
+pub const F_SETLK: u32 = 8;
+pub const F_SETLKW: u32 = 9;
+pub const F_SETLKWTIMEOUT: u32 = 10;
+pub const F_FLUSH_DATA: u32 = 40;
+pub const F_CHKCLEAN: u32 = 41;
+pub const F_PREALLOCATE: u32 = 42;
+pub const F_SETSIZE: u32 = 43;
+pub const F_RDADVISE: u32 = 44;
+pub const F_RDAHEAD: u32 = 45;
+pub const F_NOCACHE: u32 = 48;
+pub const F_LOG2PHYS: u32 = 49;
+pub const F_GETPATH: u32 = 50;
+pub const F_FULLFSYNC: u32 = 51;
+pub const F_PATHPKG_CHECK: u32 = 52;
+pub const F_FREEZE_FS: u32 = 53;
+pub const F_THAW_FS: u32 = 54;
+pub const F_GLOBAL_NOCACHE: u32 = 55;
+pub const F_ADDSIGS: u32 = 59;
+pub const F_ADDFILESIGS: u32 = 61;
+pub const F_NODIRECT: u32 = 62;
+pub const F_GETPROTECTIONCLASS: u32 = 63;
+pub const F_SETPROTECTIONCLASS: u32 = 64;
+pub const F_LOG2PHYS_EXT: u32 = 65;
+pub const F_GETLKPID: u32 = 66;
+pub const F_SETBACKINGSTORE: u32 = 70;
+pub const F_GETPATH_MTMINFO: u32 = 71;
+pub const F_GETCODEDIR: u32 = 72;
+pub const F_SETNOSIGPIPE: u32 = 73;
+pub const F_GETNOSIGPIPE: u32 = 74;
+pub const F_TRANSCODEKEY: u32 = 75;
+pub const F_SINGLE_WRITER: u32 = 76;
+pub const F_GETPROTECTIONLEVEL: u32 = 77;
+pub const F_FINDSIGS: u32 = 78;
+pub const F_ADDFILESIGS_FOR_DYLD_SIM: u32 = 83;
+pub const F_BARRIERFSYNC: u32 = 85;
+pub const F_OFD_SETLK: u32 = 90;
+pub const F_OFD_SETLKW: u32 = 91;
+pub const F_OFD_GETLK: u32 = 92;
+pub const F_OFD_SETLKWTIMEOUT: u32 = 93;
+pub const F_ADDFILESIGS_RETURN: u32 = 97;
+pub const F_CHECK_LV: u32 = 98;
+pub const F_PUNCHHOLE: u32 = 99;
+pub const F_TRIM_ACTIVE_FILE: u32 = 100;
+pub const F_SPECULATIVE_READ: u32 = 101;
+pub const F_GETPATH_NOFIRMLINK: u32 = 102;
+pub const F_ADDFILESIGS_INFO: u32 = 103;
+pub const F_ADDFILESUPPL: u32 = 104;
+pub const F_GETSIGSINFO: u32 = 105;
+pub const F_SETLEASE: u32 = 106;
+pub const F_GETLEASE: u32 = 107;
+pub const F_TRANSFEREXTENTS: u32 = 110;
+pub const F_ATTRIBUTION_TAG: u32 = 111;
+pub const F_NOCACHE_EXT: u32 = 112;
+pub const F_ADDSIGS_MAIN_BINARY: u32 = 113;
+pub const FCNTL_FS_SPECIFIC_BASE: u32 = 65536;
+pub const F_DUPFD_CLOEXEC: u32 = 67;
+pub const FD_CLOEXEC: u32 = 1;
+pub const F_RDLCK: u32 = 1;
+pub const F_UNLCK: u32 = 2;
+pub const F_WRLCK: u32 = 3;
+pub const SEEK_SET: u32 = 0;
+pub const SEEK_CUR: u32 = 1;
+pub const SEEK_END: u32 = 2;
+pub const SEEK_HOLE: u32 = 3;
+pub const SEEK_DATA: u32 = 4;
+pub const S_IFMT: u32 = 61440;
+pub const S_IFIFO: u32 = 4096;
+pub const S_IFCHR: u32 = 8192;
+pub const S_IFDIR: u32 = 16384;
+pub const S_IFBLK: u32 = 24576;
+pub const S_IFREG: u32 = 32768;
+pub const S_IFLNK: u32 = 40960;
+pub const S_IFSOCK: u32 = 49152;
+pub const S_IFWHT: u32 = 57344;
+pub const S_IRWXU: u32 = 448;
+pub const S_IRUSR: u32 = 256;
+pub const S_IWUSR: u32 = 128;
+pub const S_IXUSR: u32 = 64;
+pub const S_IRWXG: u32 = 56;
+pub const S_IRGRP: u32 = 32;
+pub const S_IWGRP: u32 = 16;
+pub const S_IXGRP: u32 = 8;
+pub const S_IRWXO: u32 = 7;
+pub const S_IROTH: u32 = 4;
+pub const S_IWOTH: u32 = 2;
+pub const S_IXOTH: u32 = 1;
+pub const S_ISUID: u32 = 2048;
+pub const S_ISGID: u32 = 1024;
+pub const S_ISVTX: u32 = 512;
+pub const S_ISTXT: u32 = 512;
+pub const S_IREAD: u32 = 256;
+pub const S_IWRITE: u32 = 128;
+pub const S_IEXEC: u32 = 64;
+pub const F_ALLOCATECONTIG: u32 = 2;
+pub const F_ALLOCATEALL: u32 = 4;
+pub const F_ALLOCATEPERSIST: u32 = 8;
+pub const F_PEOFPOSMODE: u32 = 3;
+pub const F_VOLPOSMODE: u32 = 4;
+pub const USER_FSIGNATURES_CDHASH_LEN: u32 = 20;
+pub const GETSIGSINFO_PLATFORM_BINARY: u32 = 1;
+pub const LOCK_SH: u32 = 1;
+pub const LOCK_EX: u32 = 2;
+pub const LOCK_NB: u32 = 4;
+pub const LOCK_UN: u32 = 8;
+pub const ATTRIBUTION_NAME_MAX: u32 = 255;
+pub const F_CREATE_TAG: u32 = 1;
+pub const F_DELETE_TAG: u32 = 2;
+pub const F_QUERY_TAG: u32 = 4;
+pub const O_POPUP: u32 = 2147483648;
+pub const O_ALERT: u32 = 536870912;
+pub const TABLE_NAME_SUFFIX: &[u8; 9] = b".flintdb\0";
 pub const META_NAME_SUFFIX: &[u8; 6] = b".desc\0";
 pub const MAX_INDEX_KEYS_LIMIT: u32 = 5;
 pub const MAX_INDEX_LIMIT: u32 = 5;
@@ -6650,80 +6829,445 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn timespec_get(ts: *mut timespec, base: ::std::os::raw::c_int) -> ::std::os::raw::c_int;
 }
-pub const order_ASC: order = 0;
-pub const order_DESC: order = 1;
-pub type order = ::std::os::raw::c_uint;
-pub const open_mode_FLINTDB_RDONLY: open_mode = 0;
-pub const open_mode_FLINTDB_RDWR: open_mode = 1;
-pub type open_mode = ::std::os::raw::c_uint;
-pub const fileformat_FORMAT_BIN: fileformat = 0;
-pub const fileformat_FORMAT_TSV: fileformat = 1;
-pub const fileformat_FORMAT_CSV: fileformat = 2;
-pub const fileformat_FORMAT_JSONL: fileformat = 4;
-pub const fileformat_FORMAT_PARQUET: fileformat = 11;
-pub const fileformat_FORMAT_UNKNOWN: fileformat = 99;
-pub type fileformat = ::std::os::raw::c_uint;
+pub type off_t = __darwin_off_t;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct flock {
+    pub l_start: off_t,
+    pub l_len: off_t,
+    pub l_pid: pid_t,
+    pub l_type: ::std::os::raw::c_short,
+    pub l_whence: ::std::os::raw::c_short,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of flock"][::std::mem::size_of::<flock>() - 24usize];
+    ["Alignment of flock"][::std::mem::align_of::<flock>() - 8usize];
+    ["Offset of field: flock::l_start"][::std::mem::offset_of!(flock, l_start) - 0usize];
+    ["Offset of field: flock::l_len"][::std::mem::offset_of!(flock, l_len) - 8usize];
+    ["Offset of field: flock::l_pid"][::std::mem::offset_of!(flock, l_pid) - 16usize];
+    ["Offset of field: flock::l_type"][::std::mem::offset_of!(flock, l_type) - 20usize];
+    ["Offset of field: flock::l_whence"][::std::mem::offset_of!(flock, l_whence) - 22usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct flocktimeout {
+    pub fl: flock,
+    pub timeout: timespec,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of flocktimeout"][::std::mem::size_of::<flocktimeout>() - 40usize];
+    ["Alignment of flocktimeout"][::std::mem::align_of::<flocktimeout>() - 8usize];
+    ["Offset of field: flocktimeout::fl"][::std::mem::offset_of!(flocktimeout, fl) - 0usize];
+    ["Offset of field: flocktimeout::timeout"]
+        [::std::mem::offset_of!(flocktimeout, timeout) - 24usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct radvisory {
+    pub ra_offset: off_t,
+    pub ra_count: ::std::os::raw::c_int,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of radvisory"][::std::mem::size_of::<radvisory>() - 16usize];
+    ["Alignment of radvisory"][::std::mem::align_of::<radvisory>() - 8usize];
+    ["Offset of field: radvisory::ra_offset"]
+        [::std::mem::offset_of!(radvisory, ra_offset) - 0usize];
+    ["Offset of field: radvisory::ra_count"][::std::mem::offset_of!(radvisory, ra_count) - 8usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct fsignatures {
+    pub fs_file_start: off_t,
+    pub fs_blob_start: *mut ::std::os::raw::c_void,
+    pub fs_blob_size: usize,
+    pub fs_fsignatures_size: usize,
+    pub fs_cdhash: [::std::os::raw::c_char; 20usize],
+    pub fs_hash_type: ::std::os::raw::c_int,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of fsignatures"][::std::mem::size_of::<fsignatures>() - 56usize];
+    ["Alignment of fsignatures"][::std::mem::align_of::<fsignatures>() - 8usize];
+    ["Offset of field: fsignatures::fs_file_start"]
+        [::std::mem::offset_of!(fsignatures, fs_file_start) - 0usize];
+    ["Offset of field: fsignatures::fs_blob_start"]
+        [::std::mem::offset_of!(fsignatures, fs_blob_start) - 8usize];
+    ["Offset of field: fsignatures::fs_blob_size"]
+        [::std::mem::offset_of!(fsignatures, fs_blob_size) - 16usize];
+    ["Offset of field: fsignatures::fs_fsignatures_size"]
+        [::std::mem::offset_of!(fsignatures, fs_fsignatures_size) - 24usize];
+    ["Offset of field: fsignatures::fs_cdhash"]
+        [::std::mem::offset_of!(fsignatures, fs_cdhash) - 32usize];
+    ["Offset of field: fsignatures::fs_hash_type"]
+        [::std::mem::offset_of!(fsignatures, fs_hash_type) - 52usize];
+};
+pub type fsignatures_t = fsignatures;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct fsupplement {
+    pub fs_file_start: off_t,
+    pub fs_blob_start: off_t,
+    pub fs_blob_size: usize,
+    pub fs_orig_fd: ::std::os::raw::c_int,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of fsupplement"][::std::mem::size_of::<fsupplement>() - 32usize];
+    ["Alignment of fsupplement"][::std::mem::align_of::<fsupplement>() - 8usize];
+    ["Offset of field: fsupplement::fs_file_start"]
+        [::std::mem::offset_of!(fsupplement, fs_file_start) - 0usize];
+    ["Offset of field: fsupplement::fs_blob_start"]
+        [::std::mem::offset_of!(fsupplement, fs_blob_start) - 8usize];
+    ["Offset of field: fsupplement::fs_blob_size"]
+        [::std::mem::offset_of!(fsupplement, fs_blob_size) - 16usize];
+    ["Offset of field: fsupplement::fs_orig_fd"]
+        [::std::mem::offset_of!(fsupplement, fs_orig_fd) - 24usize];
+};
+pub type fsupplement_t = fsupplement;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct fchecklv {
+    pub lv_file_start: off_t,
+    pub lv_error_message_size: usize,
+    pub lv_error_message: *mut ::std::os::raw::c_void,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of fchecklv"][::std::mem::size_of::<fchecklv>() - 24usize];
+    ["Alignment of fchecklv"][::std::mem::align_of::<fchecklv>() - 8usize];
+    ["Offset of field: fchecklv::lv_file_start"]
+        [::std::mem::offset_of!(fchecklv, lv_file_start) - 0usize];
+    ["Offset of field: fchecklv::lv_error_message_size"]
+        [::std::mem::offset_of!(fchecklv, lv_error_message_size) - 8usize];
+    ["Offset of field: fchecklv::lv_error_message"]
+        [::std::mem::offset_of!(fchecklv, lv_error_message) - 16usize];
+};
+pub type fchecklv_t = fchecklv;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct fgetsigsinfo {
+    pub fg_file_start: off_t,
+    pub fg_info_request: ::std::os::raw::c_int,
+    pub fg_sig_is_platform: ::std::os::raw::c_int,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of fgetsigsinfo"][::std::mem::size_of::<fgetsigsinfo>() - 16usize];
+    ["Alignment of fgetsigsinfo"][::std::mem::align_of::<fgetsigsinfo>() - 8usize];
+    ["Offset of field: fgetsigsinfo::fg_file_start"]
+        [::std::mem::offset_of!(fgetsigsinfo, fg_file_start) - 0usize];
+    ["Offset of field: fgetsigsinfo::fg_info_request"]
+        [::std::mem::offset_of!(fgetsigsinfo, fg_info_request) - 8usize];
+    ["Offset of field: fgetsigsinfo::fg_sig_is_platform"]
+        [::std::mem::offset_of!(fgetsigsinfo, fg_sig_is_platform) - 12usize];
+};
+pub type fgetsigsinfo_t = fgetsigsinfo;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct fstore {
+    pub fst_flags: ::std::os::raw::c_uint,
+    pub fst_posmode: ::std::os::raw::c_int,
+    pub fst_offset: off_t,
+    pub fst_length: off_t,
+    pub fst_bytesalloc: off_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of fstore"][::std::mem::size_of::<fstore>() - 32usize];
+    ["Alignment of fstore"][::std::mem::align_of::<fstore>() - 8usize];
+    ["Offset of field: fstore::fst_flags"][::std::mem::offset_of!(fstore, fst_flags) - 0usize];
+    ["Offset of field: fstore::fst_posmode"][::std::mem::offset_of!(fstore, fst_posmode) - 4usize];
+    ["Offset of field: fstore::fst_offset"][::std::mem::offset_of!(fstore, fst_offset) - 8usize];
+    ["Offset of field: fstore::fst_length"][::std::mem::offset_of!(fstore, fst_length) - 16usize];
+    ["Offset of field: fstore::fst_bytesalloc"]
+        [::std::mem::offset_of!(fstore, fst_bytesalloc) - 24usize];
+};
+pub type fstore_t = fstore;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct fpunchhole {
+    pub fp_flags: ::std::os::raw::c_uint,
+    pub reserved: ::std::os::raw::c_uint,
+    pub fp_offset: off_t,
+    pub fp_length: off_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of fpunchhole"][::std::mem::size_of::<fpunchhole>() - 24usize];
+    ["Alignment of fpunchhole"][::std::mem::align_of::<fpunchhole>() - 8usize];
+    ["Offset of field: fpunchhole::fp_flags"]
+        [::std::mem::offset_of!(fpunchhole, fp_flags) - 0usize];
+    ["Offset of field: fpunchhole::reserved"]
+        [::std::mem::offset_of!(fpunchhole, reserved) - 4usize];
+    ["Offset of field: fpunchhole::fp_offset"]
+        [::std::mem::offset_of!(fpunchhole, fp_offset) - 8usize];
+    ["Offset of field: fpunchhole::fp_length"]
+        [::std::mem::offset_of!(fpunchhole, fp_length) - 16usize];
+};
+pub type fpunchhole_t = fpunchhole;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ftrimactivefile {
+    pub fta_offset: off_t,
+    pub fta_length: off_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of ftrimactivefile"][::std::mem::size_of::<ftrimactivefile>() - 16usize];
+    ["Alignment of ftrimactivefile"][::std::mem::align_of::<ftrimactivefile>() - 8usize];
+    ["Offset of field: ftrimactivefile::fta_offset"]
+        [::std::mem::offset_of!(ftrimactivefile, fta_offset) - 0usize];
+    ["Offset of field: ftrimactivefile::fta_length"]
+        [::std::mem::offset_of!(ftrimactivefile, fta_length) - 8usize];
+};
+pub type ftrimactivefile_t = ftrimactivefile;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct fspecread {
+    pub fsr_flags: ::std::os::raw::c_uint,
+    pub reserved: ::std::os::raw::c_uint,
+    pub fsr_offset: off_t,
+    pub fsr_length: off_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of fspecread"][::std::mem::size_of::<fspecread>() - 24usize];
+    ["Alignment of fspecread"][::std::mem::align_of::<fspecread>() - 8usize];
+    ["Offset of field: fspecread::fsr_flags"]
+        [::std::mem::offset_of!(fspecread, fsr_flags) - 0usize];
+    ["Offset of field: fspecread::reserved"][::std::mem::offset_of!(fspecread, reserved) - 4usize];
+    ["Offset of field: fspecread::fsr_offset"]
+        [::std::mem::offset_of!(fspecread, fsr_offset) - 8usize];
+    ["Offset of field: fspecread::fsr_length"]
+        [::std::mem::offset_of!(fspecread, fsr_length) - 16usize];
+};
+pub type fspecread_t = fspecread;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct fattributiontag {
+    pub ft_flags: ::std::os::raw::c_uint,
+    pub ft_hash: ::std::os::raw::c_ulonglong,
+    pub ft_attribution_name: [::std::os::raw::c_char; 255usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of fattributiontag"][::std::mem::size_of::<fattributiontag>() - 272usize];
+    ["Alignment of fattributiontag"][::std::mem::align_of::<fattributiontag>() - 8usize];
+    ["Offset of field: fattributiontag::ft_flags"]
+        [::std::mem::offset_of!(fattributiontag, ft_flags) - 0usize];
+    ["Offset of field: fattributiontag::ft_hash"]
+        [::std::mem::offset_of!(fattributiontag, ft_hash) - 8usize];
+    ["Offset of field: fattributiontag::ft_attribution_name"]
+        [::std::mem::offset_of!(fattributiontag, ft_attribution_name) - 16usize];
+};
+pub type fattributiontag_t = fattributiontag;
+#[repr(C, packed(4))]
+#[derive(Debug, Copy, Clone)]
+pub struct log2phys {
+    pub l2p_flags: ::std::os::raw::c_uint,
+    pub l2p_contigbytes: off_t,
+    pub l2p_devoffset: off_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of log2phys"][::std::mem::size_of::<log2phys>() - 20usize];
+    ["Alignment of log2phys"][::std::mem::align_of::<log2phys>() - 4usize];
+    ["Offset of field: log2phys::l2p_flags"][::std::mem::offset_of!(log2phys, l2p_flags) - 0usize];
+    ["Offset of field: log2phys::l2p_contigbytes"]
+        [::std::mem::offset_of!(log2phys, l2p_contigbytes) - 4usize];
+    ["Offset of field: log2phys::l2p_devoffset"]
+        [::std::mem::offset_of!(log2phys, l2p_devoffset) - 12usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _filesec {
+    _unused: [u8; 0],
+}
+pub type filesec_t = *mut _filesec;
+pub const filesec_property_t_FILESEC_OWNER: filesec_property_t = 1;
+pub const filesec_property_t_FILESEC_GROUP: filesec_property_t = 2;
+pub const filesec_property_t_FILESEC_UUID: filesec_property_t = 3;
+pub const filesec_property_t_FILESEC_MODE: filesec_property_t = 4;
+pub const filesec_property_t_FILESEC_ACL: filesec_property_t = 5;
+pub const filesec_property_t_FILESEC_GRPUUID: filesec_property_t = 6;
+pub const filesec_property_t_FILESEC_ACL_RAW: filesec_property_t = 100;
+pub const filesec_property_t_FILESEC_ACL_ALLOCSIZE: filesec_property_t = 101;
+pub type filesec_property_t = ::std::os::raw::c_uint;
 unsafe extern "C" {
-    pub fn detect_file_format(name: *const ::std::os::raw::c_char) -> fileformat;
+    pub fn open(
+        arg1: *const ::std::os::raw::c_char,
+        arg2: ::std::os::raw::c_int,
+        ...
+    ) -> ::std::os::raw::c_int;
 }
+unsafe extern "C" {
+    pub fn openat(
+        arg1: ::std::os::raw::c_int,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: ::std::os::raw::c_int,
+        ...
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn creat(arg1: *const ::std::os::raw::c_char, arg2: mode_t) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn fcntl(
+        arg1: ::std::os::raw::c_int,
+        arg2: ::std::os::raw::c_int,
+        ...
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn openx_np(
+        arg1: *const ::std::os::raw::c_char,
+        arg2: ::std::os::raw::c_int,
+        arg3: filesec_t,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn open_dprotected_np(
+        arg1: *const ::std::os::raw::c_char,
+        arg2: ::std::os::raw::c_int,
+        arg3: ::std::os::raw::c_int,
+        arg4: ::std::os::raw::c_int,
+        ...
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn openat_dprotected_np(
+        arg1: ::std::os::raw::c_int,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: ::std::os::raw::c_int,
+        arg4: ::std::os::raw::c_int,
+        arg5: ::std::os::raw::c_int,
+        ...
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn openat_authenticated_np(
+        arg1: ::std::os::raw::c_int,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: ::std::os::raw::c_int,
+        arg4: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn flock(arg1: ::std::os::raw::c_int, arg2: ::std::os::raw::c_int)
+        -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn filesec_init() -> filesec_t;
+}
+unsafe extern "C" {
+    pub fn filesec_dup(arg1: filesec_t) -> filesec_t;
+}
+unsafe extern "C" {
+    pub fn filesec_free(arg1: filesec_t);
+}
+unsafe extern "C" {
+    pub fn filesec_get_property(
+        arg1: filesec_t,
+        arg2: filesec_property_t,
+        arg3: *mut ::std::os::raw::c_void,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn filesec_query_property(
+        arg1: filesec_t,
+        arg2: filesec_property_t,
+        arg3: *mut ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn filesec_set_property(
+        arg1: filesec_t,
+        arg2: filesec_property_t,
+        arg3: *const ::std::os::raw::c_void,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn filesec_unset_property(
+        arg1: filesec_t,
+        arg2: filesec_property_t,
+    ) -> ::std::os::raw::c_int;
+}
+pub const flintdb_open_mode_FLINTDB_RDONLY: flintdb_open_mode = 0;
+pub const flintdb_open_mode_FLINTDB_RDWR: flintdb_open_mode = 514;
+pub type flintdb_open_mode = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct cursor_i64 {
+pub struct flintdb_cursor_i64 {
     pub p: *mut ::std::os::raw::c_void,
     pub next: ::std::option::Option<
-        unsafe extern "C" fn(c: *mut cursor_i64, e: *mut *mut ::std::os::raw::c_char) -> i64_,
+        unsafe extern "C" fn(
+            c: *mut flintdb_cursor_i64,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> i64_,
     >,
-    pub close: ::std::option::Option<unsafe extern "C" fn(c: *mut cursor_i64)>,
+    pub close: ::std::option::Option<unsafe extern "C" fn(c: *mut flintdb_cursor_i64)>,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cursor_i64"][::std::mem::size_of::<cursor_i64>() - 24usize];
-    ["Alignment of cursor_i64"][::std::mem::align_of::<cursor_i64>() - 8usize];
-    ["Offset of field: cursor_i64::p"][::std::mem::offset_of!(cursor_i64, p) - 0usize];
-    ["Offset of field: cursor_i64::next"][::std::mem::offset_of!(cursor_i64, next) - 8usize];
-    ["Offset of field: cursor_i64::close"][::std::mem::offset_of!(cursor_i64, close) - 16usize];
+    ["Size of flintdb_cursor_i64"][::std::mem::size_of::<flintdb_cursor_i64>() - 24usize];
+    ["Alignment of flintdb_cursor_i64"][::std::mem::align_of::<flintdb_cursor_i64>() - 8usize];
+    ["Offset of field: flintdb_cursor_i64::p"]
+        [::std::mem::offset_of!(flintdb_cursor_i64, p) - 0usize];
+    ["Offset of field: flintdb_cursor_i64::next"]
+        [::std::mem::offset_of!(flintdb_cursor_i64, next) - 8usize];
+    ["Offset of field: flintdb_cursor_i64::close"]
+        [::std::mem::offset_of!(flintdb_cursor_i64, close) - 16usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct cursor_row {
+pub struct flintdb_cursor_row {
     pub p: *mut ::std::os::raw::c_void,
     pub next: ::std::option::Option<
-        unsafe extern "C" fn(c: *mut cursor_row, e: *mut *mut ::std::os::raw::c_char) -> *mut row,
+        unsafe extern "C" fn(
+            c: *mut flintdb_cursor_row,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> *mut flintdb_row,
     >,
-    pub close: ::std::option::Option<unsafe extern "C" fn(c: *mut cursor_row)>,
+    pub close: ::std::option::Option<unsafe extern "C" fn(c: *mut flintdb_cursor_row)>,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cursor_row"][::std::mem::size_of::<cursor_row>() - 24usize];
-    ["Alignment of cursor_row"][::std::mem::align_of::<cursor_row>() - 8usize];
-    ["Offset of field: cursor_row::p"][::std::mem::offset_of!(cursor_row, p) - 0usize];
-    ["Offset of field: cursor_row::next"][::std::mem::offset_of!(cursor_row, next) - 8usize];
-    ["Offset of field: cursor_row::close"][::std::mem::offset_of!(cursor_row, close) - 16usize];
+    ["Size of flintdb_cursor_row"][::std::mem::size_of::<flintdb_cursor_row>() - 24usize];
+    ["Alignment of flintdb_cursor_row"][::std::mem::align_of::<flintdb_cursor_row>() - 8usize];
+    ["Offset of field: flintdb_cursor_row::p"]
+        [::std::mem::offset_of!(flintdb_cursor_row, p) - 0usize];
+    ["Offset of field: flintdb_cursor_row::next"]
+        [::std::mem::offset_of!(flintdb_cursor_row, next) - 8usize];
+    ["Offset of field: flintdb_cursor_row::close"]
+        [::std::mem::offset_of!(flintdb_cursor_row, close) - 16usize];
 };
-pub const variant_type_VARIANT_NULL: variant_type = 0;
-pub const variant_type_VARIANT_ZERO: variant_type = 1;
-pub const variant_type_VARIANT_INT32: variant_type = 2;
-pub const variant_type_VARIANT_UINT32: variant_type = 3;
-pub const variant_type_VARIANT_INT8: variant_type = 4;
-pub const variant_type_VARIANT_UINT8: variant_type = 5;
-pub const variant_type_VARIANT_INT16: variant_type = 6;
-pub const variant_type_VARIANT_UINT16: variant_type = 7;
-pub const variant_type_VARIANT_INT64: variant_type = 8;
-pub const variant_type_VARIANT_DOUBLE: variant_type = 9;
-pub const variant_type_VARIANT_FLOAT: variant_type = 10;
-pub const variant_type_VARIANT_STRING: variant_type = 11;
-pub const variant_type_VARIANT_DECIMAL: variant_type = 12;
-pub const variant_type_VARIANT_BYTES: variant_type = 13;
-pub const variant_type_VARIANT_DATE: variant_type = 14;
-pub const variant_type_VARIANT_TIME: variant_type = 15;
-pub const variant_type_VARIANT_UUID: variant_type = 16;
-pub const variant_type_VARIANT_IPV6: variant_type = 17;
-pub const variant_type_VARIANT_BLOB: variant_type = 18;
-pub const variant_type_VARIANT_OBJECT: variant_type = 31;
-pub type variant_type = ::std::os::raw::c_uint;
+pub const flintdb_variant_type_VARIANT_NULL: flintdb_variant_type = 0;
+pub const flintdb_variant_type_VARIANT_ZERO: flintdb_variant_type = 1;
+pub const flintdb_variant_type_VARIANT_INT32: flintdb_variant_type = 2;
+pub const flintdb_variant_type_VARIANT_UINT32: flintdb_variant_type = 3;
+pub const flintdb_variant_type_VARIANT_INT8: flintdb_variant_type = 4;
+pub const flintdb_variant_type_VARIANT_UINT8: flintdb_variant_type = 5;
+pub const flintdb_variant_type_VARIANT_INT16: flintdb_variant_type = 6;
+pub const flintdb_variant_type_VARIANT_UINT16: flintdb_variant_type = 7;
+pub const flintdb_variant_type_VARIANT_INT64: flintdb_variant_type = 8;
+pub const flintdb_variant_type_VARIANT_DOUBLE: flintdb_variant_type = 9;
+pub const flintdb_variant_type_VARIANT_FLOAT: flintdb_variant_type = 10;
+pub const flintdb_variant_type_VARIANT_STRING: flintdb_variant_type = 11;
+pub const flintdb_variant_type_VARIANT_DECIMAL: flintdb_variant_type = 12;
+pub const flintdb_variant_type_VARIANT_BYTES: flintdb_variant_type = 13;
+pub const flintdb_variant_type_VARIANT_DATE: flintdb_variant_type = 14;
+pub const flintdb_variant_type_VARIANT_TIME: flintdb_variant_type = 15;
+pub const flintdb_variant_type_VARIANT_UUID: flintdb_variant_type = 16;
+pub const flintdb_variant_type_VARIANT_IPV6: flintdb_variant_type = 17;
+pub const flintdb_variant_type_VARIANT_BLOB: flintdb_variant_type = 18;
+pub const flintdb_variant_type_VARIANT_OBJECT: flintdb_variant_type = 31;
+pub type flintdb_variant_type = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct flintdb_decimal  {
+pub struct flintdb_decimal {
     pub sign: u8_,
     pub scale: u8_,
     pub reserved: [u8_; 2usize],
@@ -6732,70 +7276,82 @@ pub struct flintdb_decimal  {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of decimal"][::std::mem::size_of::<decimal>() - 24usize];
-    ["Alignment of decimal"][::std::mem::align_of::<decimal>() - 4usize];
-    ["Offset of field: decimal::sign"][::std::mem::offset_of!(decimal, sign) - 0usize];
-    ["Offset of field: decimal::scale"][::std::mem::offset_of!(decimal, scale) - 1usize];
-    ["Offset of field: decimal::reserved"][::std::mem::offset_of!(decimal, reserved) - 2usize];
-    ["Offset of field: decimal::length"][::std::mem::offset_of!(decimal, length) - 4usize];
-    ["Offset of field: decimal::data"][::std::mem::offset_of!(decimal, data) - 8usize];
+    ["Size of flintdb_decimal"][::std::mem::size_of::<flintdb_decimal>() - 24usize];
+    ["Alignment of flintdb_decimal"][::std::mem::align_of::<flintdb_decimal>() - 4usize];
+    ["Offset of field: flintdb_decimal::sign"]
+        [::std::mem::offset_of!(flintdb_decimal, sign) - 0usize];
+    ["Offset of field: flintdb_decimal::scale"]
+        [::std::mem::offset_of!(flintdb_decimal, scale) - 1usize];
+    ["Offset of field: flintdb_decimal::reserved"]
+        [::std::mem::offset_of!(flintdb_decimal, reserved) - 2usize];
+    ["Offset of field: flintdb_decimal::length"]
+        [::std::mem::offset_of!(flintdb_decimal, length) - 4usize];
+    ["Offset of field: flintdb_decimal::data"]
+        [::std::mem::offset_of!(flintdb_decimal, data) - 8usize];
 };
 unsafe extern "C" {
     pub fn flintdb_decimal_from_string(
         s: *const ::std::os::raw::c_char,
         scale: i16_,
-        out: *mut decimal,
+        out: *mut flintdb_decimal,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_decimal_to_string(
-        d: *const decimal,
+        d: *const flintdb_decimal,
         buf: *mut ::std::os::raw::c_char,
         buflen: usize,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_decimal_from_f64(v: f64_, scale: i16_, e: *mut *mut ::std::os::raw::c_char) -> decimal;
+    pub fn flintdb_decimal_from_f64(
+        v: f64_,
+        scale: i16_,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> flintdb_decimal;
 }
 unsafe extern "C" {
-    pub fn flintdb_decimal_to_f64(d: *const decimal, e: *mut *mut ::std::os::raw::c_char) -> f64_;
+    pub fn flintdb_decimal_to_f64(
+        d: *const flintdb_decimal,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> f64_;
 }
 unsafe extern "C" {
     pub fn flintdb_decimal_plus(
-        a: *const decimal,
-        b: *const decimal,
+        a: *const flintdb_decimal,
+        b: *const flintdb_decimal,
         scale: i16_,
-        out: *mut decimal,
+        out: *mut flintdb_decimal,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_decimal_divide(
-        numerator: *const decimal,
-        denominator: *const decimal,
+        numerator: *const flintdb_decimal,
+        denominator: *const flintdb_decimal,
         scale: i16_,
-        out: *mut decimal,
+        out: *mut flintdb_decimal,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_decimal_divide_by_int(
-        numerator: *const decimal,
+        numerator: *const flintdb_decimal,
         denominator: ::std::os::raw::c_int,
-        out: *mut decimal,
+        out: *mut flintdb_decimal,
     ) -> ::std::os::raw::c_int;
 }
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct flintdb_variant {
-    pub type_: variant_type,
-    pub value: variant__bindgen_ty_1,
+    pub type_: flintdb_variant_type,
+    pub value: flintdb_variant__bindgen_ty_1,
 }
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub union variant__bindgen_ty_1 {
+pub union flintdb_variant__bindgen_ty_1 {
     pub i: i64_,
     pub f: f64_,
-    pub d: decimal,
-    pub b: variant__bindgen_ty_1__bindgen_ty_1,
+    pub d: flintdb_decimal,
+    pub b: flintdb_variant__bindgen_ty_1__bindgen_ty_1,
     pub t: time_t,
 }
 #[repr(C)]
@@ -6807,65 +7363,75 @@ pub struct flintdb_variant__bindgen_ty_1__bindgen_ty_1 {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of variant__bindgen_ty_1__bindgen_ty_1"]
-        [::std::mem::size_of::<variant__bindgen_ty_1__bindgen_ty_1>() - 16usize];
-    ["Alignment of variant__bindgen_ty_1__bindgen_ty_1"]
-        [::std::mem::align_of::<variant__bindgen_ty_1__bindgen_ty_1>() - 8usize];
-    ["Offset of field: variant__bindgen_ty_1__bindgen_ty_1::owned"]
-        [::std::mem::offset_of!(variant__bindgen_ty_1__bindgen_ty_1, owned) - 0usize];
-    ["Offset of field: variant__bindgen_ty_1__bindgen_ty_1::length"]
-        [::std::mem::offset_of!(variant__bindgen_ty_1__bindgen_ty_1, length) - 4usize];
-    ["Offset of field: variant__bindgen_ty_1__bindgen_ty_1::data"]
-        [::std::mem::offset_of!(variant__bindgen_ty_1__bindgen_ty_1, data) - 8usize];
+    ["Size of flintdb_variant__bindgen_ty_1__bindgen_ty_1"]
+        [::std::mem::size_of::<flintdb_variant__bindgen_ty_1__bindgen_ty_1>() - 16usize];
+    ["Alignment of flintdb_variant__bindgen_ty_1__bindgen_ty_1"]
+        [::std::mem::align_of::<flintdb_variant__bindgen_ty_1__bindgen_ty_1>() - 8usize];
+    ["Offset of field: flintdb_variant__bindgen_ty_1__bindgen_ty_1::owned"]
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, owned) - 0usize];
+    ["Offset of field: flintdb_variant__bindgen_ty_1__bindgen_ty_1::length"]
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, length) - 4usize];
+    ["Offset of field: flintdb_variant__bindgen_ty_1__bindgen_ty_1::data"]
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, data) - 8usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of variant__bindgen_ty_1"][::std::mem::size_of::<variant__bindgen_ty_1>() - 24usize];
-    ["Alignment of variant__bindgen_ty_1"]
-        [::std::mem::align_of::<variant__bindgen_ty_1>() - 8usize];
-    ["Offset of field: variant__bindgen_ty_1::i"]
-        [::std::mem::offset_of!(variant__bindgen_ty_1, i) - 0usize];
-    ["Offset of field: variant__bindgen_ty_1::f"]
-        [::std::mem::offset_of!(variant__bindgen_ty_1, f) - 0usize];
-    ["Offset of field: variant__bindgen_ty_1::d"]
-        [::std::mem::offset_of!(variant__bindgen_ty_1, d) - 0usize];
-    ["Offset of field: variant__bindgen_ty_1::b"]
-        [::std::mem::offset_of!(variant__bindgen_ty_1, b) - 0usize];
-    ["Offset of field: variant__bindgen_ty_1::t"]
-        [::std::mem::offset_of!(variant__bindgen_ty_1, t) - 0usize];
+    ["Size of flintdb_variant__bindgen_ty_1"]
+        [::std::mem::size_of::<flintdb_variant__bindgen_ty_1>() - 24usize];
+    ["Alignment of flintdb_variant__bindgen_ty_1"]
+        [::std::mem::align_of::<flintdb_variant__bindgen_ty_1>() - 8usize];
+    ["Offset of field: flintdb_variant__bindgen_ty_1::i"]
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1, i) - 0usize];
+    ["Offset of field: flintdb_variant__bindgen_ty_1::f"]
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1, f) - 0usize];
+    ["Offset of field: flintdb_variant__bindgen_ty_1::d"]
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1, d) - 0usize];
+    ["Offset of field: flintdb_variant__bindgen_ty_1::b"]
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1, b) - 0usize];
+    ["Offset of field: flintdb_variant__bindgen_ty_1::t"]
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1, t) - 0usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of variant"][::std::mem::size_of::<variant>() - 32usize];
-    ["Alignment of variant"][::std::mem::align_of::<variant>() - 8usize];
-    ["Offset of field: variant::type_"][::std::mem::offset_of!(variant, type_) - 0usize];
-    ["Offset of field: variant::value"][::std::mem::offset_of!(variant, value) - 8usize];
+    ["Size of flintdb_variant"][::std::mem::size_of::<flintdb_variant>() - 32usize];
+    ["Alignment of flintdb_variant"][::std::mem::align_of::<flintdb_variant>() - 8usize];
+    ["Offset of field: flintdb_variant::type_"]
+        [::std::mem::offset_of!(flintdb_variant, type_) - 0usize];
+    ["Offset of field: flintdb_variant::value"]
+        [::std::mem::offset_of!(flintdb_variant, value) - 8usize];
 };
-pub const column_null_spec_SPEC_NULLABLE: column_null_spec = 0;
-pub const column_null_spec_SPEC_NOT_NULL: column_null_spec = 1;
-pub type column_null_spec = ::std::os::raw::c_uint;
+pub const flintdb_null_spec_SPEC_NULLABLE: flintdb_null_spec = 0;
+pub const flintdb_null_spec_SPEC_NOT_NULL: flintdb_null_spec = 1;
+pub type flintdb_null_spec = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_column {
-    pub type_: variant_type,
+    pub type_: flintdb_variant_type,
     pub name: [::std::os::raw::c_char; 40usize],
     pub bytes: ::std::os::raw::c_int,
     pub precision: ::std::os::raw::c_int,
-    pub nullspec: column_null_spec,
+    pub nullspec: flintdb_null_spec,
     pub value: [::std::os::raw::c_char; 40usize],
     pub comment: [::std::os::raw::c_char; 40usize],
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of column"][::std::mem::size_of::<column>() - 136usize];
-    ["Alignment of column"][::std::mem::align_of::<column>() - 4usize];
-    ["Offset of field: column::type_"][::std::mem::offset_of!(column, type_) - 0usize];
-    ["Offset of field: column::name"][::std::mem::offset_of!(column, name) - 4usize];
-    ["Offset of field: column::bytes"][::std::mem::offset_of!(column, bytes) - 44usize];
-    ["Offset of field: column::precision"][::std::mem::offset_of!(column, precision) - 48usize];
-    ["Offset of field: column::nullspec"][::std::mem::offset_of!(column, nullspec) - 52usize];
-    ["Offset of field: column::value"][::std::mem::offset_of!(column, value) - 56usize];
-    ["Offset of field: column::comment"][::std::mem::offset_of!(column, comment) - 96usize];
+    ["Size of flintdb_column"][::std::mem::size_of::<flintdb_column>() - 136usize];
+    ["Alignment of flintdb_column"][::std::mem::align_of::<flintdb_column>() - 4usize];
+    ["Offset of field: flintdb_column::type_"]
+        [::std::mem::offset_of!(flintdb_column, type_) - 0usize];
+    ["Offset of field: flintdb_column::name"]
+        [::std::mem::offset_of!(flintdb_column, name) - 4usize];
+    ["Offset of field: flintdb_column::bytes"]
+        [::std::mem::offset_of!(flintdb_column, bytes) - 44usize];
+    ["Offset of field: flintdb_column::precision"]
+        [::std::mem::offset_of!(flintdb_column, precision) - 48usize];
+    ["Offset of field: flintdb_column::nullspec"]
+        [::std::mem::offset_of!(flintdb_column, nullspec) - 52usize];
+    ["Offset of field: flintdb_column::value"]
+        [::std::mem::offset_of!(flintdb_column, value) - 56usize];
+    ["Offset of field: flintdb_column::comment"]
+        [::std::mem::offset_of!(flintdb_column, comment) - 96usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -6873,7 +7439,7 @@ pub struct flintdb_index {
     pub name: [::std::os::raw::c_char; 40usize],
     pub type_: [::std::os::raw::c_char; 40usize],
     pub algorithm: [::std::os::raw::c_char; 40usize],
-    pub keys: index__bindgen_ty_1,
+    pub keys: flintdb_index__bindgen_ty_1,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -6883,21 +7449,26 @@ pub struct flintdb_index__bindgen_ty_1 {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of index__bindgen_ty_1"][::std::mem::size_of::<index__bindgen_ty_1>() - 201usize];
-    ["Alignment of index__bindgen_ty_1"][::std::mem::align_of::<index__bindgen_ty_1>() - 1usize];
-    ["Offset of field: index__bindgen_ty_1::a"]
-        [::std::mem::offset_of!(index__bindgen_ty_1, a) - 0usize];
-    ["Offset of field: index__bindgen_ty_1::length"]
-        [::std::mem::offset_of!(index__bindgen_ty_1, length) - 200usize];
+    ["Size of flintdb_index__bindgen_ty_1"]
+        [::std::mem::size_of::<flintdb_index__bindgen_ty_1>() - 201usize];
+    ["Alignment of flintdb_index__bindgen_ty_1"]
+        [::std::mem::align_of::<flintdb_index__bindgen_ty_1>() - 1usize];
+    ["Offset of field: flintdb_index__bindgen_ty_1::a"]
+        [::std::mem::offset_of!(flintdb_index__bindgen_ty_1, a) - 0usize];
+    ["Offset of field: flintdb_index__bindgen_ty_1::length"]
+        [::std::mem::offset_of!(flintdb_index__bindgen_ty_1, length) - 200usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of index"][::std::mem::size_of::<index>() - 321usize];
-    ["Alignment of index"][::std::mem::align_of::<index>() - 1usize];
-    ["Offset of field: index::name"][::std::mem::offset_of!(index, name) - 0usize];
-    ["Offset of field: index::type_"][::std::mem::offset_of!(index, type_) - 40usize];
-    ["Offset of field: index::algorithm"][::std::mem::offset_of!(index, algorithm) - 80usize];
-    ["Offset of field: index::keys"][::std::mem::offset_of!(index, keys) - 120usize];
+    ["Size of flintdb_index"][::std::mem::size_of::<flintdb_index>() - 321usize];
+    ["Alignment of flintdb_index"][::std::mem::align_of::<flintdb_index>() - 1usize];
+    ["Offset of field: flintdb_index::name"][::std::mem::offset_of!(flintdb_index, name) - 0usize];
+    ["Offset of field: flintdb_index::type_"]
+        [::std::mem::offset_of!(flintdb_index, type_) - 40usize];
+    ["Offset of field: flintdb_index::algorithm"]
+        [::std::mem::offset_of!(flintdb_index, algorithm) - 80usize];
+    ["Offset of field: flintdb_index::keys"]
+        [::std::mem::offset_of!(flintdb_index, keys) - 120usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -6909,10 +7480,13 @@ pub struct flintdb_meta {
     pub compressor: [::std::os::raw::c_char; 32usize],
     pub storage: [::std::os::raw::c_char; 32usize],
     pub wal: [::std::os::raw::c_char; 20usize],
+    pub wal_checkpoint_interval: i32_,
+    pub wal_batch_size: i32_,
+    pub wal_compression_threshold: i32_,
     pub increment: i32_,
     pub cache: i32_,
-    pub indexes: meta__bindgen_ty_1,
-    pub columns: meta__bindgen_ty_2,
+    pub indexes: flintdb_meta__bindgen_ty_1,
+    pub columns: flintdb_meta__bindgen_ty_2,
     pub absent_header: i8_,
     pub delimiter: ::std::os::raw::c_char,
     pub quote: ::std::os::raw::c_char,
@@ -6924,122 +7498,191 @@ pub struct flintdb_meta {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_meta__bindgen_ty_1 {
-    pub a: [index; 5usize],
+    pub a: [flintdb_index; 5usize],
     pub length: u8_,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of meta__bindgen_ty_1"][::std::mem::size_of::<meta__bindgen_ty_1>() - 1606usize];
-    ["Alignment of meta__bindgen_ty_1"][::std::mem::align_of::<meta__bindgen_ty_1>() - 1usize];
-    ["Offset of field: meta__bindgen_ty_1::a"]
-        [::std::mem::offset_of!(meta__bindgen_ty_1, a) - 0usize];
-    ["Offset of field: meta__bindgen_ty_1::length"]
-        [::std::mem::offset_of!(meta__bindgen_ty_1, length) - 1605usize];
+    ["Size of flintdb_meta__bindgen_ty_1"]
+        [::std::mem::size_of::<flintdb_meta__bindgen_ty_1>() - 1606usize];
+    ["Alignment of flintdb_meta__bindgen_ty_1"]
+        [::std::mem::align_of::<flintdb_meta__bindgen_ty_1>() - 1usize];
+    ["Offset of field: flintdb_meta__bindgen_ty_1::a"]
+        [::std::mem::offset_of!(flintdb_meta__bindgen_ty_1, a) - 0usize];
+    ["Offset of field: flintdb_meta__bindgen_ty_1::length"]
+        [::std::mem::offset_of!(flintdb_meta__bindgen_ty_1, length) - 1605usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_meta__bindgen_ty_2 {
-    pub a: [column; 200usize],
+    pub a: [flintdb_column; 200usize],
     pub length: u8_,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of meta__bindgen_ty_2"][::std::mem::size_of::<meta__bindgen_ty_2>() - 27204usize];
-    ["Alignment of meta__bindgen_ty_2"][::std::mem::align_of::<meta__bindgen_ty_2>() - 4usize];
-    ["Offset of field: meta__bindgen_ty_2::a"]
-        [::std::mem::offset_of!(meta__bindgen_ty_2, a) - 0usize];
-    ["Offset of field: meta__bindgen_ty_2::length"]
-        [::std::mem::offset_of!(meta__bindgen_ty_2, length) - 27200usize];
+    ["Size of flintdb_meta__bindgen_ty_2"]
+        [::std::mem::size_of::<flintdb_meta__bindgen_ty_2>() - 27204usize];
+    ["Alignment of flintdb_meta__bindgen_ty_2"]
+        [::std::mem::align_of::<flintdb_meta__bindgen_ty_2>() - 4usize];
+    ["Offset of field: flintdb_meta__bindgen_ty_2::a"]
+        [::std::mem::offset_of!(flintdb_meta__bindgen_ty_2, a) - 0usize];
+    ["Offset of field: flintdb_meta__bindgen_ty_2::length"]
+        [::std::mem::offset_of!(flintdb_meta__bindgen_ty_2, length) - 27200usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of meta"][::std::mem::size_of::<meta>() - 29104usize];
-    ["Alignment of meta"][::std::mem::align_of::<meta>() - 8usize];
-    ["Offset of field: meta::version"][::std::mem::offset_of!(meta, version) - 0usize];
-    ["Offset of field: meta::name"][::std::mem::offset_of!(meta, name) - 8usize];
-    ["Offset of field: meta::date"][::std::mem::offset_of!(meta, date) - 72usize];
-    ["Offset of field: meta::compact"][::std::mem::offset_of!(meta, compact) - 104usize];
-    ["Offset of field: meta::compressor"][::std::mem::offset_of!(meta, compressor) - 106usize];
-    ["Offset of field: meta::storage"][::std::mem::offset_of!(meta, storage) - 138usize];
-    ["Offset of field: meta::wal"][::std::mem::offset_of!(meta, wal) - 170usize];
-    ["Offset of field: meta::increment"][::std::mem::offset_of!(meta, increment) - 192usize];
-    ["Offset of field: meta::cache"][::std::mem::offset_of!(meta, cache) - 196usize];
-    ["Offset of field: meta::indexes"][::std::mem::offset_of!(meta, indexes) - 200usize];
-    ["Offset of field: meta::columns"][::std::mem::offset_of!(meta, columns) - 1808usize];
-    ["Offset of field: meta::absent_header"]
-        [::std::mem::offset_of!(meta, absent_header) - 29012usize];
-    ["Offset of field: meta::delimiter"][::std::mem::offset_of!(meta, delimiter) - 29013usize];
-    ["Offset of field: meta::quote"][::std::mem::offset_of!(meta, quote) - 29014usize];
-    ["Offset of field: meta::escape"][::std::mem::offset_of!(meta, escape) - 29015usize];
-    ["Offset of field: meta::nil_str"][::std::mem::offset_of!(meta, nil_str) - 29016usize];
-    ["Offset of field: meta::format"][::std::mem::offset_of!(meta, format) - 29056usize];
-    ["Offset of field: meta::priv_"][::std::mem::offset_of!(meta, priv_) - 29096usize];
+    ["Size of flintdb_meta"][::std::mem::size_of::<flintdb_meta>() - 29120usize];
+    ["Alignment of flintdb_meta"][::std::mem::align_of::<flintdb_meta>() - 8usize];
+    ["Offset of field: flintdb_meta::version"]
+        [::std::mem::offset_of!(flintdb_meta, version) - 0usize];
+    ["Offset of field: flintdb_meta::name"][::std::mem::offset_of!(flintdb_meta, name) - 8usize];
+    ["Offset of field: flintdb_meta::date"][::std::mem::offset_of!(flintdb_meta, date) - 72usize];
+    ["Offset of field: flintdb_meta::compact"]
+        [::std::mem::offset_of!(flintdb_meta, compact) - 104usize];
+    ["Offset of field: flintdb_meta::compressor"]
+        [::std::mem::offset_of!(flintdb_meta, compressor) - 106usize];
+    ["Offset of field: flintdb_meta::storage"]
+        [::std::mem::offset_of!(flintdb_meta, storage) - 138usize];
+    ["Offset of field: flintdb_meta::wal"][::std::mem::offset_of!(flintdb_meta, wal) - 170usize];
+    ["Offset of field: flintdb_meta::wal_checkpoint_interval"]
+        [::std::mem::offset_of!(flintdb_meta, wal_checkpoint_interval) - 192usize];
+    ["Offset of field: flintdb_meta::wal_batch_size"]
+        [::std::mem::offset_of!(flintdb_meta, wal_batch_size) - 196usize];
+    ["Offset of field: flintdb_meta::wal_compression_threshold"]
+        [::std::mem::offset_of!(flintdb_meta, wal_compression_threshold) - 200usize];
+    ["Offset of field: flintdb_meta::increment"]
+        [::std::mem::offset_of!(flintdb_meta, increment) - 204usize];
+    ["Offset of field: flintdb_meta::cache"]
+        [::std::mem::offset_of!(flintdb_meta, cache) - 208usize];
+    ["Offset of field: flintdb_meta::indexes"]
+        [::std::mem::offset_of!(flintdb_meta, indexes) - 212usize];
+    ["Offset of field: flintdb_meta::columns"]
+        [::std::mem::offset_of!(flintdb_meta, columns) - 1820usize];
+    ["Offset of field: flintdb_meta::absent_header"]
+        [::std::mem::offset_of!(flintdb_meta, absent_header) - 29024usize];
+    ["Offset of field: flintdb_meta::delimiter"]
+        [::std::mem::offset_of!(flintdb_meta, delimiter) - 29025usize];
+    ["Offset of field: flintdb_meta::quote"]
+        [::std::mem::offset_of!(flintdb_meta, quote) - 29026usize];
+    ["Offset of field: flintdb_meta::escape"]
+        [::std::mem::offset_of!(flintdb_meta, escape) - 29027usize];
+    ["Offset of field: flintdb_meta::nil_str"]
+        [::std::mem::offset_of!(flintdb_meta, nil_str) - 29028usize];
+    ["Offset of field: flintdb_meta::format"]
+        [::std::mem::offset_of!(flintdb_meta, format) - 29068usize];
+    ["Offset of field: flintdb_meta::priv_"]
+        [::std::mem::offset_of!(flintdb_meta, priv_) - 29112usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_row {
-    pub array: *mut variant,
+    pub array: *mut flintdb_variant,
     pub length: ::std::os::raw::c_int,
     pub priv_: *mut ::std::os::raw::c_void,
-    pub meta: *mut meta,
+    pub meta: *mut flintdb_meta,
     pub rowid: i64_,
     pub refcount: ::std::os::raw::c_int,
-    pub free: ::std::option::Option<unsafe extern "C" fn(r: *mut row)>,
-    pub retain: ::std::option::Option<unsafe extern "C" fn(r: *mut row) -> *mut row>,
-    pub id: ::std::option::Option<unsafe extern "C" fn(r: *const row) -> i64_>,
+    pub free: ::std::option::Option<unsafe extern "C" fn(r: *mut flintdb_row)>,
+    pub retain:
+        ::std::option::Option<unsafe extern "C" fn(r: *mut flintdb_row) -> *mut flintdb_row>,
+    pub id: ::std::option::Option<unsafe extern "C" fn(r: *const flintdb_row) -> i64_>,
     pub get: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *const row,
+            r: *const flintdb_row,
             i: u16_,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> *mut variant,
+        ) -> *mut flintdb_variant,
     >,
     pub set: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *mut row,
+            r: *mut flintdb_row,
             i: u16_,
-            v: *mut variant,
+            v: *mut flintdb_variant,
             e: *mut *mut ::std::os::raw::c_char,
         ),
     >,
     pub is_nil: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> i8_,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> i8_,
     >,
     pub string_set: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *mut row,
+            r: *mut flintdb_row,
             i: u16_,
             str_: *const ::std::os::raw::c_char,
             e: *mut *mut ::std::os::raw::c_char,
         ),
     >,
     pub i64_set: ::std::option::Option<
-        unsafe extern "C" fn(r: *mut row, i: u16_, val: i64_, e: *mut *mut ::std::os::raw::c_char),
+        unsafe extern "C" fn(
+            r: *mut flintdb_row,
+            i: u16_,
+            val: i64_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ),
     >,
     pub f64_set: ::std::option::Option<
-        unsafe extern "C" fn(r: *mut row, i: u16_, val: f64_, e: *mut *mut ::std::os::raw::c_char),
+        unsafe extern "C" fn(
+            r: *mut flintdb_row,
+            i: u16_,
+            val: f64_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ),
     >,
     pub u8_set: ::std::option::Option<
-        unsafe extern "C" fn(r: *mut row, i: u16_, val: u8_, e: *mut *mut ::std::os::raw::c_char),
+        unsafe extern "C" fn(
+            r: *mut flintdb_row,
+            i: u16_,
+            val: u8_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ),
     >,
     pub i8_set: ::std::option::Option<
-        unsafe extern "C" fn(r: *mut row, i: u16_, val: i8_, e: *mut *mut ::std::os::raw::c_char),
+        unsafe extern "C" fn(
+            r: *mut flintdb_row,
+            i: u16_,
+            val: i8_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ),
     >,
     pub u16_set: ::std::option::Option<
-        unsafe extern "C" fn(r: *mut row, i: u16_, val: u16_, e: *mut *mut ::std::os::raw::c_char),
+        unsafe extern "C" fn(
+            r: *mut flintdb_row,
+            i: u16_,
+            val: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ),
     >,
     pub i16_set: ::std::option::Option<
-        unsafe extern "C" fn(r: *mut row, i: u16_, val: i16_, e: *mut *mut ::std::os::raw::c_char),
+        unsafe extern "C" fn(
+            r: *mut flintdb_row,
+            i: u16_,
+            val: i16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ),
     >,
     pub u32_set: ::std::option::Option<
-        unsafe extern "C" fn(r: *mut row, i: u16_, val: u32_, e: *mut *mut ::std::os::raw::c_char),
+        unsafe extern "C" fn(
+            r: *mut flintdb_row,
+            i: u16_,
+            val: u32_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ),
     >,
     pub i32_set: ::std::option::Option<
-        unsafe extern "C" fn(r: *mut row, i: u16_, val: i32_, e: *mut *mut ::std::os::raw::c_char),
+        unsafe extern "C" fn(
+            r: *mut flintdb_row,
+            i: u16_,
+            val: i32_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ),
     >,
     pub bytes_set: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *mut row,
+            r: *mut flintdb_row,
             i: u16_,
             data: *const ::std::os::raw::c_char,
             length: u32_,
@@ -7048,7 +7691,7 @@ pub struct flintdb_row {
     >,
     pub date_set: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *mut row,
+            r: *mut flintdb_row,
             i: u16_,
             val: time_t,
             e: *mut *mut ::std::os::raw::c_char,
@@ -7056,7 +7699,7 @@ pub struct flintdb_row {
     >,
     pub time_set: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *mut row,
+            r: *mut flintdb_row,
             i: u16_,
             val: time_t,
             e: *mut *mut ::std::os::raw::c_char,
@@ -7064,7 +7707,7 @@ pub struct flintdb_row {
     >,
     pub uuid_set: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *mut row,
+            r: *mut flintdb_row,
             i: u16_,
             data: *const ::std::os::raw::c_char,
             length: u32_,
@@ -7073,7 +7716,7 @@ pub struct flintdb_row {
     >,
     pub ipv6_set: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *mut row,
+            r: *mut flintdb_row,
             i: u16_,
             data: *const ::std::os::raw::c_char,
             length: u32_,
@@ -7082,67 +7725,107 @@ pub struct flintdb_row {
     >,
     pub decimal_set: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *mut row,
+            r: *mut flintdb_row,
             i: u16_,
-            data: decimal,
+            data: flintdb_decimal,
             e: *mut *mut ::std::os::raw::c_char,
         ),
     >,
     pub string_get: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *const row,
+            r: *const flintdb_row,
             i: u16_,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> *const ::std::os::raw::c_char,
     >,
     pub i8_get: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> i8_,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> i8_,
     >,
     pub u8_get: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> u8_,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> u8_,
     >,
     pub i16_get: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> i16_,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> i16_,
     >,
     pub u16_get: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> u16_,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> u16_,
     >,
     pub i32_get: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> i32_,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> i32_,
     >,
     pub u32_get: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> u32_,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> u32_,
     >,
     pub i64_get: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> i64_,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> i64_,
     >,
     pub f64_get: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> f64_,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> f64_,
     >,
     pub decimal_get: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *const row,
+            r: *const flintdb_row,
             i: u16_,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> decimal,
+        ) -> flintdb_decimal,
     >,
     pub bytes_get: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *const row,
+            r: *const flintdb_row,
             i: u16_,
             length: *mut u32_,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> *const ::std::os::raw::c_char,
     >,
     pub date_get: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> time_t,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> time_t,
     >,
     pub time_get: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> time_t,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> time_t,
     >,
     pub uuid_get: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *const row,
+            r: *const flintdb_row,
             i: u16_,
             length: *mut u32_,
             e: *mut *mut ::std::os::raw::c_char,
@@ -7150,293 +7833,379 @@ pub struct flintdb_row {
     >,
     pub ipv6_get: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *const row,
+            r: *const flintdb_row,
             i: u16_,
             length: *mut u32_,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> *const ::std::os::raw::c_char,
     >,
     pub is_zero: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, i: u16_, e: *mut *mut ::std::os::raw::c_char) -> i8_,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            i: u16_,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> i8_,
     >,
-    pub equals: ::std::option::Option<unsafe extern "C" fn(r: *const row, o: *const row) -> i8_>,
+    pub equals: ::std::option::Option<
+        unsafe extern "C" fn(r: *const flintdb_row, o: *const flintdb_row) -> i8_,
+    >,
     pub compare: ::std::option::Option<
         unsafe extern "C" fn(
-            r: *const row,
-            o: *const row,
+            r: *const flintdb_row,
+            o: *const flintdb_row,
             cmp: ::std::option::Option<
-                unsafe extern "C" fn(arg1: *const row, arg2: *const row) -> ::std::os::raw::c_int,
+                unsafe extern "C" fn(
+                    arg1: *const flintdb_row,
+                    arg2: *const flintdb_row,
+                ) -> ::std::os::raw::c_int,
             >,
         ) -> i8_,
     >,
     pub copy: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, e: *mut *mut ::std::os::raw::c_char) -> *mut row,
+        unsafe extern "C" fn(
+            r: *const flintdb_row,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> *mut flintdb_row,
     >,
     pub validate: ::std::option::Option<
-        unsafe extern "C" fn(r: *const row, e: *mut *mut ::std::os::raw::c_char) -> i8_,
+        unsafe extern "C" fn(r: *const flintdb_row, e: *mut *mut ::std::os::raw::c_char) -> i8_,
     >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of row"][::std::mem::size_of::<row>() - 376usize];
-    ["Alignment of row"][::std::mem::align_of::<row>() - 8usize];
-    ["Offset of field: row::array"][::std::mem::offset_of!(row, array) - 0usize];
-    ["Offset of field: row::length"][::std::mem::offset_of!(row, length) - 8usize];
-    ["Offset of field: row::priv_"][::std::mem::offset_of!(row, priv_) - 16usize];
-    ["Offset of field: row::meta"][::std::mem::offset_of!(row, meta) - 24usize];
-    ["Offset of field: row::rowid"][::std::mem::offset_of!(row, rowid) - 32usize];
-    ["Offset of field: row::refcount"][::std::mem::offset_of!(row, refcount) - 40usize];
-    ["Offset of field: row::free"][::std::mem::offset_of!(row, free) - 48usize];
-    ["Offset of field: row::retain"][::std::mem::offset_of!(row, retain) - 56usize];
-    ["Offset of field: row::id"][::std::mem::offset_of!(row, id) - 64usize];
-    ["Offset of field: row::get"][::std::mem::offset_of!(row, get) - 72usize];
-    ["Offset of field: row::set"][::std::mem::offset_of!(row, set) - 80usize];
-    ["Offset of field: row::is_nil"][::std::mem::offset_of!(row, is_nil) - 88usize];
-    ["Offset of field: row::string_set"][::std::mem::offset_of!(row, string_set) - 96usize];
-    ["Offset of field: row::i64_set"][::std::mem::offset_of!(row, i64_set) - 104usize];
-    ["Offset of field: row::f64_set"][::std::mem::offset_of!(row, f64_set) - 112usize];
-    ["Offset of field: row::u8_set"][::std::mem::offset_of!(row, u8_set) - 120usize];
-    ["Offset of field: row::i8_set"][::std::mem::offset_of!(row, i8_set) - 128usize];
-    ["Offset of field: row::u16_set"][::std::mem::offset_of!(row, u16_set) - 136usize];
-    ["Offset of field: row::i16_set"][::std::mem::offset_of!(row, i16_set) - 144usize];
-    ["Offset of field: row::u32_set"][::std::mem::offset_of!(row, u32_set) - 152usize];
-    ["Offset of field: row::i32_set"][::std::mem::offset_of!(row, i32_set) - 160usize];
-    ["Offset of field: row::bytes_set"][::std::mem::offset_of!(row, bytes_set) - 168usize];
-    ["Offset of field: row::date_set"][::std::mem::offset_of!(row, date_set) - 176usize];
-    ["Offset of field: row::time_set"][::std::mem::offset_of!(row, time_set) - 184usize];
-    ["Offset of field: row::uuid_set"][::std::mem::offset_of!(row, uuid_set) - 192usize];
-    ["Offset of field: row::ipv6_set"][::std::mem::offset_of!(row, ipv6_set) - 200usize];
-    ["Offset of field: row::decimal_set"][::std::mem::offset_of!(row, decimal_set) - 208usize];
-    ["Offset of field: row::string_get"][::std::mem::offset_of!(row, string_get) - 216usize];
-    ["Offset of field: row::i8_get"][::std::mem::offset_of!(row, i8_get) - 224usize];
-    ["Offset of field: row::u8_get"][::std::mem::offset_of!(row, u8_get) - 232usize];
-    ["Offset of field: row::i16_get"][::std::mem::offset_of!(row, i16_get) - 240usize];
-    ["Offset of field: row::u16_get"][::std::mem::offset_of!(row, u16_get) - 248usize];
-    ["Offset of field: row::i32_get"][::std::mem::offset_of!(row, i32_get) - 256usize];
-    ["Offset of field: row::u32_get"][::std::mem::offset_of!(row, u32_get) - 264usize];
-    ["Offset of field: row::i64_get"][::std::mem::offset_of!(row, i64_get) - 272usize];
-    ["Offset of field: row::f64_get"][::std::mem::offset_of!(row, f64_get) - 280usize];
-    ["Offset of field: row::decimal_get"][::std::mem::offset_of!(row, decimal_get) - 288usize];
-    ["Offset of field: row::bytes_get"][::std::mem::offset_of!(row, bytes_get) - 296usize];
-    ["Offset of field: row::date_get"][::std::mem::offset_of!(row, date_get) - 304usize];
-    ["Offset of field: row::time_get"][::std::mem::offset_of!(row, time_get) - 312usize];
-    ["Offset of field: row::uuid_get"][::std::mem::offset_of!(row, uuid_get) - 320usize];
-    ["Offset of field: row::ipv6_get"][::std::mem::offset_of!(row, ipv6_get) - 328usize];
-    ["Offset of field: row::is_zero"][::std::mem::offset_of!(row, is_zero) - 336usize];
-    ["Offset of field: row::equals"][::std::mem::offset_of!(row, equals) - 344usize];
-    ["Offset of field: row::compare"][::std::mem::offset_of!(row, compare) - 352usize];
-    ["Offset of field: row::copy"][::std::mem::offset_of!(row, copy) - 360usize];
-    ["Offset of field: row::validate"][::std::mem::offset_of!(row, validate) - 368usize];
+    ["Size of flintdb_row"][::std::mem::size_of::<flintdb_row>() - 376usize];
+    ["Alignment of flintdb_row"][::std::mem::align_of::<flintdb_row>() - 8usize];
+    ["Offset of field: flintdb_row::array"][::std::mem::offset_of!(flintdb_row, array) - 0usize];
+    ["Offset of field: flintdb_row::length"][::std::mem::offset_of!(flintdb_row, length) - 8usize];
+    ["Offset of field: flintdb_row::priv_"][::std::mem::offset_of!(flintdb_row, priv_) - 16usize];
+    ["Offset of field: flintdb_row::meta"][::std::mem::offset_of!(flintdb_row, meta) - 24usize];
+    ["Offset of field: flintdb_row::rowid"][::std::mem::offset_of!(flintdb_row, rowid) - 32usize];
+    ["Offset of field: flintdb_row::refcount"]
+        [::std::mem::offset_of!(flintdb_row, refcount) - 40usize];
+    ["Offset of field: flintdb_row::free"][::std::mem::offset_of!(flintdb_row, free) - 48usize];
+    ["Offset of field: flintdb_row::retain"][::std::mem::offset_of!(flintdb_row, retain) - 56usize];
+    ["Offset of field: flintdb_row::id"][::std::mem::offset_of!(flintdb_row, id) - 64usize];
+    ["Offset of field: flintdb_row::get"][::std::mem::offset_of!(flintdb_row, get) - 72usize];
+    ["Offset of field: flintdb_row::set"][::std::mem::offset_of!(flintdb_row, set) - 80usize];
+    ["Offset of field: flintdb_row::is_nil"][::std::mem::offset_of!(flintdb_row, is_nil) - 88usize];
+    ["Offset of field: flintdb_row::string_set"]
+        [::std::mem::offset_of!(flintdb_row, string_set) - 96usize];
+    ["Offset of field: flintdb_row::i64_set"]
+        [::std::mem::offset_of!(flintdb_row, i64_set) - 104usize];
+    ["Offset of field: flintdb_row::f64_set"]
+        [::std::mem::offset_of!(flintdb_row, f64_set) - 112usize];
+    ["Offset of field: flintdb_row::u8_set"]
+        [::std::mem::offset_of!(flintdb_row, u8_set) - 120usize];
+    ["Offset of field: flintdb_row::i8_set"]
+        [::std::mem::offset_of!(flintdb_row, i8_set) - 128usize];
+    ["Offset of field: flintdb_row::u16_set"]
+        [::std::mem::offset_of!(flintdb_row, u16_set) - 136usize];
+    ["Offset of field: flintdb_row::i16_set"]
+        [::std::mem::offset_of!(flintdb_row, i16_set) - 144usize];
+    ["Offset of field: flintdb_row::u32_set"]
+        [::std::mem::offset_of!(flintdb_row, u32_set) - 152usize];
+    ["Offset of field: flintdb_row::i32_set"]
+        [::std::mem::offset_of!(flintdb_row, i32_set) - 160usize];
+    ["Offset of field: flintdb_row::bytes_set"]
+        [::std::mem::offset_of!(flintdb_row, bytes_set) - 168usize];
+    ["Offset of field: flintdb_row::date_set"]
+        [::std::mem::offset_of!(flintdb_row, date_set) - 176usize];
+    ["Offset of field: flintdb_row::time_set"]
+        [::std::mem::offset_of!(flintdb_row, time_set) - 184usize];
+    ["Offset of field: flintdb_row::uuid_set"]
+        [::std::mem::offset_of!(flintdb_row, uuid_set) - 192usize];
+    ["Offset of field: flintdb_row::ipv6_set"]
+        [::std::mem::offset_of!(flintdb_row, ipv6_set) - 200usize];
+    ["Offset of field: flintdb_row::decimal_set"]
+        [::std::mem::offset_of!(flintdb_row, decimal_set) - 208usize];
+    ["Offset of field: flintdb_row::string_get"]
+        [::std::mem::offset_of!(flintdb_row, string_get) - 216usize];
+    ["Offset of field: flintdb_row::i8_get"]
+        [::std::mem::offset_of!(flintdb_row, i8_get) - 224usize];
+    ["Offset of field: flintdb_row::u8_get"]
+        [::std::mem::offset_of!(flintdb_row, u8_get) - 232usize];
+    ["Offset of field: flintdb_row::i16_get"]
+        [::std::mem::offset_of!(flintdb_row, i16_get) - 240usize];
+    ["Offset of field: flintdb_row::u16_get"]
+        [::std::mem::offset_of!(flintdb_row, u16_get) - 248usize];
+    ["Offset of field: flintdb_row::i32_get"]
+        [::std::mem::offset_of!(flintdb_row, i32_get) - 256usize];
+    ["Offset of field: flintdb_row::u32_get"]
+        [::std::mem::offset_of!(flintdb_row, u32_get) - 264usize];
+    ["Offset of field: flintdb_row::i64_get"]
+        [::std::mem::offset_of!(flintdb_row, i64_get) - 272usize];
+    ["Offset of field: flintdb_row::f64_get"]
+        [::std::mem::offset_of!(flintdb_row, f64_get) - 280usize];
+    ["Offset of field: flintdb_row::decimal_get"]
+        [::std::mem::offset_of!(flintdb_row, decimal_get) - 288usize];
+    ["Offset of field: flintdb_row::bytes_get"]
+        [::std::mem::offset_of!(flintdb_row, bytes_get) - 296usize];
+    ["Offset of field: flintdb_row::date_get"]
+        [::std::mem::offset_of!(flintdb_row, date_get) - 304usize];
+    ["Offset of field: flintdb_row::time_get"]
+        [::std::mem::offset_of!(flintdb_row, time_get) - 312usize];
+    ["Offset of field: flintdb_row::uuid_get"]
+        [::std::mem::offset_of!(flintdb_row, uuid_get) - 320usize];
+    ["Offset of field: flintdb_row::ipv6_get"]
+        [::std::mem::offset_of!(flintdb_row, ipv6_get) - 328usize];
+    ["Offset of field: flintdb_row::is_zero"]
+        [::std::mem::offset_of!(flintdb_row, is_zero) - 336usize];
+    ["Offset of field: flintdb_row::equals"]
+        [::std::mem::offset_of!(flintdb_row, equals) - 344usize];
+    ["Offset of field: flintdb_row::compare"]
+        [::std::mem::offset_of!(flintdb_row, compare) - 352usize];
+    ["Offset of field: flintdb_row::copy"][::std::mem::offset_of!(flintdb_row, copy) - 360usize];
+    ["Offset of field: flintdb_row::validate"]
+        [::std::mem::offset_of!(flintdb_row, validate) - 368usize];
 };
 unsafe extern "C" {
-    pub fn flintdb_variant_init(v: *mut variant);
+    pub fn flintdb_variant_init(v: *mut flintdb_variant);
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_free(v: *mut variant);
+    pub fn flintdb_variant_free(v: *mut flintdb_variant);
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_compare(a: *const variant, b: *const variant) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_compare(
+        a: *const flintdb_variant,
+        b: *const flintdb_variant,
+    ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_to_string(
-        v: *const variant,
+        v: *const flintdb_variant,
         out: *mut ::std::os::raw::c_char,
         len: u32_,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_to_decimal(
-        v: *const variant,
-        out: *mut decimal,
+        v: *const flintdb_variant,
+        out: *mut flintdb_decimal,
         e: *mut *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_i32_set(v: *mut variant, val: i32_) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_i32_set(v: *mut flintdb_variant, val: i32_) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_u32_set(v: *mut variant, val: u32_) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_u32_set(v: *mut flintdb_variant, val: u32_) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_i8_set(v: *mut variant, val: i8_) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_i8_set(v: *mut flintdb_variant, val: i8_) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_u8_set(v: *mut variant, val: u8_) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_u8_set(v: *mut flintdb_variant, val: u8_) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_i16_set(v: *mut variant, val: i16_) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_i16_set(v: *mut flintdb_variant, val: i16_) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_u16_set(v: *mut variant, val: u16_) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_u16_set(v: *mut flintdb_variant, val: u16_) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_i64_set(v: *mut variant, val: i64_) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_i64_set(v: *mut flintdb_variant, val: i64_) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_f64_set(v: *mut variant, val: f64_) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_f64_set(v: *mut flintdb_variant, val: f64_) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_string_set(
-        v: *mut variant,
+        v: *mut flintdb_variant,
         str_: *const ::std::os::raw::c_char,
         length: u32_,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_string_ref_set(
-        v: *mut variant,
+        v: *mut flintdb_variant,
         str_: *const ::std::os::raw::c_char,
         length: u32_,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_decimal_set(
-        v: *mut variant,
+        v: *mut flintdb_variant,
         sign: u8_,
         scale: u8_,
-        data: decimal,
+        data: flintdb_decimal,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_bytes_set(
-        v: *mut variant,
+        v: *mut flintdb_variant,
         data: *const ::std::os::raw::c_char,
         length: u32_,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_date_set(v: *mut variant, val: time_t) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_date_set(v: *mut flintdb_variant, val: time_t) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_time_set(v: *mut variant, val: time_t) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_time_set(v: *mut flintdb_variant, val: time_t) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_uuid_set(
-        v: *mut variant,
+        v: *mut flintdb_variant,
         data: *const ::std::os::raw::c_char,
         length: u32_,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_ipv6_set(
-        v: *mut variant,
+        v: *mut flintdb_variant,
         data: *const ::std::os::raw::c_char,
         length: u32_,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_null_set(v: *mut variant) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_null_set(v: *mut flintdb_variant) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_zero_set(v: *mut variant) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_zero_set(v: *mut flintdb_variant) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_copy(dest: *mut variant, src: *const variant) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_copy(
+        dest: *mut flintdb_variant,
+        src: *const flintdb_variant,
+    ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_length(v: *const variant) -> ::std::os::raw::c_int;
+    pub fn flintdb_variant_length(v: *const flintdb_variant) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_string_get(v: *const variant) -> *const ::std::os::raw::c_char;
+    pub fn flintdb_variant_string_get(v: *const flintdb_variant) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_i8_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> i8_;
+    pub fn flintdb_variant_i8_get(
+        v: *const flintdb_variant,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> i8_;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_u8_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> u8_;
+    pub fn flintdb_variant_u8_get(
+        v: *const flintdb_variant,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> u8_;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_i16_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> i16_;
+    pub fn flintdb_variant_i16_get(
+        v: *const flintdb_variant,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> i16_;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_u16_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> u16_;
+    pub fn flintdb_variant_u16_get(
+        v: *const flintdb_variant,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> u16_;
 }
 unsafe extern "C" {
-    pub fn variant_i32_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> i32_;
+    pub fn variant_i32_get(v: *const flintdb_variant, e: *mut *mut ::std::os::raw::c_char) -> i32_;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_u32_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> u32_;
+    pub fn flintdb_variant_u32_get(
+        v: *const flintdb_variant,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> u32_;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_i64_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> i64_;
+    pub fn flintdb_variant_i64_get(
+        v: *const flintdb_variant,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> i64_;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_f64_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> f64_;
+    pub fn flintdb_variant_f64_get(
+        v: *const flintdb_variant,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> f64_;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_decimal_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> decimal;
+    pub fn flintdb_variant_decimal_get(
+        v: *const flintdb_variant,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> flintdb_decimal;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_bytes_get(
-        v: *const variant,
+        v: *const flintdb_variant,
         length: *mut u32_,
         e: *mut *mut ::std::os::raw::c_char,
     ) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_date_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> time_t;
+    pub fn flintdb_variant_date_get(
+        v: *const flintdb_variant,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> time_t;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_time_get(v: *const variant, e: *mut *mut ::std::os::raw::c_char) -> time_t;
+    pub fn flintdb_variant_time_get(
+        v: *const flintdb_variant,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> time_t;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_uuid_get(
-        v: *const variant,
+        v: *const flintdb_variant,
         length: *mut u32_,
         e: *mut *mut ::std::os::raw::c_char,
     ) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
     pub fn flintdb_variant_ipv6_get(
-        v: *const variant,
+        v: *const flintdb_variant,
         length: *mut u32_,
         e: *mut *mut ::std::os::raw::c_char,
     ) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
-    pub fn flintdb_variant_is_null(v: *const variant) -> i8_;
+    pub fn flintdb_variant_is_null(v: *const flintdb_variant) -> i8_;
 }
 unsafe extern "C" {
     pub fn flintdb_meta_new(
         name: *const ::std::os::raw::c_char,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> meta;
+    ) -> flintdb_meta;
 }
 unsafe extern "C" {
     pub fn flintdb_meta_open(
         filename: *const ::std::os::raw::c_char,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> meta;
+    ) -> flintdb_meta;
 }
 unsafe extern "C" {
-    pub fn flintdb_meta_close(m: *mut meta);
+    pub fn flintdb_meta_close(m: *mut flintdb_meta);
 }
 unsafe extern "C" {
     pub fn flintdb_meta_write(
-        m: *const meta,
+        m: *const flintdb_meta,
         filename: *const ::std::os::raw::c_char,
         e: *mut *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_meta_to_sql_string(
-        m: *const meta,
+        m: *const flintdb_meta,
         s: *mut ::std::os::raw::c_char,
         len: i32_,
         e: *mut *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_meta_compare(a: *const meta, b: *const meta) -> ::std::os::raw::c_int;
+    pub fn flintdb_meta_compare(
+        a: *const flintdb_meta,
+        b: *const flintdb_meta,
+    ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn flintdb_meta_columns_add(
-        m: *mut meta,
+        m: *mut flintdb_meta,
         name: *const ::std::os::raw::c_char,
-        type_: variant_type,
+        type_: flintdb_variant_type,
         bytes: i32_,
         precision: i16_,
-        nullspec: column_null_spec,
+        nullspec: flintdb_null_spec,
         value: *const ::std::os::raw::c_char,
         comment: *const ::std::os::raw::c_char,
         e: *mut *mut ::std::os::raw::c_char,
@@ -7444,7 +8213,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn flintdb_meta_indexes_add(
-        m: *mut meta,
+        m: *mut flintdb_meta,
         name: *const ::std::os::raw::c_char,
         algorithm: *const ::std::os::raw::c_char,
         keys: *const [::std::os::raw::c_char; 40usize],
@@ -7453,135 +8222,154 @@ unsafe extern "C" {
     );
 }
 unsafe extern "C" {
-    pub fn flintdb_column_at(m: *mut meta, name: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
+    pub fn flintdb_column_at(
+        m: *mut flintdb_meta,
+        name: *const ::std::os::raw::c_char,
+    ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_row_new(meta: *mut meta, e: *mut *mut ::std::os::raw::c_char) -> *mut row;
+    pub fn flintdb_row_new(
+        meta: *mut flintdb_meta,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> *mut flintdb_row;
 }
 unsafe extern "C" {
     pub fn flintdb_row_from_argv(
-        meta: *mut meta,
+        meta: *mut flintdb_meta,
         argc: u16_,
         argv: *mut *const ::std::os::raw::c_char,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut row;
+    ) -> *mut flintdb_row;
 }
 unsafe extern "C" {
     pub fn flintdb_row_cast(
-        src: *mut row,
-        meta: *mut meta,
+        src: *mut flintdb_row,
+        meta: *mut flintdb_meta,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut row;
+    ) -> *mut flintdb_row;
 }
 unsafe extern "C" {
     pub fn flintdb_row_cast_reuse(
-        src: *const row,
-        dst: *mut row,
+        src: *const flintdb_row,
+        dst: *mut flintdb_row,
         e: *mut *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn flintdb_print_row(r: *const row);
+    pub fn flintdb_print_row(r: *const flintdb_row);
 }
 unsafe extern "C" {
-    pub fn flintdb_row_pool_acquire(meta: *mut meta, e: *mut *mut ::std::os::raw::c_char) -> *mut row;
+    pub fn flintdb_row_pool_acquire(
+        meta: *mut flintdb_meta,
+        e: *mut *mut ::std::os::raw::c_char,
+    ) -> *mut flintdb_row;
 }
 unsafe extern "C" {
-    pub fn flintdb_row_pool_release(r: *mut row);
+    pub fn flintdb_row_pool_release(r: *mut flintdb_row);
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_table {
     pub rows: ::std::option::Option<
-        unsafe extern "C" fn(me: *const table, e: *mut *mut ::std::os::raw::c_char) -> i64_,
+        unsafe extern "C" fn(me: *const flintdb_table, e: *mut *mut ::std::os::raw::c_char) -> i64_,
     >,
     pub bytes: ::std::option::Option<
-        unsafe extern "C" fn(me: *const table, e: *mut *mut ::std::os::raw::c_char) -> i64_,
+        unsafe extern "C" fn(me: *const flintdb_table, e: *mut *mut ::std::os::raw::c_char) -> i64_,
     >,
     pub meta: ::std::option::Option<
-        unsafe extern "C" fn(me: *const table, e: *mut *mut ::std::os::raw::c_char) -> *const meta,
+        unsafe extern "C" fn(
+            me: *const flintdb_table,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> *const flintdb_meta,
     >,
     pub apply: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *mut table,
-            r: *mut row,
+            me: *mut flintdb_table,
+            r: *mut flintdb_row,
             upsert: i8_,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> i64_,
     >,
     pub apply_at: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *mut table,
+            me: *mut flintdb_table,
             rowid: i64_,
-            r: *mut row,
+            r: *mut flintdb_row,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> i64_,
     >,
     pub delete_at: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *mut table,
+            me: *mut flintdb_table,
             rowid: i64_,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> i64_,
     >,
     pub find: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *const table,
+            me: *const flintdb_table,
             where_: *const ::std::os::raw::c_char,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> *mut cursor_i64,
+        ) -> *mut flintdb_cursor_i64,
     >,
     pub one: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *const table,
+            me: *const flintdb_table,
             index: i8_,
             argc: u16_,
             argv: *mut *const ::std::os::raw::c_char,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> *const row,
+        ) -> *const flintdb_row,
     >,
     pub read: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *mut table,
+            me: *mut flintdb_table,
             rowid: i64_,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> *const row,
+        ) -> *const flintdb_row,
     >,
     pub read_stream: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *mut table,
+            me: *mut flintdb_table,
             rowid: i64_,
-            dest: *mut row,
+            dest: *mut flintdb_row,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> ::std::os::raw::c_int,
     >,
-    pub close: ::std::option::Option<unsafe extern "C" fn(me: *mut table)>,
+    pub close: ::std::option::Option<unsafe extern "C" fn(me: *mut flintdb_table)>,
     pub priv_: *mut ::std::os::raw::c_void,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of table"][::std::mem::size_of::<table>() - 96usize];
-    ["Alignment of table"][::std::mem::align_of::<table>() - 8usize];
-    ["Offset of field: table::rows"][::std::mem::offset_of!(table, rows) - 0usize];
-    ["Offset of field: table::bytes"][::std::mem::offset_of!(table, bytes) - 8usize];
-    ["Offset of field: table::meta"][::std::mem::offset_of!(table, meta) - 16usize];
-    ["Offset of field: table::apply"][::std::mem::offset_of!(table, apply) - 24usize];
-    ["Offset of field: table::apply_at"][::std::mem::offset_of!(table, apply_at) - 32usize];
-    ["Offset of field: table::delete_at"][::std::mem::offset_of!(table, delete_at) - 40usize];
-    ["Offset of field: table::find"][::std::mem::offset_of!(table, find) - 48usize];
-    ["Offset of field: table::one"][::std::mem::offset_of!(table, one) - 56usize];
-    ["Offset of field: table::read"][::std::mem::offset_of!(table, read) - 64usize];
-    ["Offset of field: table::read_stream"][::std::mem::offset_of!(table, read_stream) - 72usize];
-    ["Offset of field: table::close"][::std::mem::offset_of!(table, close) - 80usize];
-    ["Offset of field: table::priv_"][::std::mem::offset_of!(table, priv_) - 88usize];
+    ["Size of flintdb_table"][::std::mem::size_of::<flintdb_table>() - 96usize];
+    ["Alignment of flintdb_table"][::std::mem::align_of::<flintdb_table>() - 8usize];
+    ["Offset of field: flintdb_table::rows"][::std::mem::offset_of!(flintdb_table, rows) - 0usize];
+    ["Offset of field: flintdb_table::bytes"]
+        [::std::mem::offset_of!(flintdb_table, bytes) - 8usize];
+    ["Offset of field: flintdb_table::meta"][::std::mem::offset_of!(flintdb_table, meta) - 16usize];
+    ["Offset of field: flintdb_table::apply"]
+        [::std::mem::offset_of!(flintdb_table, apply) - 24usize];
+    ["Offset of field: flintdb_table::apply_at"]
+        [::std::mem::offset_of!(flintdb_table, apply_at) - 32usize];
+    ["Offset of field: flintdb_table::delete_at"]
+        [::std::mem::offset_of!(flintdb_table, delete_at) - 40usize];
+    ["Offset of field: flintdb_table::find"][::std::mem::offset_of!(flintdb_table, find) - 48usize];
+    ["Offset of field: flintdb_table::one"][::std::mem::offset_of!(flintdb_table, one) - 56usize];
+    ["Offset of field: flintdb_table::read"][::std::mem::offset_of!(flintdb_table, read) - 64usize];
+    ["Offset of field: flintdb_table::read_stream"]
+        [::std::mem::offset_of!(flintdb_table, read_stream) - 72usize];
+    ["Offset of field: flintdb_table::close"]
+        [::std::mem::offset_of!(flintdb_table, close) - 80usize];
+    ["Offset of field: flintdb_table::priv_"]
+        [::std::mem::offset_of!(flintdb_table, priv_) - 88usize];
 };
 unsafe extern "C" {
     pub fn flintdb_table_open(
         file: *const ::std::os::raw::c_char,
-        mode: open_mode,
-        meta: *const meta,
+        mode: flintdb_open_mode,
+        meta: *const flintdb_meta,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut table;
+    ) -> *mut flintdb_table;
 }
 unsafe extern "C" {
     pub fn flintdb_table_drop(
@@ -7593,53 +8381,66 @@ unsafe extern "C" {
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_genericfile {
     pub rows: ::std::option::Option<
-        unsafe extern "C" fn(me: *const genericfile, e: *mut *mut ::std::os::raw::c_char) -> i64_,
+        unsafe extern "C" fn(
+            me: *const flintdb_genericfile,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> i64_,
     >,
     pub bytes: ::std::option::Option<
-        unsafe extern "C" fn(me: *const genericfile, e: *mut *mut ::std::os::raw::c_char) -> i64_,
+        unsafe extern "C" fn(
+            me: *const flintdb_genericfile,
+            e: *mut *mut ::std::os::raw::c_char,
+        ) -> i64_,
     >,
     pub meta: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *const genericfile,
+            me: *const flintdb_genericfile,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> *const meta,
+        ) -> *const flintdb_meta,
     >,
     pub write: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *mut genericfile,
-            r: *mut row,
+            me: *mut flintdb_genericfile,
+            r: *mut flintdb_row,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> i64_,
     >,
     pub find: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *const genericfile,
+            me: *const flintdb_genericfile,
             where_: *const ::std::os::raw::c_char,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> *mut cursor_row,
+        ) -> *mut flintdb_cursor_row,
     >,
-    pub close: ::std::option::Option<unsafe extern "C" fn(me: *mut genericfile)>,
+    pub close: ::std::option::Option<unsafe extern "C" fn(me: *mut flintdb_genericfile)>,
     pub priv_: *mut ::std::os::raw::c_void,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of genericfile"][::std::mem::size_of::<genericfile>() - 56usize];
-    ["Alignment of genericfile"][::std::mem::align_of::<genericfile>() - 8usize];
-    ["Offset of field: genericfile::rows"][::std::mem::offset_of!(genericfile, rows) - 0usize];
-    ["Offset of field: genericfile::bytes"][::std::mem::offset_of!(genericfile, bytes) - 8usize];
-    ["Offset of field: genericfile::meta"][::std::mem::offset_of!(genericfile, meta) - 16usize];
-    ["Offset of field: genericfile::write"][::std::mem::offset_of!(genericfile, write) - 24usize];
-    ["Offset of field: genericfile::find"][::std::mem::offset_of!(genericfile, find) - 32usize];
-    ["Offset of field: genericfile::close"][::std::mem::offset_of!(genericfile, close) - 40usize];
-    ["Offset of field: genericfile::priv_"][::std::mem::offset_of!(genericfile, priv_) - 48usize];
+    ["Size of flintdb_genericfile"][::std::mem::size_of::<flintdb_genericfile>() - 56usize];
+    ["Alignment of flintdb_genericfile"][::std::mem::align_of::<flintdb_genericfile>() - 8usize];
+    ["Offset of field: flintdb_genericfile::rows"]
+        [::std::mem::offset_of!(flintdb_genericfile, rows) - 0usize];
+    ["Offset of field: flintdb_genericfile::bytes"]
+        [::std::mem::offset_of!(flintdb_genericfile, bytes) - 8usize];
+    ["Offset of field: flintdb_genericfile::meta"]
+        [::std::mem::offset_of!(flintdb_genericfile, meta) - 16usize];
+    ["Offset of field: flintdb_genericfile::write"]
+        [::std::mem::offset_of!(flintdb_genericfile, write) - 24usize];
+    ["Offset of field: flintdb_genericfile::find"]
+        [::std::mem::offset_of!(flintdb_genericfile, find) - 32usize];
+    ["Offset of field: flintdb_genericfile::close"]
+        [::std::mem::offset_of!(flintdb_genericfile, close) - 40usize];
+    ["Offset of field: flintdb_genericfile::priv_"]
+        [::std::mem::offset_of!(flintdb_genericfile, priv_) - 48usize];
 };
 unsafe extern "C" {
     pub fn flintdb_genericfile_open(
         file: *const ::std::os::raw::c_char,
-        mode: open_mode,
-        meta: *const meta,
+        mode: flintdb_open_mode,
+        meta: *const flintdb_meta,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut genericfile;
+    ) -> *mut flintdb_genericfile;
 }
 unsafe extern "C" {
     pub fn flintdb_genericfile_drop(
@@ -7650,30 +8451,30 @@ unsafe extern "C" {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_filesort {
-    pub close: ::std::option::Option<unsafe extern "C" fn(me: *mut filesort)>,
-    pub rows: ::std::option::Option<unsafe extern "C" fn(me: *const filesort) -> i64_>,
+    pub close: ::std::option::Option<unsafe extern "C" fn(me: *mut flintdb_filesort)>,
+    pub rows: ::std::option::Option<unsafe extern "C" fn(me: *const flintdb_filesort) -> i64_>,
     pub add: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *mut filesort,
-            r: *mut row,
+            me: *mut flintdb_filesort,
+            r: *mut flintdb_row,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> i64_,
     >,
     pub read: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *const filesort,
+            me: *const flintdb_filesort,
             i: i64_,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> *mut row,
+        ) -> *mut flintdb_row,
     >,
     pub sort: ::std::option::Option<
         unsafe extern "C" fn(
-            me: *mut filesort,
+            me: *mut flintdb_filesort,
             cmpr: ::std::option::Option<
                 unsafe extern "C" fn(
                     obj: *const ::std::os::raw::c_void,
-                    a: *const row,
-                    b: *const row,
+                    a: *const flintdb_row,
+                    b: *const flintdb_row,
                 ) -> ::std::os::raw::c_int,
             >,
             ctx: *const ::std::os::raw::c_void,
@@ -7684,360 +8485,383 @@ pub struct flintdb_filesort {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of filesort"][::std::mem::size_of::<filesort>() - 48usize];
-    ["Alignment of filesort"][::std::mem::align_of::<filesort>() - 8usize];
-    ["Offset of field: filesort::close"][::std::mem::offset_of!(filesort, close) - 0usize];
-    ["Offset of field: filesort::rows"][::std::mem::offset_of!(filesort, rows) - 8usize];
-    ["Offset of field: filesort::add"][::std::mem::offset_of!(filesort, add) - 16usize];
-    ["Offset of field: filesort::read"][::std::mem::offset_of!(filesort, read) - 24usize];
-    ["Offset of field: filesort::sort"][::std::mem::offset_of!(filesort, sort) - 32usize];
-    ["Offset of field: filesort::priv_"][::std::mem::offset_of!(filesort, priv_) - 40usize];
+    ["Size of flintdb_filesort"][::std::mem::size_of::<flintdb_filesort>() - 48usize];
+    ["Alignment of flintdb_filesort"][::std::mem::align_of::<flintdb_filesort>() - 8usize];
+    ["Offset of field: flintdb_filesort::close"]
+        [::std::mem::offset_of!(flintdb_filesort, close) - 0usize];
+    ["Offset of field: flintdb_filesort::rows"]
+        [::std::mem::offset_of!(flintdb_filesort, rows) - 8usize];
+    ["Offset of field: flintdb_filesort::add"]
+        [::std::mem::offset_of!(flintdb_filesort, add) - 16usize];
+    ["Offset of field: flintdb_filesort::read"]
+        [::std::mem::offset_of!(flintdb_filesort, read) - 24usize];
+    ["Offset of field: flintdb_filesort::sort"]
+        [::std::mem::offset_of!(flintdb_filesort, sort) - 32usize];
+    ["Offset of field: flintdb_filesort::priv_"]
+        [::std::mem::offset_of!(flintdb_filesort, priv_) - 40usize];
 };
 unsafe extern "C" {
     pub fn flintdb_filesort_new(
         file: *const ::std::os::raw::c_char,
-        m: *const meta,
+        m: *const flintdb_meta,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut filesort;
+    ) -> *mut flintdb_filesort;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_aggregate {
     pub priv_: *mut ::std::os::raw::c_void,
-    pub free: ::std::option::Option<unsafe extern "C" fn(agg: *mut aggregate)>,
+    pub free: ::std::option::Option<unsafe extern "C" fn(agg: *mut flintdb_aggregate)>,
     pub row: ::std::option::Option<
         unsafe extern "C" fn(
-            agg: *mut aggregate,
-            r: *const row,
+            agg: *mut flintdb_aggregate,
+            r: *const flintdb_row,
             e: *mut *mut ::std::os::raw::c_char,
         ),
     >,
     pub compute: ::std::option::Option<
         unsafe extern "C" fn(
-            agg: *mut aggregate,
-            out_rows: *mut *mut *mut row,
+            agg: *mut flintdb_aggregate,
+            out_rows: *mut *mut *mut flintdb_row,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> ::std::os::raw::c_int,
     >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of aggregate"][::std::mem::size_of::<aggregate>() - 32usize];
-    ["Alignment of aggregate"][::std::mem::align_of::<aggregate>() - 8usize];
-    ["Offset of field: aggregate::priv_"][::std::mem::offset_of!(aggregate, priv_) - 0usize];
-    ["Offset of field: aggregate::free"][::std::mem::offset_of!(aggregate, free) - 8usize];
-    ["Offset of field: aggregate::row"][::std::mem::offset_of!(aggregate, row) - 16usize];
-    ["Offset of field: aggregate::compute"][::std::mem::offset_of!(aggregate, compute) - 24usize];
+    ["Size of flintdb_aggregate"][::std::mem::size_of::<flintdb_aggregate>() - 32usize];
+    ["Alignment of flintdb_aggregate"][::std::mem::align_of::<flintdb_aggregate>() - 8usize];
+    ["Offset of field: flintdb_aggregate::priv_"]
+        [::std::mem::offset_of!(flintdb_aggregate, priv_) - 0usize];
+    ["Offset of field: flintdb_aggregate::free"]
+        [::std::mem::offset_of!(flintdb_aggregate, free) - 8usize];
+    ["Offset of field: flintdb_aggregate::row"]
+        [::std::mem::offset_of!(flintdb_aggregate, row) - 16usize];
+    ["Offset of field: flintdb_aggregate::compute"]
+        [::std::mem::offset_of!(flintdb_aggregate, compute) - 24usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_aggregate_groupby {
     pub priv_: *mut ::std::os::raw::c_void,
-    pub free: ::std::option::Option<unsafe extern "C" fn(gb: *mut aggregate_groupby)>,
+    pub free: ::std::option::Option<unsafe extern "C" fn(gb: *mut flintdb_aggregate_groupby)>,
     pub alias: ::std::option::Option<
-        unsafe extern "C" fn(gb: *const aggregate_groupby) -> *const ::std::os::raw::c_char,
+        unsafe extern "C" fn(gb: *const flintdb_aggregate_groupby) -> *const ::std::os::raw::c_char,
     >,
     pub column: ::std::option::Option<
-        unsafe extern "C" fn(gb: *const aggregate_groupby) -> *const ::std::os::raw::c_char,
+        unsafe extern "C" fn(gb: *const flintdb_aggregate_groupby) -> *const ::std::os::raw::c_char,
     >,
-    pub type_:
-        ::std::option::Option<unsafe extern "C" fn(gb: *const aggregate_groupby) -> variant_type>,
+    pub type_: ::std::option::Option<
+        unsafe extern "C" fn(gb: *const flintdb_aggregate_groupby) -> flintdb_variant_type,
+    >,
     pub get: ::std::option::Option<
         unsafe extern "C" fn(
-            gb: *const aggregate_groupby,
-            r: *const row,
+            gb: *const flintdb_aggregate_groupby,
+            r: *const flintdb_row,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> *mut variant,
+        ) -> *mut flintdb_variant,
     >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of aggregate_groupby"][::std::mem::size_of::<aggregate_groupby>() - 48usize];
-    ["Alignment of aggregate_groupby"][::std::mem::align_of::<aggregate_groupby>() - 8usize];
-    ["Offset of field: aggregate_groupby::priv_"]
-        [::std::mem::offset_of!(aggregate_groupby, priv_) - 0usize];
-    ["Offset of field: aggregate_groupby::free"]
-        [::std::mem::offset_of!(aggregate_groupby, free) - 8usize];
-    ["Offset of field: aggregate_groupby::alias"]
-        [::std::mem::offset_of!(aggregate_groupby, alias) - 16usize];
-    ["Offset of field: aggregate_groupby::column"]
-        [::std::mem::offset_of!(aggregate_groupby, column) - 24usize];
-    ["Offset of field: aggregate_groupby::type_"]
-        [::std::mem::offset_of!(aggregate_groupby, type_) - 32usize];
-    ["Offset of field: aggregate_groupby::get"]
-        [::std::mem::offset_of!(aggregate_groupby, get) - 40usize];
+    ["Size of flintdb_aggregate_groupby"]
+        [::std::mem::size_of::<flintdb_aggregate_groupby>() - 48usize];
+    ["Alignment of flintdb_aggregate_groupby"]
+        [::std::mem::align_of::<flintdb_aggregate_groupby>() - 8usize];
+    ["Offset of field: flintdb_aggregate_groupby::priv_"]
+        [::std::mem::offset_of!(flintdb_aggregate_groupby, priv_) - 0usize];
+    ["Offset of field: flintdb_aggregate_groupby::free"]
+        [::std::mem::offset_of!(flintdb_aggregate_groupby, free) - 8usize];
+    ["Offset of field: flintdb_aggregate_groupby::alias"]
+        [::std::mem::offset_of!(flintdb_aggregate_groupby, alias) - 16usize];
+    ["Offset of field: flintdb_aggregate_groupby::column"]
+        [::std::mem::offset_of!(flintdb_aggregate_groupby, column) - 24usize];
+    ["Offset of field: flintdb_aggregate_groupby::type_"]
+        [::std::mem::offset_of!(flintdb_aggregate_groupby, type_) - 32usize];
+    ["Offset of field: flintdb_aggregate_groupby::get"]
+        [::std::mem::offset_of!(flintdb_aggregate_groupby, get) - 40usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_aggregate_condition {
     pub ok: ::std::option::Option<
         unsafe extern "C" fn(
-            cond: *const aggregate_condition,
-            r: *const row,
+            cond: *const flintdb_aggregate_condition,
+            r: *const flintdb_row,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> i8_,
     >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of aggregate_condition"][::std::mem::size_of::<aggregate_condition>() - 8usize];
-    ["Alignment of aggregate_condition"][::std::mem::align_of::<aggregate_condition>() - 8usize];
-    ["Offset of field: aggregate_condition::ok"]
-        [::std::mem::offset_of!(aggregate_condition, ok) - 0usize];
+    ["Size of flintdb_aggregate_condition"]
+        [::std::mem::size_of::<flintdb_aggregate_condition>() - 8usize];
+    ["Alignment of flintdb_aggregate_condition"]
+        [::std::mem::align_of::<flintdb_aggregate_condition>() - 8usize];
+    ["Offset of field: flintdb_aggregate_condition::ok"]
+        [::std::mem::offset_of!(flintdb_aggregate_condition, ok) - 0usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_aggregate_func {
     pub priv_: *mut ::std::os::raw::c_void,
-    pub free: ::std::option::Option<unsafe extern "C" fn(f: *mut aggregate_func)>,
+    pub free: ::std::option::Option<unsafe extern "C" fn(f: *mut flintdb_aggregate_func)>,
     pub name: ::std::option::Option<
-        unsafe extern "C" fn(f: *const aggregate_func) -> *const ::std::os::raw::c_char,
+        unsafe extern "C" fn(f: *const flintdb_aggregate_func) -> *const ::std::os::raw::c_char,
     >,
     pub alias: ::std::option::Option<
-        unsafe extern "C" fn(f: *const aggregate_func) -> *const ::std::os::raw::c_char,
+        unsafe extern "C" fn(f: *const flintdb_aggregate_func) -> *const ::std::os::raw::c_char,
     >,
-    pub type_:
-        ::std::option::Option<unsafe extern "C" fn(f: *const aggregate_func) -> variant_type>,
+    pub type_: ::std::option::Option<
+        unsafe extern "C" fn(f: *const flintdb_aggregate_func) -> flintdb_variant_type,
+    >,
     pub precision: ::std::option::Option<
-        unsafe extern "C" fn(f: *const aggregate_func) -> ::std::os::raw::c_int,
+        unsafe extern "C" fn(f: *const flintdb_aggregate_func) -> ::std::os::raw::c_int,
     >,
     pub condition: ::std::option::Option<
-        unsafe extern "C" fn(f: *const aggregate_func) -> *const aggregate_condition,
+        unsafe extern "C" fn(
+            f: *const flintdb_aggregate_func,
+        ) -> *const flintdb_aggregate_condition,
     >,
     pub row: ::std::option::Option<
         unsafe extern "C" fn(
-            f: *mut aggregate_func,
-            gk: *const aggregate_groupkey,
-            r: *const row,
+            f: *mut flintdb_aggregate_func,
+            gk: *const flintdb_aggregate_groupkey,
+            r: *const flintdb_row,
             e: *mut *mut ::std::os::raw::c_char,
         ),
     >,
     pub compute: ::std::option::Option<
         unsafe extern "C" fn(
-            f: *mut aggregate_func,
-            gk: *const aggregate_groupkey,
+            f: *mut flintdb_aggregate_func,
+            gk: *const flintdb_aggregate_groupkey,
             e: *mut *mut ::std::os::raw::c_char,
         ),
     >,
     pub result: ::std::option::Option<
         unsafe extern "C" fn(
-            f: *const aggregate_func,
-            gk: *const aggregate_groupkey,
+            f: *const flintdb_aggregate_func,
+            gk: *const flintdb_aggregate_groupkey,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> *const variant,
+        ) -> *const flintdb_variant,
     >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of aggregate_func"][::std::mem::size_of::<aggregate_func>() - 80usize];
-    ["Alignment of aggregate_func"][::std::mem::align_of::<aggregate_func>() - 8usize];
-    ["Offset of field: aggregate_func::priv_"]
-        [::std::mem::offset_of!(aggregate_func, priv_) - 0usize];
-    ["Offset of field: aggregate_func::free"]
-        [::std::mem::offset_of!(aggregate_func, free) - 8usize];
-    ["Offset of field: aggregate_func::name"]
-        [::std::mem::offset_of!(aggregate_func, name) - 16usize];
-    ["Offset of field: aggregate_func::alias"]
-        [::std::mem::offset_of!(aggregate_func, alias) - 24usize];
-    ["Offset of field: aggregate_func::type_"]
-        [::std::mem::offset_of!(aggregate_func, type_) - 32usize];
-    ["Offset of field: aggregate_func::precision"]
-        [::std::mem::offset_of!(aggregate_func, precision) - 40usize];
-    ["Offset of field: aggregate_func::condition"]
-        [::std::mem::offset_of!(aggregate_func, condition) - 48usize];
-    ["Offset of field: aggregate_func::row"][::std::mem::offset_of!(aggregate_func, row) - 56usize];
-    ["Offset of field: aggregate_func::compute"]
-        [::std::mem::offset_of!(aggregate_func, compute) - 64usize];
-    ["Offset of field: aggregate_func::result"]
-        [::std::mem::offset_of!(aggregate_func, result) - 72usize];
+    ["Size of flintdb_aggregate_func"][::std::mem::size_of::<flintdb_aggregate_func>() - 80usize];
+    ["Alignment of flintdb_aggregate_func"]
+        [::std::mem::align_of::<flintdb_aggregate_func>() - 8usize];
+    ["Offset of field: flintdb_aggregate_func::priv_"]
+        [::std::mem::offset_of!(flintdb_aggregate_func, priv_) - 0usize];
+    ["Offset of field: flintdb_aggregate_func::free"]
+        [::std::mem::offset_of!(flintdb_aggregate_func, free) - 8usize];
+    ["Offset of field: flintdb_aggregate_func::name"]
+        [::std::mem::offset_of!(flintdb_aggregate_func, name) - 16usize];
+    ["Offset of field: flintdb_aggregate_func::alias"]
+        [::std::mem::offset_of!(flintdb_aggregate_func, alias) - 24usize];
+    ["Offset of field: flintdb_aggregate_func::type_"]
+        [::std::mem::offset_of!(flintdb_aggregate_func, type_) - 32usize];
+    ["Offset of field: flintdb_aggregate_func::precision"]
+        [::std::mem::offset_of!(flintdb_aggregate_func, precision) - 40usize];
+    ["Offset of field: flintdb_aggregate_func::condition"]
+        [::std::mem::offset_of!(flintdb_aggregate_func, condition) - 48usize];
+    ["Offset of field: flintdb_aggregate_func::row"]
+        [::std::mem::offset_of!(flintdb_aggregate_func, row) - 56usize];
+    ["Offset of field: flintdb_aggregate_func::compute"]
+        [::std::mem::offset_of!(flintdb_aggregate_func, compute) - 64usize];
+    ["Offset of field: flintdb_aggregate_func::result"]
+        [::std::mem::offset_of!(flintdb_aggregate_func, result) - 72usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_aggregate_groupkey {
     pub priv_: *mut ::std::os::raw::c_void,
-    pub free: ::std::option::Option<unsafe extern "C" fn(g: *mut aggregate_groupkey)>,
+    pub free: ::std::option::Option<unsafe extern "C" fn(g: *mut flintdb_aggregate_groupkey)>,
     pub key: ::std::option::Option<
         unsafe extern "C" fn(
-            g: *const aggregate_groupkey,
+            g: *const flintdb_aggregate_groupkey,
             e: *mut *mut ::std::os::raw::c_char,
-        ) -> *mut row,
+        ) -> *mut flintdb_row,
     >,
     pub equals: ::std::option::Option<
         unsafe extern "C" fn(
-            g: *const aggregate_groupkey,
-            o: *const aggregate_groupkey,
+            g: *const flintdb_aggregate_groupkey,
+            o: *const flintdb_aggregate_groupkey,
             e: *mut *mut ::std::os::raw::c_char,
         ) -> i8_,
     >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of aggregate_groupkey"][::std::mem::size_of::<aggregate_groupkey>() - 32usize];
-    ["Alignment of aggregate_groupkey"][::std::mem::align_of::<aggregate_groupkey>() - 8usize];
-    ["Offset of field: aggregate_groupkey::priv_"]
-        [::std::mem::offset_of!(aggregate_groupkey, priv_) - 0usize];
-    ["Offset of field: aggregate_groupkey::free"]
-        [::std::mem::offset_of!(aggregate_groupkey, free) - 8usize];
-    ["Offset of field: aggregate_groupkey::key"]
-        [::std::mem::offset_of!(aggregate_groupkey, key) - 16usize];
-    ["Offset of field: aggregate_groupkey::equals"]
-        [::std::mem::offset_of!(aggregate_groupkey, equals) - 24usize];
+    ["Size of flintdb_aggregate_groupkey"]
+        [::std::mem::size_of::<flintdb_aggregate_groupkey>() - 32usize];
+    ["Alignment of flintdb_aggregate_groupkey"]
+        [::std::mem::align_of::<flintdb_aggregate_groupkey>() - 8usize];
+    ["Offset of field: flintdb_aggregate_groupkey::priv_"]
+        [::std::mem::offset_of!(flintdb_aggregate_groupkey, priv_) - 0usize];
+    ["Offset of field: flintdb_aggregate_groupkey::free"]
+        [::std::mem::offset_of!(flintdb_aggregate_groupkey, free) - 8usize];
+    ["Offset of field: flintdb_aggregate_groupkey::key"]
+        [::std::mem::offset_of!(flintdb_aggregate_groupkey, key) - 16usize];
+    ["Offset of field: flintdb_aggregate_groupkey::equals"]
+        [::std::mem::offset_of!(flintdb_aggregate_groupkey, equals) - 24usize];
 };
 unsafe extern "C" {
     pub fn aggregate_new(
         id: *const ::std::os::raw::c_char,
-        groupby: *mut *mut aggregate_groupby,
+        groupby: *mut *mut flintdb_aggregate_groupby,
         groupby_count: u16_,
-        funcs: *mut *mut aggregate_func,
+        funcs: *mut *mut flintdb_aggregate_func,
         func_count: u16_,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate;
+    ) -> *mut flintdb_aggregate;
 }
 unsafe extern "C" {
     pub fn groupby_new(
         alias: *const ::std::os::raw::c_char,
         column: *const ::std::os::raw::c_char,
-        type_: variant_type,
+        type_: flintdb_variant_type,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_groupby;
+    ) -> *mut flintdb_aggregate_groupby;
 }
 unsafe extern "C" {
     pub fn flintdb_func_count(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_func_distinct_count(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_func_distinct_hll_count(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_func_sum(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_func_avg(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_func_min(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_func_max(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_func_first(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_func_last(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_func_rowid(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_func_hash(
         name: *const ::std::os::raw::c_char,
         alias: *const ::std::os::raw::c_char,
-        type_: variant_type,
-        cond: aggregate_condition,
+        type_: flintdb_variant_type,
+        cond: flintdb_aggregate_condition,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_func;
+    ) -> *mut flintdb_aggregate_func;
 }
 unsafe extern "C" {
     pub fn flintdb_groupkey_from_row(
-        agg: *mut aggregate,
-        source: *const row,
+        agg: *mut flintdb_aggregate,
+        source: *const flintdb_row,
         columns: *mut *const ::std::os::raw::c_char,
         n: u16_,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut aggregate_groupkey;
+    ) -> *mut flintdb_aggregate_groupkey;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct flintdb_sql_result{
+pub struct flintdb_sql_result {
     pub affected: i64_,
     pub column_names: *mut *mut ::std::os::raw::c_char,
     pub column_count: ::std::os::raw::c_int,
-    pub row_cursor: *mut cursor_row,
-    pub close: ::std::option::Option<unsafe extern "C" fn(me: *mut sql_result)>,
+    pub row_cursor: *mut flintdb_cursor_row,
+    pub close: ::std::option::Option<unsafe extern "C" fn(me: *mut flintdb_sql_result)>,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of sql_result"][::std::mem::size_of::<sql_result>() - 40usize];
-    ["Alignment of sql_result"][::std::mem::align_of::<sql_result>() - 8usize];
-    ["Offset of field: sql_result::affected"]
-        [::std::mem::offset_of!(sql_result, affected) - 0usize];
-    ["Offset of field: sql_result::column_names"]
-        [::std::mem::offset_of!(sql_result, column_names) - 8usize];
-    ["Offset of field: sql_result::column_count"]
-        [::std::mem::offset_of!(sql_result, column_count) - 16usize];
-    ["Offset of field: sql_result::row_cursor"]
-        [::std::mem::offset_of!(sql_result, row_cursor) - 24usize];
-    ["Offset of field: sql_result::close"][::std::mem::offset_of!(sql_result, close) - 32usize];
+    ["Size of flintdb_sql_result"][::std::mem::size_of::<flintdb_sql_result>() - 40usize];
+    ["Alignment of flintdb_sql_result"][::std::mem::align_of::<flintdb_sql_result>() - 8usize];
+    ["Offset of field: flintdb_sql_result::affected"]
+        [::std::mem::offset_of!(flintdb_sql_result, affected) - 0usize];
+    ["Offset of field: flintdb_sql_result::column_names"]
+        [::std::mem::offset_of!(flintdb_sql_result, column_names) - 8usize];
+    ["Offset of field: flintdb_sql_result::column_count"]
+        [::std::mem::offset_of!(flintdb_sql_result, column_count) - 16usize];
+    ["Offset of field: flintdb_sql_result::row_cursor"]
+        [::std::mem::offset_of!(flintdb_sql_result, row_cursor) - 24usize];
+    ["Offset of field: flintdb_sql_result::close"]
+        [::std::mem::offset_of!(flintdb_sql_result, close) - 32usize];
 };
 unsafe extern "C" {
     pub fn flintdb_sql_exec(
         sql: *const ::std::os::raw::c_char,
         reserved: *mut ::std::os::raw::c_void,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut sql_result;
+    ) -> *mut flintdb_sql_result;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -8048,20 +8872,20 @@ unsafe extern "C" {
     pub fn flintdb_sql_parse(
         sql: *const ::std::os::raw::c_char,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut sql;
+    ) -> *mut flintdb_sql;
 }
 unsafe extern "C" {
     pub fn flintdb_sql_from_file(
         file: *const ::std::os::raw::c_char,
         e: *mut *mut ::std::os::raw::c_char,
-    ) -> *mut sql;
+    ) -> *mut flintdb_sql;
 }
 unsafe extern "C" {
-    pub fn flintdb_sql_free(s: *mut sql);
+    pub fn flintdb_sql_free(s: *mut flintdb_sql);
 }
 unsafe extern "C" {
     pub fn flintdb_sql_to_string(
-        in_: *mut sql,
+        in_: *mut flintdb_sql,
         s: *mut ::std::os::raw::c_char,
         len: ::std::os::raw::c_int,
         e: *mut *mut ::std::os::raw::c_char,
@@ -8069,8 +8893,8 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn flintdb_sql_to_meta(
-        in_: *mut sql,
-        out: *mut meta,
+        in_: *mut flintdb_sql,
+        out: *mut flintdb_meta,
         e: *mut *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }

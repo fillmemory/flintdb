@@ -677,7 +677,7 @@ EXCEPTION:
     return -1;
 }
 
-static void parquetfile_cursor_close(struct cursor_row *cursor) {
+static void parquetfile_cursor_close(struct flintdb_cursor_row *cursor) {
     if (!cursor)
         return;
     if (cursor->p) {
@@ -717,7 +717,7 @@ static void parquetfile_cursor_close(struct cursor_row *cursor) {
     FREE(cursor);
 }
 
-static struct flintdb_row *parquetfile_cursor_next(struct cursor_row *cursor, char **e) {
+static struct flintdb_row *parquetfile_cursor_next(struct flintdb_cursor_row *cursor, char **e) {
     if (!cursor || !cursor->p)
         return NULL;
     
@@ -911,9 +911,9 @@ EXCEPTION:
     return NULL;
 }
 
-static struct cursor_row *parquetfile_find(const struct flintdb_genericfile *me, struct limit limit, struct filter *filter, char **e) {
+static struct flintdb_cursor_row *parquetfile_find(const struct flintdb_genericfile *me, struct limit limit, struct filter *filter, char **e) {
     struct parquetfile_priv *priv = NULL;
-    struct cursor_row *cursor = NULL;
+    struct flintdb_cursor_row *cursor = NULL;
 
     if (!me || !me->priv)
         THROW(e, "invalid parquetfile");
@@ -941,7 +941,7 @@ static struct cursor_row *parquetfile_find(const struct flintdb_genericfile *me,
         error_msg = NULL;
     }
 
-    cursor = CALLOC(1, sizeof(struct cursor_row));
+    cursor = CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!cursor)
         THROW(e, "Failed to allocate memory for cursor");
     cursor->p = CALLOC(1, sizeof(struct parquetfile_cursor_priv));
@@ -991,7 +991,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct cursor_row *parquetfile_find_where(const struct flintdb_genericfile *me, const char *where, char **e) {
+static struct flintdb_cursor_row *parquetfile_find_where(const struct flintdb_genericfile *me, const char *where, char **e) {
     if (!me || !me->priv)
         return NULL;
 

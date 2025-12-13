@@ -8,16 +8,58 @@ include!("bindings.rs");
 use std::ffi::{CStr, CString};
 use std::ptr;
 
+// Type aliases for shorter names
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_NULL as VAR_NULL;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_ZERO as VAR_ZERO;
+pub use flintdb_variant_type_VARIANT_INT32 as VAR_INT32;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_UINT32 as VAR_UINT32;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_INT8 as VAR_INT8;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_UINT8 as VAR_UINT8;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_INT16 as VAR_INT16;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_UINT16 as VAR_UINT16;
+pub use flintdb_variant_type_VARIANT_INT64 as VAR_INT64;
+pub use flintdb_variant_type_VARIANT_DOUBLE as VAR_DOUBLE;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_FLOAT as VAR_FLOAT;
+pub use flintdb_variant_type_VARIANT_STRING as VAR_STRING;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_DECIMAL as VAR_DECIMAL;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_BYTES as VAR_BYTES;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_DATE as VAR_DATE;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_TIME as VAR_TIME;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_UUID as VAR_UUID;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_IPV6 as VAR_IPV6;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_BLOB as VAR_BLOB;
+#[allow(unused_imports)]
+pub use flintdb_variant_type_VARIANT_OBJECT as VAR_OBJECT;
+
+// Open mode aliases
+pub use flintdb_open_mode_FLINTDB_RDONLY as RDONLY;
+pub use flintdb_open_mode_FLINTDB_RDWR as RDWR;
+
 // Safe Rust wrappers
 pub struct Meta {
-    inner: meta,
+    inner: flintdb_meta,
 }
 
 impl Meta {
-    pub fn new(tablename: &str) -> Result<Self, String> {
-        let c_tablename = CString::new(tablename).unwrap();
+    pub fn new(flintdb_tablename: &str) -> Result<Self, String> {
+        let c_flintdb_tablename = CString::new(flintdb_tablename).unwrap();
         let mut err: *mut ::std::os::raw::c_char = ptr::null_mut();
-        let inner = unsafe { flintdb_meta_new(c_tablename.as_ptr(), &mut err) };
+        let inner = unsafe { flintdb_meta_new(c_flintdb_tablename.as_ptr(), &mut err) };
         check_error(err)?;
         Ok(Meta { inner })
     }
@@ -25,7 +67,7 @@ impl Meta {
     pub fn add_column(
         &mut self,
         name: &str,
-        vtype: variant_type,
+        vtype: flintdb_variant_type,
         size: i32,
         scale: i16,
         nullspec: u32,
@@ -93,16 +135,16 @@ impl Meta {
         Ok(sql.to_string_lossy().into_owned())
     }
 
-    pub fn as_ptr(&self) -> *const meta {
-        &self.inner as *const meta
+    pub fn as_ptr(&self) -> *const flintdb_meta {
+        &self.inner as *const flintdb_meta
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut meta {
-        &mut self.inner as *mut meta
+    pub fn as_mut_ptr(&mut self) -> *mut flintdb_meta {
+        &mut self.inner as *mut flintdb_meta
     }
 
-    fn as_mut_ptr_for_row(&mut self) -> *mut meta {
-        &mut self.inner as *mut meta
+    fn as_mut_ptr_for_row(&mut self) -> *mut flintdb_meta {
+        &mut self.inner as *mut flintdb_meta
     }
 }
 
@@ -113,15 +155,15 @@ impl Drop for Meta {
 }
 
 pub struct Table {
-    ptr: *mut table,
+    ptr: *mut flintdb_table,
 }
 
 impl Table {
-    pub fn open(tablename: &str, mode: open_mode, mt: Option<&Meta>) -> Result<Self, String> {
-        let c_tablename = CString::new(tablename).unwrap();
+    pub fn open(flintdb_tablename: &str, mode: flintdb_open_mode, mt: Option<&Meta>) -> Result<Self, String> {
+        let c_flintdb_tablename = CString::new(flintdb_tablename).unwrap();
         let mut err: *mut ::std::os::raw::c_char = ptr::null_mut();
-        let meta_ptr = mt.map_or(ptr::null(), |m| m.as_ptr());
-        let ptr = unsafe { flintdb_table_open(c_tablename.as_ptr(), mode, meta_ptr, &mut err) };
+        let flintdb_meta_ptr = mt.map_or(ptr::null(), |m| m.as_ptr());
+        let ptr = unsafe { flintdb_table_open(c_flintdb_tablename.as_ptr(), mode, flintdb_meta_ptr, &mut err) };
         check_error(err)?;
         if ptr.is_null() {
             return Err("Failed to open table".to_string());
@@ -129,10 +171,10 @@ impl Table {
         Ok(Table { ptr })
     }
 
-    pub fn drop_table(tablename: &str) -> Result<(), String> {
-        let c_tablename = CString::new(tablename).unwrap();
+    pub fn drop_table(flintdb_tablename: &str) -> Result<(), String> {
+        let c_flintdb_tablename = CString::new(flintdb_tablename).unwrap();
         let mut err: *mut ::std::os::raw::c_char = ptr::null_mut();
-        unsafe { flintdb_table_drop(c_tablename.as_ptr(), &mut err) };
+        unsafe { flintdb_table_drop(c_flintdb_tablename.as_ptr(), &mut err) };
         check_error(err)
     }
 
@@ -150,7 +192,7 @@ impl Table {
         Ok(rowid)
     }
 
-    pub fn read(&self, rowid: i64) -> Result<*const row, String> {
+    pub fn read(&self, rowid: i64) -> Result<*const flintdb_row, String> {
         let mut err: *mut ::std::os::raw::c_char = ptr::null_mut();
         let tbl = unsafe { &*self.ptr };
         let row_ptr = unsafe {
@@ -197,15 +239,15 @@ impl Drop for Table {
 }
 
 pub struct GenericFile {
-    ptr: *mut genericfile,
+    ptr: *mut flintdb_genericfile,
 }
 
 impl GenericFile {
-    pub fn open(filepath: &str, mode: open_mode, mt: Option<&Meta>) -> Result<Self, String> {
+    pub fn open(filepath: &str, mode: flintdb_open_mode, mt: Option<&Meta>) -> Result<Self, String> {
         let c_filepath = CString::new(filepath).unwrap();
         let mut err: *mut ::std::os::raw::c_char = ptr::null_mut();
-        let meta_ptr = mt.map_or(ptr::null(), |m| m.as_ptr());
-        let ptr = unsafe { flintdb_genericfile_open(c_filepath.as_ptr(), mode, meta_ptr, &mut err) };
+        let flintdb_meta_ptr = mt.map_or(ptr::null(), |m| m.as_ptr());
+        let ptr = unsafe { flintdb_genericfile_open(c_filepath.as_ptr(), mode, flintdb_meta_ptr, &mut err) };
         check_error(err)?;
         if ptr.is_null() {
             return Err("Failed to open file".to_string());
@@ -267,7 +309,7 @@ impl Drop for GenericFile {
 }
 
 pub struct Row {
-    pub ptr: *mut row,
+    pub ptr: *mut flintdb_row
 }
 
 impl Row {
@@ -342,7 +384,7 @@ impl Drop for Row {
 }
 
 pub struct CursorI64 {
-    ptr: *mut cursor_i64,
+    ptr: *mut flintdb_cursor_i64,
 }
 
 impl CursorI64 {
@@ -376,7 +418,7 @@ impl Drop for CursorI64 {
 }
 
 pub struct CursorRow {
-    ptr: *mut cursor_row,
+    ptr: *mut flintdb_cursor_row,
 }
 
 impl CursorRow {
@@ -410,7 +452,7 @@ impl Drop for CursorRow {
 }
 
 // Utility functions
-pub fn print_row_safe(row: *const row) {
+pub fn print_row_safe(row: *const flintdb_row) {
     unsafe { flintdb_print_row(row) };
 }
 

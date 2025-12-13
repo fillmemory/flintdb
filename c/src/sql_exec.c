@@ -113,9 +113,9 @@ static struct flintdb_sql_result * sql_exec_fast_count(struct flintdb_sql *q, st
 // Other helpers used before their definitions
 static struct flintdb_table * sql_exec_table_borrow(const char *table, char **e);
 static int has_aggregate_function(struct flintdb_sql *q);
-static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_row *cr, struct flintdb_genericfile *gf, char **e);
-static struct flintdb_sql_result * sql_exec_select_groupby_i64(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_i64 *cr, char **e);
-static struct flintdb_sql_result * sql_exec_sort(struct cursor_row *cr, const char *orderby, const char *limit, char **e);
+static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e);
+static struct flintdb_sql_result * sql_exec_select_groupby_i64(struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_i64 *cr, char **e);
+static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, const char *orderby, const char *limit, char **e);
 
 extern const char * flintdb_variant_type_name(enum flintdb_variant_type  t);
 
@@ -516,7 +516,7 @@ EXCEPTION:
 
 static int sql_exec_update(struct flintdb_sql *q, char **e) {
     struct flintdb_table *table = NULL;
-    struct cursor_i64 *cursor = NULL;
+    struct flintdb_cursor_i64 *cursor = NULL;
     struct flintdb_row *r = NULL;
     int affected = 0;
 
@@ -589,7 +589,7 @@ EXCEPTION:
 
 static int sql_exec_delete(struct flintdb_sql *q, char **e) {
     struct flintdb_table *table = NULL;
-    struct cursor_i64 *cursor = NULL;
+    struct flintdb_cursor_i64 *cursor = NULL;
     int affected = 0;
 
     if (strempty(q->where))
@@ -921,7 +921,7 @@ EXCEPTION :
     return -1;
 }
 
-struct cursor_array_priv {
+struct flintdb_cursor_array_priv {
     struct list *rows; // arraylist of struct flintdb_row*
     int index;         // current iteration index
     struct flintdb_meta *meta; // meta for the synthetic rows (Column,Type,Key,Default)
@@ -933,10 +933,10 @@ static void list_row_dealloc(valtype v) {
         r->free(r);
 }
 
-static struct flintdb_row *array_cursor_next(struct cursor_row *c, char **e) {
+static struct flintdb_row *array_cursor_next(struct flintdb_cursor_row *c, char **e) {
     if (!c || !c->p)
         return NULL;
-    struct cursor_array_priv *p = (struct cursor_array_priv *)c->p;
+    struct flintdb_cursor_array_priv *p = (struct flintdb_cursor_array_priv *)c->p;
     if (!p->rows)
         return NULL;
     if (p->index >= p->rows->count(p->rows))
@@ -948,10 +948,10 @@ static struct flintdb_row *array_cursor_next(struct cursor_row *c, char **e) {
     return r;
 }
 
-static void array_cursor_close(struct cursor_row *c) {
+static void array_cursor_close(struct flintdb_cursor_row *c) {
     if (!c)
         return;
-    struct cursor_array_priv *p = (struct cursor_array_priv *)c->p;
+    struct flintdb_cursor_array_priv *p = (struct flintdb_cursor_array_priv *)c->p;
     if (p) {
         if (p->rows) {
             p->rows->free(p->rows); // will free rows via dealloc
@@ -970,8 +970,8 @@ static void array_cursor_close(struct cursor_row *c) {
 
 static struct flintdb_sql_result * sql_exec_describe(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
-    struct cursor_array_priv *priv = NULL;
-    struct cursor_row *c = NULL;
+    struct flintdb_cursor_array_priv *priv = NULL;
+    struct flintdb_cursor_row *c = NULL;
     struct flintdb_table *table = NULL;
     struct flintdb_genericfile *gf = NULL;
     const struct flintdb_meta *m = NULL;
@@ -1016,7 +1016,7 @@ static struct flintdb_sql_result * sql_exec_describe(struct flintdb_sql *q, char
     if (e && *e) THROW_S(e);
 
     // Build rows into an array-backed cursor
-    priv = (struct cursor_array_priv *)CALLOC(1, sizeof(struct cursor_array_priv));
+    priv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
     if (!priv) THROW(e, "Out of memory");
     priv->rows = arraylist_new(m->columns.length);
     if (!priv->rows) THROW(e, "Out of memory");
@@ -1059,7 +1059,7 @@ static struct flintdb_sql_result * sql_exec_describe(struct flintdb_sql *q, char
     }
 
     // Build cursor
-    c = (struct cursor_row *)CALLOC(1, sizeof(struct cursor_row));
+    c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!c) THROW(e, "Out of memory");
     c->p = priv;
     c->next = array_cursor_next;
@@ -1101,8 +1101,8 @@ EXCEPTION:
 
 static struct flintdb_sql_result * sql_exec_meta(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
-    struct cursor_array_priv *priv = NULL;
-    struct cursor_row *c = NULL;
+    struct flintdb_cursor_array_priv *priv = NULL;
+    struct flintdb_cursor_row *c = NULL;
     struct flintdb_table *table = NULL;
     struct flintdb_genericfile *gf = NULL;
     const struct flintdb_meta *m = NULL;
@@ -1130,7 +1130,7 @@ static struct flintdb_sql_result * sql_exec_meta(struct flintdb_sql *q, char **e
     if (e && *e) THROW_S(e);
 
     // Build one-row result with the SQL stringified meta
-    priv = (struct cursor_array_priv *)CALLOC(1, sizeof(struct cursor_array_priv));
+    priv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
     if (!priv) THROW(e, "Out of memory");
     priv->rows = arraylist_new(1);
     if (!priv->rows) THROW(e, "Out of memory");
@@ -1149,7 +1149,7 @@ static struct flintdb_sql_result * sql_exec_meta(struct flintdb_sql *q, char **e
     if (e && *e) THROW_S(e);
 
     // Build cursor
-    c = (struct cursor_row *)CALLOC(1, sizeof(struct cursor_row));
+    c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!c) THROW(e, "Out of memory");
     c->p = priv;
     c->next = array_cursor_next;
@@ -1188,8 +1188,8 @@ EXCEPTION:
 
 static struct flintdb_sql_result * sql_exec_show_tables(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
-    struct cursor_array_priv *priv = NULL;
-    struct cursor_row *c = NULL;
+    struct flintdb_cursor_array_priv *priv = NULL;
+    struct flintdb_cursor_row *c = NULL;
     struct dir_stack_entry *stack = NULL; // initialize early to avoid uninitialized warnings in cleanup
 
     // Determine directory to scan
@@ -1226,7 +1226,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(struct flintdb_sql *q, c
     flintdb_meta_columns_add(dm, "Path", VARIANT_STRING, 512, 0, SPEC_NULLABLE, NULL, NULL, e);
     if (e && *e) THROW_S(e);
 
-    priv = (struct cursor_array_priv *)CALLOC(1, sizeof(struct cursor_array_priv));
+    priv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
     if (!priv) THROW(e, "Out of memory");
     priv->rows = arraylist_new(128);
     if (!priv->rows) THROW(e, "Out of memory");
@@ -1467,7 +1467,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(struct flintdb_sql *q, c
     }
 
     // Build cursor
-    c = (struct cursor_row *)CALLOC(1, sizeof(struct cursor_row));
+    c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!c) THROW(e, "Out of memory");
     c->p = priv;
     c->next = array_cursor_next;
@@ -1518,7 +1518,7 @@ EXCEPTION:
 
 // DISTINCT Cursor wrapper
 struct distinct_cursor_priv {
-    struct cursor_row *inner_cursor;
+    struct flintdb_cursor_row *inner_cursor;
     struct roaringbitmap *seen_hashes;
     struct limit limit;
     int col_count;                                         // number of columns to hash for DISTINCT; 0 means use all columns
@@ -1573,7 +1573,7 @@ static int distinct_row_hash31(const struct flintdb_row *r, const char cols[][SQ
 }
 
 UNUSED_FN
-static struct flintdb_row *distinct_cursor_next(struct cursor_row *c, char **e) {
+static struct flintdb_row *distinct_cursor_next(struct flintdb_cursor_row *c, char **e) {
     if (!c || !c->p)
         return NULL;
     struct distinct_cursor_priv *priv = (struct distinct_cursor_priv *)c->p;
@@ -1613,7 +1613,7 @@ static struct flintdb_row *distinct_cursor_next(struct cursor_row *c, char **e) 
 }
 
 UNUSED_FN
-static void distinct_cursor_close(struct cursor_row *c) {
+static void distinct_cursor_close(struct flintdb_cursor_row *c) {
     if (!c)
         return;
     struct distinct_cursor_priv *priv = (struct distinct_cursor_priv *)c->p;
@@ -1627,7 +1627,7 @@ static void distinct_cursor_close(struct cursor_row *c) {
     FREE(c);
 }
 
-static struct cursor_row *distinct_cursor_wrap(struct flintdb_sql *q, struct cursor_row *inner, struct limit limit, char **e) {
+static struct flintdb_cursor_row *distinct_cursor_wrap(struct flintdb_sql *q, struct flintdb_cursor_row *inner, struct limit limit, char **e) {
     if (!inner) THROW(e, "DISTINCT requires an input cursor");
     if (!q) THROW(e, "Invalid SQL context for DISTINCT");
 
@@ -1650,7 +1650,7 @@ static struct cursor_row *distinct_cursor_wrap(struct flintdb_sql *q, struct cur
         }
     }
 
-    struct cursor_row *wrap = (struct cursor_row *)CALLOC(1, sizeof(struct cursor_row));
+    struct flintdb_cursor_row *wrap = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!wrap)
         THROW(e, "Out of memory");
     wrap->p = priv;
@@ -1668,7 +1668,7 @@ EXCEPTION:
 
 struct gf_cursor_priv {
     struct flintdb_genericfile *gf;
-    struct cursor_row *inner_cursor;
+    struct flintdb_cursor_row *inner_cursor;
     struct limit limit;
     // projection: length = number of SELECT expressions, values are source column indexes
     int proj_count;
@@ -1678,7 +1678,7 @@ struct gf_cursor_priv {
     struct flintdb_meta *proj_meta;
 };
 
-static struct flintdb_row *gf_cursor_next(struct cursor_row *c, char **e) {
+static struct flintdb_row *gf_cursor_next(struct flintdb_cursor_row *c, char **e) {
     struct gf_cursor_priv *priv = (struct gf_cursor_priv *)c->p;
     if (!priv)
         return NULL;
@@ -1761,7 +1761,7 @@ static struct flintdb_row *gf_cursor_next(struct cursor_row *c, char **e) {
     return proj_row;
 }
 
-static void gf_cursor_close(struct cursor_row *c) {
+static void gf_cursor_close(struct flintdb_cursor_row *c) {
     if (!c)
         return;
     struct gf_cursor_priv *priv = (struct gf_cursor_priv *)c->p;
@@ -1785,8 +1785,8 @@ static struct flintdb_sql_result * sql_exec_gf_fast_count(struct flintdb_sql *q,
 static struct flintdb_sql_result * sql_exec_gf_select(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_genericfile *gf = NULL;
-    struct cursor_row *c = NULL;
-    struct cursor_row *wrapped_cursor = NULL;
+    struct flintdb_cursor_row *c = NULL;
+    struct flintdb_cursor_row *wrapped_cursor = NULL;
     struct gf_cursor_priv *priv = NULL;
 
 // Fast COUNT(*) for generic files
@@ -1859,7 +1859,7 @@ static struct flintdb_sql_result * sql_exec_gf_select(struct flintdb_sql *q, cha
     if (e && *e) THROW_S(e);
     if (!m) THROW(e, "Missing file meta");
 
-    wrapped_cursor = (struct cursor_row *)CALLOC(1, sizeof(struct cursor_row));
+    wrapped_cursor = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!wrapped_cursor) THROW(e, "Out of memory");
     wrapped_cursor->p = priv;
     wrapped_cursor->next = gf_cursor_next;
@@ -2029,7 +2029,7 @@ static struct flintdb_sql_result * sql_exec_gf_fast_count(struct flintdb_sql *q,
         THROW_S(e);
     }
 
-    struct cursor_array_priv *apriv = (struct cursor_array_priv *)CALLOC(1, sizeof(struct cursor_array_priv));
+    struct flintdb_cursor_array_priv *apriv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
     if (!apriv) {
         gf->close(gf);
         THROW(e, "Out of memory");
@@ -2059,7 +2059,7 @@ static struct flintdb_sql_result * sql_exec_gf_fast_count(struct flintdb_sql *q,
         THROW_S(e);
     }
 
-    struct cursor_row *ac = (struct cursor_row *)CALLOC(1, sizeof(struct cursor_row));
+    struct flintdb_cursor_row *ac = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!ac) {
         gf->close(gf);
         THROW(e, "Out of memory");
@@ -2096,7 +2096,7 @@ EXCEPTION:
 
 struct flintdb_table_cursor_priv {
     struct flintdb_table *table;
-    struct cursor_i64 *cr;
+    struct flintdb_cursor_i64 *cr;
     struct limit limit;
     // projection: length = number of SELECT expressions, values are source column indexes
     int proj_count;
@@ -2106,7 +2106,7 @@ struct flintdb_table_cursor_priv {
     struct flintdb_row *stream_row; // reused decode buffer for SELECT * streaming (bypass cache)
 };
 
-static struct flintdb_row *sql_table_cursor_next(struct cursor_row *c, char **e) {
+static struct flintdb_row *sql_table_cursor_next(struct flintdb_cursor_row *c, char **e) {
     struct flintdb_table_cursor_priv *priv = (struct flintdb_table_cursor_priv *)c->p;
 
     // Apply LIMIT
@@ -2186,7 +2186,7 @@ static struct flintdb_row *sql_table_cursor_next(struct cursor_row *c, char **e)
     return out; // caller must NOT free (owned by cursor, reused per row)
 }
 
-static void sql_table_cursor_close(struct cursor_row *c) {
+static void sql_table_cursor_close(struct flintdb_cursor_row *c) {
     if (!c)
         return;
 
@@ -2282,7 +2282,7 @@ static struct flintdb_sql_result * sql_exec_fast_count(struct flintdb_sql *q, st
     flintdb_meta_columns_add(dm, alias, VARIANT_INT64, 8, 0, SPEC_NULLABLE, NULL, NULL, e);
     if (e && *e) THROW_S(e);
 
-    struct cursor_array_priv *apriv = (struct cursor_array_priv *)CALLOC(1, sizeof(struct cursor_array_priv));
+    struct flintdb_cursor_array_priv *apriv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
     if (!apriv) THROW(e, "Out of memory");
     apriv->rows = arraylist_new(visible > 0 ? 1 : 0);
     if (!apriv->rows) THROW(e, "Out of memory");
@@ -2301,7 +2301,7 @@ static struct flintdb_sql_result * sql_exec_fast_count(struct flintdb_sql *q, st
         if (e && *e) THROW_S(e);
     }
 
-    struct cursor_row *ac = (struct cursor_row *)CALLOC(1, sizeof(struct cursor_row));
+    struct flintdb_cursor_row *ac = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!ac) THROW(e, "Out of memory");
     ac->p = apriv;
     ac->next = array_cursor_next;
@@ -2324,8 +2324,8 @@ EXCEPTION:
 
 static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
-    struct cursor_i64 *cr = NULL;
-    struct cursor_row *c = NULL;
+    struct flintdb_cursor_i64 *cr = NULL;
+    struct flintdb_cursor_row *c = NULL;
     struct flintdb_table_cursor_priv *priv = NULL;
     struct flintdb_table *table = NULL;
 
@@ -2363,7 +2363,7 @@ static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, char *
         priv->cr = cr;
         priv->limit = NOLIMIT; // limit will be applied by sorter wrapper
 
-        c = (struct cursor_row *)CALLOC(1, sizeof(struct cursor_row));
+        c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
         if (!c) THROW(e, "Out of memory");
         c->p = priv;
         c->next = sql_table_cursor_next;
@@ -2426,7 +2426,7 @@ static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, char *
         priv->proj_count = result->column_count;
     }
 
-    c = (struct cursor_row *)CALLOC(1, sizeof(struct cursor_row));
+    c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!c) THROW(e, "Out of memory");
     c->p = priv;
     c->next = sql_table_cursor_next;
@@ -2506,7 +2506,7 @@ struct flintdb_filesort_cursor_priv {
     struct limit limit;
 };
 
-static struct flintdb_row *filesort_cursor_next(struct cursor_row *c, char **e) {
+static struct flintdb_row *filesort_cursor_next(struct flintdb_cursor_row *c, char **e) {
     struct flintdb_filesort_cursor_priv *p = (struct flintdb_filesort_cursor_priv *)c->p;
     if (!p->limit.remains(&p->limit))
         return NULL;
@@ -2521,7 +2521,7 @@ static struct flintdb_row *filesort_cursor_next(struct cursor_row *c, char **e) 
     return r ? r->copy(r, e) : NULL;
 }
 
-static void filesort_cursor_close(struct cursor_row *c) {
+static void filesort_cursor_close(struct flintdb_cursor_row *c) {
     if (!c)
         return;
     struct flintdb_filesort_cursor_priv *p = (struct flintdb_filesort_cursor_priv *)c->p;
@@ -2735,7 +2735,7 @@ static int apply_having_filter(struct flintdb_row **rows, int row_count, const c
 }
 
 // New implementation using aggregate API from aggregate.c
-static struct flintdb_sql_result * sql_exec_select_groupby_i64(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_i64 *cr, char **e) {
+static struct flintdb_sql_result * sql_exec_select_groupby_i64(struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_i64 *cr, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_aggregate *agg = NULL;
     struct flintdb_aggregate_groupby **groupbys = NULL;
@@ -2913,12 +2913,12 @@ static struct flintdb_sql_result * sql_exec_select_groupby_i64(struct flintdb_sq
             FREE(out_rows);
         out_rows = NULL; // ownership moved
 
-        struct cursor_array_priv *apriv = CALLOC(1, sizeof(struct cursor_array_priv));
+        struct flintdb_cursor_array_priv *apriv = CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
         if (!apriv) THROW(e, "Out of memory");
         apriv->rows = rows_list;
         apriv->index = 0;
         apriv->meta = NULL; // not required; row meta used directly
-        struct cursor_row *ac = CALLOC(1, sizeof(struct cursor_row));
+        struct flintdb_cursor_row *ac = CALLOC(1, sizeof(struct flintdb_cursor_row));
         if (!ac) THROW(e, "Out of memory");
         ac->p = apriv;
         ac->next = array_cursor_next;
@@ -2987,7 +2987,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_i64(struct flintdb_sq
     priv->row_count = sorter->rows(sorter);
     priv->limit = !strempty(q->limit) ? limit_parse(q->limit) : NOLIMIT;
 
-    struct cursor_row *wrapped_cursor = CALLOC(1, sizeof(struct cursor_row));
+    struct flintdb_cursor_row *wrapped_cursor = CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!wrapped_cursor) THROW(e, "Out of memory");
     wrapped_cursor->p = priv;
     wrapped_cursor->next = filesort_cursor_next;
@@ -3032,7 +3032,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_row *cr, struct flintdb_genericfile *gf, char **e);
+static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e);
 
 // (GROUP BY implementation moved earlier; duplicate wrapper & comparator removed)
 /* forward declaration updated above */
@@ -3041,7 +3041,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sq
 // parse_groupby_columns moved to sql.c (sql_parse_groupby_columns)
 
 // GROUP BY implementation for generic cursor_row (generic files) using new aggregate API
-static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_row *cr, struct flintdb_genericfile *gf, char **e) {
+static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e) {
     (void)table;
     struct flintdb_sql_result*result = NULL;
     struct flintdb_aggregate *agg = NULL;
@@ -3228,12 +3228,12 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sq
             FREE(out_rows);
         out_rows = NULL;
 
-        struct cursor_array_priv *apriv = CALLOC(1, sizeof(struct cursor_array_priv));
+        struct flintdb_cursor_array_priv *apriv = CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
         if (!apriv) THROW(e, "Out of memory");
         apriv->rows = rows_list;
         apriv->index = 0;
         apriv->meta = NULL;
-        struct cursor_row *ac = CALLOC(1, sizeof(struct cursor_row));
+        struct flintdb_cursor_row *ac = CALLOC(1, sizeof(struct flintdb_cursor_row));
         if (!ac) THROW(e, "Out of memory");
         ac->p = apriv;
         ac->next = array_cursor_next;
@@ -3296,7 +3296,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sq
     priv->row_count = sorter->rows(sorter);
     priv->limit = !strempty(q->limit) ? limit_parse(q->limit) : NOLIMIT;
 
-    struct cursor_row *wrapped_cursor = CALLOC(1, sizeof(struct cursor_row));
+    struct flintdb_cursor_row *wrapped_cursor = CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!wrapped_cursor) THROW(e, "Out of memory");
     wrapped_cursor->p = priv;
     wrapped_cursor->next = filesort_cursor_next;
@@ -3338,7 +3338,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result * sql_exec_sort(struct cursor_row *cr, const char *orderby, const char *limit, char **e) {
+static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, const char *orderby, const char *limit, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_filesort *sorter = NULL;
     if (!cr || strempty(orderby))
@@ -3391,7 +3391,7 @@ static struct flintdb_sql_result * sql_exec_sort(struct cursor_row *cr, const ch
     priv->current_idx = 0;
     priv->row_count = sorter->rows(sorter);
     priv->limit = !strempty(limit) ? limit_parse(limit) : NOLIMIT;
-    struct cursor_row *wrapped = CALLOC(1, sizeof(struct cursor_row));
+    struct flintdb_cursor_row *wrapped = CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!wrapped) THROW(e, "Out of memory");
     wrapped->p = priv;
     wrapped->next = filesort_cursor_next;

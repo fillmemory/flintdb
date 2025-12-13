@@ -151,7 +151,7 @@ struct jsonl_cursor_priv {
     char line[LINE_BUFSZ];      // current raw line buffer
 };
 
-static struct flintdb_row *jsonl_cursor_next(struct cursor_row *c, char **e) {
+static struct flintdb_row *jsonl_cursor_next(struct flintdb_cursor_row *c, char **e) {
     if (!c || !c->p)
         return NULL;
     struct jsonl_cursor_priv *cp = (struct jsonl_cursor_priv*)c->p;
@@ -238,7 +238,7 @@ EXCEPTION:
     return NULL;
 }
 
-static void jsonl_cursor_close(struct cursor_row *c) {
+static void jsonl_cursor_close(struct flintdb_cursor_row *c) {
     if (!c || !c->p)
         return;
     struct jsonl_cursor_priv *cp = (struct jsonl_cursor_priv*)c->p;
@@ -254,10 +254,10 @@ static void jsonl_cursor_close(struct cursor_row *c) {
     FREE(c);
 }
 
-static struct cursor_row *jsonlfile_find(const struct flintdb_genericfile *gf, struct limit limit, struct filter *filter, char **e) {
+static struct flintdb_cursor_row *jsonlfile_find(const struct flintdb_genericfile *gf, struct limit limit, struct filter *filter, char **e) {
     struct jsonlfile_priv *priv = NULL;
     struct bufio *bio = NULL;
-    struct cursor_row *cursor = NULL;
+    struct flintdb_cursor_row *cursor = NULL;
 
     if (!gf || !gf->priv)
         THROW(e, "invalid jsonlfile");
@@ -267,7 +267,7 @@ static struct cursor_row *jsonlfile_find(const struct flintdb_genericfile *gf, s
     if (e && *e)
         THROW_S(e);
 
-    cursor = CALLOC(1, sizeof(struct cursor_row));
+    cursor = CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!cursor)
         THROW(e, "Failed to allocate memory for cursor");
     cursor->p = CALLOC(1, sizeof(struct jsonl_cursor_priv));
@@ -301,7 +301,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct cursor_row *jsonlfile_find_where(const struct flintdb_genericfile *gf, const char *where, char **e) {
+static struct flintdb_cursor_row *jsonlfile_find_where(const struct flintdb_genericfile *gf, const char *where, char **e) {
     if (!gf || !gf->priv)
         return NULL;
 

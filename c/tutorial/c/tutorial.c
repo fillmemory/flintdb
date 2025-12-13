@@ -115,7 +115,7 @@ int tutorial_table_find() {
     printf("--- Running %s ---\n", __FUNCTION__);
     char *e = NULL;
     struct flintdb_table *tbl = NULL;
-    struct cursor_i64 *c = NULL;
+    struct flintdb_cursor_i64 *c = NULL;
 
     const char *tablename = "./temp/tutorial_customer.flintdb";
 
@@ -228,7 +228,7 @@ int tutorial_tsv_find() {
     printf("--- Running %s ---\n", __FUNCTION__);
     char *e = NULL;
     struct flintdb_genericfile *f = NULL;
-    struct cursor_row *c = NULL;
+    struct flintdb_cursor_row *c = NULL;
 
     const char *filepath = "./temp/tutorial_products.tsv";
 
@@ -356,7 +356,7 @@ int tutorial_table_update_delete() {
     printf("--- Running %s ---\n", __FUNCTION__);
     char *e = NULL;
     struct flintdb_table *tbl = NULL;
-    struct cursor_i64 *c = NULL;
+    struct flintdb_cursor_i64 *c = NULL;
 
     const char *tablename = "./temp/tutorial_customer.flintdb";
 
@@ -460,7 +460,7 @@ int tutorial_aggregate() {
     char *e = NULL;
     struct flintdb_table *tbl = NULL;
     struct flintdb_aggregate *agg = NULL;
-    struct cursor_i64 *c = NULL;
+    struct flintdb_cursor_i64 *c = NULL;
 
     const char *tablename = "./temp/tutorial_sales.flintdb";
     flintdb_table_drop(tablename, NULL);

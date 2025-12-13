@@ -1504,7 +1504,7 @@ int main(int argc, char **argv) {
         THROW_S(e);
     TRACE("TABLE ROWS: %lld", rows);
 
-    struct cursor_i64 *c = tbl->find(tbl, "USE INDEX(PRIMARY DESC) WHERE customer_id > 5000 AND customer_id < 5007 LIMIT 10", &e);
+    struct flintdb_cursor_i64 *c = tbl->find(tbl, "USE INDEX(PRIMARY DESC) WHERE customer_id > 5000 AND customer_id < 5007 LIMIT 10", &e);
     if (e)
         THROW_S(e);
     if (c) {
@@ -1718,7 +1718,7 @@ int main(int argc, char **argv) {
     
     // Test 1: Read first 10 rows
     printf("\n--- Test 1: Read first 10 rows ---\n");
-    struct cursor_row *c1 = f->find(f, "LIMIT 10", &e);
+    struct flintdb_cursor_row *c1 = f->find(f, "LIMIT 10", &e);
     if (e) THROW_S(e);
     if (!c1) THROW(&e, "Failed to create cursor");
     
@@ -1753,7 +1753,7 @@ int main(int argc, char **argv) {
     
     // Test 2: Read with WHERE filter
     printf("\n--- Test 2: Read with WHERE filter (id >= 10 AND id < 15) ---\n");
-    struct cursor_row *c2 = f->find(f, "WHERE id >= 10 AND id < 15", &e);
+    struct flintdb_cursor_row *c2 = f->find(f, "WHERE id >= 10 AND id < 15", &e);
     if (e) THROW_S(e);
     if (!c2) THROW(&e, "Failed to create cursor");
     
@@ -1791,7 +1791,7 @@ int main(int argc, char **argv) {
     
     // Test 3: Read with LIMIT and OFFSET
     printf("\n--- Test 3: Read with OFFSET 50 LIMIT 5 ---\n");
-    struct cursor_row *c3 = f->find(f, "LIMIT 5 OFFSET 50", &e);
+    struct flintdb_cursor_row *c3 = f->find(f, "LIMIT 5 OFFSET 50", &e);
     if (e) THROW_S(e);
     if (!c3) THROW(&e, "Failed to create cursor");
     
@@ -1822,7 +1822,7 @@ int main(int argc, char **argv) {
     
     // Test 4: Full scan statistics
     printf("\n--- Test 4: Full scan statistics ---\n");
-    struct cursor_row *c4 = f->find(f, "", &e);
+    struct flintdb_cursor_row *c4 = f->find(f, "", &e);
     if (e) THROW_S(e);
     if (!c4) THROW(&e, "Failed to create cursor");
     
@@ -2988,7 +2988,7 @@ int main(int argc, char **argv) {
         THROW_S(e);
 
     // Iterate all rows from source file and insert into the table
-    struct cursor_row *cur = f->find(f, NULL, &e);
+    struct flintdb_cursor_row *cur = f->find(f, NULL, &e);
     if (e || !cur)
         THROW(&e, "find cursor failed: %s", e ? e : "unknown error");
 
@@ -3626,7 +3626,7 @@ int main(int argc, char **argv) {
         THROW(&e, "genericfile_open failed: %s", e ? e : "unknown error");
 
     // Iterate all rows from source file and insert into the table
-    struct cursor_row *cur = f->find(f, NULL, &e);
+    struct flintdb_cursor_row *cur = f->find(f, NULL, &e);
     if (e || !cur)
         THROW(&e, "find cursor failed: %s", e ? e : "unknown error");
 
@@ -3738,7 +3738,7 @@ int main(int argc, char **argv) {
     // Read some sample rows and validate known values
     const char *q = ""; //"WHERE l_orderkey >= 3 AND l_orderkey <= 5 LIMIT 10";
     LOG("Query: %s", q);
-    struct cursor_i64 *c = t->find(t, q, &e);
+    struct flintdb_cursor_i64 *c = t->find(t, q, &e);
     if (e)
         THROW(&e, "find failed: %s", e);
     if (!c)
@@ -3875,7 +3875,7 @@ int main(int argc, char **argv) {
         THROW(&e, "genericfile_open failed: %s", e ? e : "unknown error");
 
     // Iterate all rows from source file and insert into the table
-    struct cursor_row *cur = f->find(f, NULL, &e);
+    struct flintdb_cursor_row *cur = f->find(f, NULL, &e);
     if (e || !cur)
         THROW(&e, "find cursor failed: %s", e ? e : "unknown error");
 

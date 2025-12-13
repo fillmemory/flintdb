@@ -89,7 +89,7 @@ struct find_context {
     struct filter_layers *filters;
     enum order order;
     i8 index;
-    struct cursor_i64 *base_cursor; // B+Tree cursor
+    struct flintdb_cursor_i64 *base_cursor; // B+Tree cursor
 };
 
 
@@ -386,7 +386,7 @@ static i64 table_delete(struct flintdb_table *me, i64 rowid, char **e) {
     return NOT_FOUND;
 }
 
-static void find_close(struct cursor_i64 *c) {
+static void find_close(struct flintdb_cursor_i64 *c) {
     if (!c) return;
     struct find_context *ctx = (struct find_context *)c->p;
     if (ctx) {
@@ -403,7 +403,7 @@ static void find_close(struct cursor_i64 *c) {
     FREE(c);
 }
 
-static i64 find_next(struct cursor_i64 *c, char **e) {
+static i64 find_next(struct flintdb_cursor_i64 *c, char **e) {
     if (!c) return NOT_FOUND;
     struct find_context *ctx = (struct find_context *)c->p;
     if (!ctx) return NOT_FOUND;
@@ -499,7 +499,7 @@ static int find_row_compare(void *obj, i64 key) {
     return filter_compare(ctx->filters->first, (struct flintdb_row *)r, NULL);
 }
 
-static struct cursor_i64 * table_find(const struct flintdb_table *me, 
+static struct flintdb_cursor_i64 * table_find(const struct flintdb_table *me, 
     i8 index, 
     enum order order, 
     struct limit limit, 
@@ -512,7 +512,7 @@ static struct cursor_i64 * table_find(const struct flintdb_table *me,
     struct flintdb_meta *meta = &priv->meta;
 
     struct sorter *sorter = &priv->sorters.s[index];
-    struct cursor_i64 *c = (struct cursor_i64*)CALLOC(1, sizeof(struct cursor_i64));
+    struct flintdb_cursor_i64 *c = (struct flintdb_cursor_i64*)CALLOC(1, sizeof(struct flintdb_cursor_i64));
     if (!c) { if (c) FREE(c); return NULL; }
     struct find_context *impl = (struct find_context*)CALLOC(1, sizeof(struct find_context));
 
@@ -538,7 +538,7 @@ static struct cursor_i64 * table_find(const struct flintdb_table *me,
     impl->limit.priv.n = impl->limit.priv.limit < 0 ? INT_MAX : impl->limit.priv.limit;
     impl->limit.priv.o = impl->limit.priv.offset;
 
-    struct cursor_i64 *base = sorter->tree.find(&sorter->tree, order, impl, find_row_compare, e);
+    struct flintdb_cursor_i64 *base = sorter->tree.find(&sorter->tree, order, impl, find_row_compare, e);
     if (e && *e) { 
         WARN("table_find: B+Tree find failed: %s", *e);
         if (filters) filter_layers_free(filters);
@@ -582,7 +582,7 @@ static int table_find_index_from_hint(const struct flintdb_table *me,
     return 1; // found hint
 }
 
-static struct cursor_i64 * table_find_where(const struct flintdb_table *me, const char *where, char **e) {
+static struct flintdb_cursor_i64 * table_find_where(const struct flintdb_table *me, const char *where, char **e) {
     struct flintdb_table_priv* priv = (struct flintdb_table_priv*)me->priv;
     assert(priv);
 
@@ -618,7 +618,7 @@ static struct cursor_i64 * table_find_where(const struct flintdb_table *me, cons
 
     // Parse LIMIT
     struct limit l = !strempty(q->limit) ? limit_parse(q->limit) : NOLIMIT;
-    struct cursor_i64 *result = table_find(me, (i8)index, ord, l, f, e);
+    struct flintdb_cursor_i64 *result = table_find(me, (i8)index, ord, l, f, e);
     
     // Clean up filter after use (table_find copies it via filter_split)
     if (f) filter_free(f);

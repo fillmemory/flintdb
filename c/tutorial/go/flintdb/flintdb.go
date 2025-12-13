@@ -52,7 +52,7 @@ static const struct flintdb_row* table_read_wrapper(struct flintdb_table *t, lon
     return NULL;
 }
 
-static struct cursor_i64* table_find_wrapper(struct flintdb_table *t, const char *query, char **e) {
+static struct flintdb_cursor_i64* table_find_wrapper(struct flintdb_table *t, const char *query, char **e) {
     if (t && t->find) return t->find(t, query, e);
     return NULL;
 }
@@ -62,11 +62,11 @@ static const struct flintdb_meta* table_meta_wrapper(const struct flintdb_table 
     return NULL;
 }
 
-static void cursor_i64_close_wrapper(struct cursor_i64 *c) {
+static void cursor_i64_close_wrapper(struct flintdb_cursor_i64 *c) {
     if (c && c->close) c->close(c);
 }
 
-static long long cursor_i64_next_wrapper(struct cursor_i64 *c, char **e) {
+static long long cursor_i64_next_wrapper(struct flintdb_cursor_i64 *c, char **e) {
     if (c && c->next) return c->next(c, e);
     return -1;
 }
@@ -80,7 +80,7 @@ static int genericfile_write_wrapper(struct flintdb_genericfile *f, struct flint
     return -1;
 }
 
-static struct cursor_row* genericfile_find_wrapper(struct flintdb_genericfile *f, const char *query, char **e) {
+static struct flintdb_cursor_row* genericfile_find_wrapper(struct flintdb_genericfile *f, const char *query, char **e) {
     if (f && f->find) return f->find(f, query, e);
     return NULL;
 }
@@ -90,11 +90,11 @@ static const struct flintdb_meta* genericfile_meta_wrapper(const struct flintdb_
     return NULL;
 }
 
-static void cursor_row_close_wrapper(struct cursor_row *c) {
+static void cursor_row_close_wrapper(struct flintdb_cursor_row *c) {
     if (c && c->close) c->close(c);
 }
 
-static struct flintdb_row* cursor_row_next_wrapper(struct cursor_row *c, char **e) {
+static struct flintdb_row* cursor_row_next_wrapper(struct flintdb_cursor_row *c, char **e) {
     if (c && c->next) return c->next(c, e);
     return NULL;
 }
@@ -142,7 +142,7 @@ const (
 const PRIMARY_NAME = C.PRIMARY_NAME
 
 type Meta struct {
-	inner C.struct_meta
+	inner C.struct_flintdb_meta
 }
 
 func NewMeta(path string) (*Meta, error) {
@@ -171,7 +171,7 @@ func (m *Meta) AddColumn(name string, variantType int, size int, precision int, 
 	defer C.free(unsafe.Pointer(cdefault))
 	defer C.free(unsafe.Pointer(ccomment))
 
-	C.flintdb_meta_columns_add(&m.inner, cname, C.enum_variant_type(variantType), C.i32(size), C.i16(precision), nullspec, cdefault, ccomment, &e)
+	C.flintdb_meta_columns_add(&m.inner, cname, C.enum_flintdb_variant_type(variantType), C.i32(size), C.i16(precision), C.enum_flintdb_null_spec(nullspec), cdefault, ccomment, &e)
 	return checkError(e)
 }
 
@@ -219,8 +219,8 @@ func (m *Meta) SetFormatTSV() {
 }
 
 type Row struct {
-	inner *C.struct_row
-	meta  *C.struct_meta
+	inner *C.struct_flintdb_row
+	meta  *C.struct_flintdb_meta
 }
 
 func (r *Row) Free() {
@@ -288,8 +288,8 @@ func (r *Row) Print() {
 }
 
 type Table struct {
-	inner *C.struct_table
-	meta  *C.struct_meta
+	inner *C.struct_flintdb_table
+	meta  *C.struct_flintdb_meta
 }
 
 func TableOpen(path string, mode uint32, meta *Meta) (*Table, error) {
@@ -297,12 +297,12 @@ func TableOpen(path string, mode uint32, meta *Meta) (*Table, error) {
 	cpath := C.CString(path)
 	defer C.free(unsafe.Pointer(cpath))
 
-	var metaPtr *C.struct_meta
+	var metaPtr *C.struct_flintdb_meta
 	if meta != nil {
 		metaPtr = &meta.inner
 	}
 
-	tbl := C.flintdb_table_open(cpath, C.enum_open_mode(mode), metaPtr, &e)
+	tbl := C.flintdb_table_open(cpath, C.enum_flintdb_open_mode(mode), metaPtr, &e)
 	if err := checkError(e); err != nil {
 		return nil, err
 	}
@@ -310,11 +310,11 @@ func TableOpen(path string, mode uint32, meta *Meta) (*Table, error) {
 		return nil, &FlintDBError{Message: "failed to open table"}
 	}
 
-	var tableMeta *C.struct_meta
+	var tableMeta *C.struct_flintdb_meta
 	if metaPtr != nil {
 		tableMeta = metaPtr
 	} else {
-		tableMeta = (*C.struct_meta)(C.table_meta_wrapper(tbl, &e))
+		tableMeta = (*C.struct_flintdb_meta)(C.table_meta_wrapper(tbl, &e))
 		if err := checkError(e); err != nil {
 			return nil, err
 		}
@@ -393,11 +393,11 @@ func (t *Table) Read(rowid int64) (*Row, error) {
 	if row == nil {
 		return nil, &FlintDBError{Message: "row not found"}
 	}
-	return &Row{inner: (*C.struct_row)(unsafe.Pointer(row)), meta: t.meta}, nil
+	return &Row{inner: (*C.struct_flintdb_row)(unsafe.Pointer(row)), meta: t.meta}, nil
 }
 
 type CursorInt64 struct {
-	inner *C.struct_cursor_i64
+	inner *C.struct_flintdb_cursor_i64
 }
 
 func (t *Table) Find(query string) (*CursorInt64, error) {
@@ -432,8 +432,8 @@ func (c *CursorInt64) Close() {
 }
 
 type GenericFile struct {
-	inner *C.struct_genericfile
-	meta  *C.struct_meta
+	inner *C.struct_flintdb_genericfile
+	meta  *C.struct_flintdb_meta
 }
 
 func GenericFileOpen(path string, mode uint32, meta *Meta) (*GenericFile, error) {
@@ -441,12 +441,12 @@ func GenericFileOpen(path string, mode uint32, meta *Meta) (*GenericFile, error)
 	cpath := C.CString(path)
 	defer C.free(unsafe.Pointer(cpath))
 
-	var metaPtr *C.struct_meta
+	var metaPtr *C.struct_flintdb_meta
 	if meta != nil {
 		metaPtr = &meta.inner
 	}
 
-	file := C.flintdb_genericfile_open(cpath, C.enum_open_mode(mode), metaPtr, &e)
+	file := C.flintdb_genericfile_open(cpath, C.enum_flintdb_open_mode(mode), metaPtr, &e)
 	if err := checkError(e); err != nil {
 		return nil, err
 	}
@@ -454,11 +454,11 @@ func GenericFileOpen(path string, mode uint32, meta *Meta) (*GenericFile, error)
 		return nil, &FlintDBError{Message: "failed to open generic file"}
 	}
 
-	var fileMeta *C.struct_meta
+	var fileMeta *C.struct_flintdb_meta
 	if metaPtr != nil {
 		fileMeta = metaPtr
 	} else {
-		fileMeta = (*C.struct_meta)(C.genericfile_meta_wrapper(file, &e))
+		fileMeta = (*C.struct_flintdb_meta)(C.genericfile_meta_wrapper(file, &e))
 		if err := checkError(e); err != nil {
 			return nil, err
 		}
@@ -505,8 +505,8 @@ func (f *GenericFile) Write(row *Row) error {
 }
 
 type CursorRow struct {
-	inner *C.struct_cursor_row
-	meta  *C.struct_meta
+	inner *C.struct_flintdb_cursor_row
+	meta  *C.struct_flintdb_meta
 }
 
 func (f *GenericFile) Find(query string) (*CursorRow, error) {

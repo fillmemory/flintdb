@@ -1179,7 +1179,7 @@ struct bptree_cursor_impl {
     int (*cmpr)(void *obj, i64 o);
 };
 
-static i64 cursor_next_asc(struct cursor_i64 *c, char **e) {
+static i64 cursor_next_asc(struct flintdb_cursor_i64 *c, char **e) {
     struct bptree_cursor_impl *impl = (struct bptree_cursor_impl*)c->p;
     if (impl->leaf == NULL) return NOT_FOUND;
     for (;;) {
@@ -1210,7 +1210,7 @@ static i64 cursor_next_asc(struct cursor_i64 *c, char **e) {
     }
 }
 
-static i64 cursor_next_desc(struct cursor_i64 *c, char **e) {
+static i64 cursor_next_desc(struct flintdb_cursor_i64 *c, char **e) {
     struct bptree_cursor_impl *impl = (struct bptree_cursor_impl*)c->p;
     if (impl->leaf == NULL) return NOT_FOUND;
     for (;;) {
@@ -1238,15 +1238,15 @@ static i64 cursor_next_desc(struct cursor_i64 *c, char **e) {
     }
 }
 
-static void cursor_close(struct cursor_i64 *c) {
+static void cursor_close(struct flintdb_cursor_i64 *c) {
     if (c) {
         if (c->p) FREE(c->p);
         FREE(c);
     }
 }
 
-static struct cursor_i64 * cursor_eof() {
-    struct cursor_i64 *c = (struct cursor_i64*)CALLOC(1, sizeof(struct cursor_i64));
+static struct flintdb_cursor_i64 * cursor_eof() {
+    struct flintdb_cursor_i64 *c = (struct flintdb_cursor_i64*)CALLOC(1, sizeof(struct flintdb_cursor_i64));
     struct bptree_cursor_impl *impl = (struct bptree_cursor_impl*)CALLOC(1, sizeof(struct bptree_cursor_impl));
     c->p = impl;
     c->close = cursor_close;
@@ -1358,7 +1358,7 @@ static int last_key_pos(i64 *keys, int len, void *obj, int (*cmpr)(void *obj, i6
     return result;
 }
 
-static struct cursor_i64 * bplustree_find(struct bplustree *me, enum order order, void *obj, int (*cmpr)(void *obj, i64 o), char **e) {
+static struct flintdb_cursor_i64 * bplustree_find(struct bplustree *me, enum order order, void *obj, int (*cmpr)(void *obj, i64 o), char **e) {
     assert(me);
     struct node *root = bplustree_root_get(me, e);
     if (NULL == root) 
@@ -1389,7 +1389,7 @@ static struct cursor_i64 * bplustree_find(struct bplustree *me, enum order order
         return NULL;
     }
 
-    struct cursor_i64 *c = (struct cursor_i64*)CALLOC(1, sizeof(struct cursor_i64));
+    struct flintdb_cursor_i64 *c = (struct flintdb_cursor_i64*)CALLOC(1, sizeof(struct flintdb_cursor_i64));
     c->p = impl;
     c->close = cursor_close;
     c->next = (order == ASC) ? cursor_next_asc : cursor_next_desc;

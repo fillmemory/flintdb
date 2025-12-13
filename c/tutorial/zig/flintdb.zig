@@ -17,13 +17,13 @@ fn checkError(e: ?*u8) Error!void {
         const cstr: [*:0]const u8 = @ptrCast(msg);
         const slice: []const u8 = std.mem.span(cstr);
         std.debug.print("FlintDB Error: {s}\n", .{slice});
-        return Error.flintdbError;
+        return Error.FlintDBError;
     }
 }
 
 /// Table metadata builder
 pub const Meta = struct {
-    inner: c.struct_meta,
+    inner: c.struct_flintdb_meta,
 
     pub fn init(path: []const u8) Error!Meta {
         var e: ?*u8 = null;
@@ -114,8 +114,8 @@ pub const Meta = struct {
 
 /// Row wrapper for easier value access
 pub const Row = struct {
-    inner: *c.struct_row,
-    meta: *const c.struct_meta,
+    inner: *c.struct_flintdb_row,
+    meta: *const c.struct_flintdb_meta,
 
     pub fn free(self: Row) void {
         if (self.inner.free) |free_fn| {
@@ -214,7 +214,7 @@ pub const Row = struct {
         const idx = c.flintdb_column_at(@constCast(self.meta), name_z);
         if (idx < 0) {
             std.debug.print("Column '{s}' not found\n", .{col_name});
-            return Error.flintdbError;
+            return Error.FlintDBError;
         }
         return @intCast(idx);
     }
@@ -279,7 +279,7 @@ pub const Row = struct {
 
 /// Table cursor for iterating query results
 pub const Cursor = struct {
-    inner: *c.struct_cursor_i64,
+    inner: *c.struct_flintdb_cursor_i64,
 
     pub fn close(self: Cursor) void {
         if (self.inner.close) |close_fn| {
@@ -301,8 +301,8 @@ pub const Cursor = struct {
 
 /// Main table wrapper
 pub const Table = struct {
-    inner: *c.struct_table,
-    meta: *const c.struct_meta,
+    inner: *c.struct_flintdb_table,
+    meta: *const c.struct_flintdb_meta,
 
     pub const Mode = enum {
         FLINTDB_RDONLY,
@@ -366,10 +366,10 @@ pub const Table = struct {
         if (self.inner.apply) |apply_fn| {
             const rowid = apply_fn(self.inner, row.inner, 0, &e);
             try checkError(e);
-            if (rowid < 0) return Error.flintdbError;
+            if (rowid < 0) return Error.FlintDBError;
             return rowid;
         }
-        return Error.flintdbError;
+        return Error.FlintDBError;
     }
 
     pub fn read(self: Table, rowid: i64) Error!Row {
@@ -403,8 +403,8 @@ pub const Table = struct {
 
 /// GenericFile for TSV/CSV support
 pub const GenericFile = struct {
-    inner: *c.struct_genericfile,
-    meta: *const c.struct_meta,
+    inner: *c.struct_flintdb_genericfile,
+    meta: *const c.struct_flintdb_meta,
 
     pub fn open(path: []const u8, mode: Table.Mode, meta: ?*Meta) Error!GenericFile {
         var e: ?*u8 = null;
@@ -463,7 +463,7 @@ pub const GenericFile = struct {
         if (self.inner.write) |write_fn| {
             if (write_fn(self.inner, row.inner, &e) != 0) {
                 try checkError(e);
-                return Error.flintdbError;
+                return Error.FlintDBError;
             }
             try checkError(e);
         }

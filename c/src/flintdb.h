@@ -81,18 +81,18 @@ enum flintdb_open_mode {
     FLINTDB_RDWR = O_RDWR | O_CREAT,
 };
 
-struct cursor_i64 {
+struct flintdb_cursor_i64 {
     void *p; // Implementation-specific state
     
-    i64 (*next)(struct cursor_i64 *c, char **e);
-    void (*close)(struct cursor_i64 *c);
+    i64 (*next)(struct flintdb_cursor_i64 *c, char **e);
+    void (*close)(struct flintdb_cursor_i64 *c);
 };
 
-struct cursor_row {
+struct flintdb_cursor_row {
     void *p; // Implementation-specific state
 
-    struct flintdb_row * (*next)(struct cursor_row *c, char **e);
-    void (*close)(struct cursor_row *c);
+    struct flintdb_row * (*next)(struct flintdb_cursor_row *c, char **e);
+    void (*close)(struct flintdb_cursor_row *c);
 };
 
 
@@ -357,8 +357,8 @@ struct flintdb_table {
     i64 (*apply)(struct flintdb_table *me, struct flintdb_row *r, i8 upsert, char **e); // upsert: 0=insert only, 1=insert or update
     i64 (*apply_at)(struct flintdb_table *me, i64 rowid, struct flintdb_row *r, char **e); // insert or update at rowid
     i64 (*delete_at)(struct flintdb_table *me, i64 rowid, char **e); // delete at rowid
-    // struct cursor_i64 * (*find)(const struct flintdb_table *me, i8 index, enum order order, struct limit limit, const struct filters *filters, char **e);
-    struct cursor_i64 * (*find)(const struct flintdb_table *me, const char *where, char **e);
+    // struct flintdb_cursor_i64 * (*find)(const struct flintdb_table *me, i8 index, enum order order, struct limit limit, const struct filters *filters, char **e);
+    struct flintdb_cursor_i64 * (*find)(const struct flintdb_table *me, const char *where, char **e);
     const struct flintdb_row * (*one)(const struct flintdb_table *me, i8 index, u16 argc, const char **argv, char **e); // find one row by primary key or unique index, don't free the returned row
     const struct flintdb_row * (*read)(struct flintdb_table *me, i64 rowid, char **e); // don't free the returned row, it's managed by the lru cache
     int (*read_stream)(struct flintdb_table *me, i64 rowid, struct flintdb_row *dest, char **e); // streaming read: decode into caller-owned buffer, skip cache
@@ -381,7 +381,7 @@ struct flintdb_genericfile {
     const struct flintdb_meta * (*meta)(const struct flintdb_genericfile *me, char **e);
 
     i64 (*write)(struct flintdb_genericfile *me, struct flintdb_row *r, char **e);
-    struct cursor_row * (*find)(const struct flintdb_genericfile *me, const char *where, char **e);
+    struct flintdb_cursor_row * (*find)(const struct flintdb_genericfile *me, const char *where, char **e);
     void (*close)(struct flintdb_genericfile *me);
     
     void *priv;
@@ -486,7 +486,7 @@ struct flintdb_sql_result{
     // struct flintdb_meta *meta;    
     char **column_names;
     int column_count;     
-    struct cursor_row *row_cursor;
+    struct flintdb_cursor_row *row_cursor;
 
     void (*close)(struct flintdb_sql_result*me);
 };

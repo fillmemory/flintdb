@@ -11,9 +11,9 @@ fn tutorial_table_create() -> Result<(), String> {
 
     // 1. Define the table schema
     let mut mt = Meta::new(tablename)?;
-    mt.add_column("id", variant_type_VARIANT_INT64, 0, 0, 1, "0", "PRIMARY KEY")?;
-    mt.add_column("name", variant_type_VARIANT_STRING, 50, 0, 1, "", "Customer name")?;
-    mt.add_column("age", variant_type_VARIANT_INT32, 0, 0, 1, "0", "Customer age")?;
+    mt.add_column("id", VAR_INT64, 0, 0, 1, "0", "PRIMARY KEY")?;
+    mt.add_column("name", VAR_STRING, 50, 0, 1, "", "Customer name")?;
+    mt.add_column("age", VAR_INT32, 0, 0, 1, "0", "Customer age")?;
 
     mt.add_index("primary", &["id"])?;
     mt.add_index("ix_age", &["age"])?;
@@ -22,7 +22,7 @@ fn tutorial_table_create() -> Result<(), String> {
     println!("Table schema SQL:\n{}\n", sql);
 
     // 2. Open the table with the defined schema
-    let mut tbl = Table::open(tablename, open_mode_FLINTDB_RDWR, Some(&mt))?;
+    let mut tbl = Table::open(tablename, RDWR, Some(&mt))?;
 
     // 3. Insert data rows
     println!("Inserting 3 rows...");
@@ -48,7 +48,7 @@ fn tutorial_table_find() -> Result<(), String> {
     let tablename = "./temp/tutorial_customer.flintdb";
 
     // 1. Open the table in read-only mode
-    let mut tbl = Table::open(tablename, open_mode_FLINTDB_RDONLY, None)?;
+    let mut tbl = Table::open(tablename, RDONLY, None)?;
 
     // 2. Find data using a WHERE clause
     println!("Finding rows where age >= 31:");
@@ -72,12 +72,12 @@ fn tutorial_tsv_create() -> Result<(), String> {
 
     // 1. Define the schema for the TSV file
     let mut mt = Meta::new(filepath)?;
-    mt.add_column("product_id", variant_type_VARIANT_INT32, 0, 0, 1, "", "")?;
-    mt.add_column("product_name", variant_type_VARIANT_STRING, 100, 0, 1, "", "")?;
-    mt.add_column("price", variant_type_VARIANT_DOUBLE, 0, 0, 1, "", "")?;
+    mt.add_column("product_id", VAR_INT32, 0, 0, 1, "", "")?;
+    mt.add_column("product_name", VAR_STRING, 100, 0, 1, "", "")?;
+    mt.add_column("price", VAR_DOUBLE, 0, 0, 1, "", "")?;
 
     // 2. Open the generic file with the TSV format
-    let mut f = GenericFile::open(filepath, open_mode_FLINTDB_RDWR, Some(&mt))?;
+    let mut f = GenericFile::open(filepath, RDWR, Some(&mt))?;
 
     // 3. Write data rows
     println!("Writing 3 rows to TSV...");
@@ -103,7 +103,7 @@ fn tutorial_tsv_find() -> Result<(), String> {
     let filepath = "./temp/tutorial_products.tsv";
 
     // 1. Open the TSV file in read-only mode
-    let mut f = GenericFile::open(filepath, open_mode_FLINTDB_RDONLY, None)?;
+    let mut f = GenericFile::open(filepath, RDONLY, None)?;
 
     // 2. Find rows matching the WHERE clause
     println!("Reading rows where product_id >= 102:");
@@ -124,7 +124,7 @@ fn tutorial_table_update_delete() -> Result<(), String> {
     let tablename = "./temp/tutorial_customer.flintdb";
 
     // 1. Open the table in read-write mode
-    let mut tbl = Table::open(tablename, open_mode_FLINTDB_RDWR, None)?;
+    let mut tbl = Table::open(tablename, RDWR, None)?;
 
     // 2. Find a row to update
     println!("Finding and updating Customer with age = 30:");

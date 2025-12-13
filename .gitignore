@@ -5,6 +5,7 @@ c/lib/
 c/build/
 c/tutorial/rust/target/
 c/tutorial/zig/.zig-cache/
+c/tutorial/zig/zig-out/
 java/bin/main/
 java/bin/test/
 java/lib/
