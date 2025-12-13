@@ -112,7 +112,20 @@ static char* wal_compress_data(const char *data, i32 size, i32 *compressed_size)
 
 static i64 wal_begin(struct wal *me, char **e) {
     struct wal_impl *impl = me->impl;
-    return ++impl->transaction_id;
+    i64 id = ++impl->transaction_id;
+    
+    // Set transaction on all storages (match Java behavior)
+    if (impl->storages) {
+        struct map_iterator it = {0};
+        while (impl->storages->iterate(impl->storages, &it)) {
+            struct wal_storage *ws = (struct wal_storage*)(uintptr_t)it.val;
+            if (ws) {
+                ws->transaction = id;
+            }
+        }
+    }
+    
+    return id;
 }
 
 static i64 wal_commit(struct wal *me, i64 id, char **e) {
@@ -376,12 +389,9 @@ static i64 wal_storage_write(struct storage *me, struct buffer *in, char **e) {
 static i64 wal_storage_write_at(struct storage *me, i64 offset, struct buffer *in, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
     
-    // Log actual data to WAL if transaction is active (for crash recovery)
-    if (ws->transaction > 0 && ws->logger && in && in->array) {
-        i32 data_size = in->limit - in->position;
-        wal_log(ws->logger, OP_UPDATE, ws->transaction, ws->identifier, offset, 
-                in->array + in->position, data_size, 0); // Log full data, not metadata-only
-    }
+    // Match Java behavior: no WAL logging for UPDATE operations
+    // Only INSERT (via write()) logs OP_WRITE metadata
+    // UPDATE operations go directly to origin storage
     
     // Write-through: update origin immediately
     i64 result = ws->origin->write_at(ws->origin, offset, in, e);
@@ -467,8 +477,26 @@ struct storage* wal_wrap(struct wal* wal, struct storage_opts* opts, int (*refre
         return origin;
     }
     
+    // Check if storage already exists for this file (match Java behavior)
+    struct wal_impl *impl = wal->impl;
+    if (impl->storages) {
+        valtype existing_val = (valtype)impl->storages->get(impl->storages, (keytype)opts->file);
+        if (existing_val != HASHMAP_INVALID_VAL) {
+            origin->close(origin);
+            FREE(origin);
+            return (struct storage*)(uintptr_t)existing_val;
+        }
+    }
+    
     wrapped = wal_wrap_storage(origin, wal, refresh, callback_obj, e);
     if (e && *e) THROW_S(e);
+    
+    // Register storage in map and set identifier (match Java: storages.put(options.file, storage))
+    if (impl->storages) {
+        struct wal_storage *ws = (struct wal_storage*)wrapped;
+        ws->identifier = impl->storages->count_get(impl->storages);
+        impl->storages->put(impl->storages, (keytype)opts->file, (valtype)(uintptr_t)wrapped, NULL);
+    }
 
     return wrapped;
 
@@ -487,6 +515,18 @@ static void wal_close(struct wal *me) {
         // Flush any pending batch before closing
         wal_flush_batch(impl);
         wal_flush_header(impl);
+        
+        // Close all registered storages (match Java: storages.forEach(entry -> IO.close(storage)))
+        if (impl->storages) {
+            struct map_iterator it = {0};
+            while (impl->storages->iterate(impl->storages, &it)) {
+                struct wal_storage *ws = (struct wal_storage*)(uintptr_t)it.val;
+                if (ws) {
+                    ws->base.close(&ws->base);
+                }
+            }
+            impl->storages->free(impl->storages);
+        }
         
         if (impl->fd > 0) {
             close(impl->fd);
@@ -524,6 +564,10 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
     impl->batch_size_limit = meta->wal_batch_size > 0 ? meta->wal_batch_size : get_env_int("FLINTDB_WAL_BATCH_SIZE", DEFAULT_BATCH_SIZE);
     impl->compression_threshold = meta->wal_compression_threshold > 0 ? meta->wal_compression_threshold : get_env_int("FLINTDB_WAL_COMPRESSION_THRESHOLD", DEFAULT_COMPRESSION_THRESHOLD);
     strncpy(impl->path, path, PATH_MAX - 1);
+
+    // Initialize storages map (match Java: Map<File, WALStorage> storages = new HashMap<>())
+    impl->storages = hashmap_new(16, hashmap_string_hash, hashmap_string_cmpr);
+    if (!impl->storages) THROW(e, "Failed to create storages map");
 
     // Allocate batch buffer
     impl->batch_buffer = CALLOC(1, BATCH_BUFFER_SIZE);

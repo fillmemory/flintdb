@@ -179,7 +179,7 @@ static i64 table_apply(struct flintdb_table *me, struct flintdb_row *r, i8 upser
     if (raw->remaining(raw) > priv->row_bytes) 
         THROW(e, "DB_ERR[%d] row bytes exceeded requested: %d, max: %d", DB_ERR_ROW_BYTES_EXCEEDED, raw->remaining(raw), priv->row_bytes);
 
-    // Begin WAL transaction
+    // Begin WAL transaction (will set transaction on all storages)
     transaction = priv->wal->begin(priv->wal, e);
     if (e && *e) THROW_S(e);
 

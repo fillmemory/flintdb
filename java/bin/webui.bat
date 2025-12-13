@@ -9,7 +9,8 @@ REM echo Now in: %cd%
 
 REM Main class and JVM options (match bin/webui)
 SET JMAIN=flint.db.WebUI
-SET JVMOPT=-Dfile.encoding=UTF-8 -Xmx4g -DTSVFILE.TYPE.INFERENCE=0
+SET JVMOPT=-Dfile.encoding=UTF-8
+REM SET JVMOPT=-Dfile.encoding=UTF-8 -Xmx4g
 
 REM Build classpath from jars under lib and build-gradle
 SET CP=.

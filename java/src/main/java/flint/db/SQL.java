@@ -431,15 +431,15 @@ final class SQL {
 			extras++;
 
 			if (meta.walBatchSize() > 0) {
-				s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_BATCH=").append(meta.walBatchSize());
+				s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_BATCH_SIZE=").append(meta.walBatchSize());
 				extras++;
 			}
 			if (meta.walCheckpointInterval() > 0) {
-				s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_CHECKPOINT=").append(meta.walCheckpointInterval());
+				s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_CHECKPOINT_INTERVAL=").append(meta.walCheckpointInterval());
 				extras++;
 			}
 			if (meta.walCompressionThreshold() > 0) {
-				s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_COMPRESSION=").append(meta.walCompressionThreshold());
+				s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_COMPRESSION_THRESHOLD=").append(meta.walCompressionThreshold());
 				extras++;
 			}
 		}
@@ -831,7 +831,7 @@ final class SQL {
 					m.put("cache", nv[1].toUpperCase());
 				} else if ("WAL".equalsIgnoreCase(nv[0])) {
 					m.put("walMode", nv[1]);
-				} else if ("WAL_BATCHSIZE".equalsIgnoreCase(nv[0])) {
+				} else if ("WAL_BATCH_SIZE".equalsIgnoreCase(nv[0])) {
 					m.put("walBatchSize", nv[1]);
 				} else if ("WAL_CHECKPOINT_INTERVAL".equalsIgnoreCase(nv[0])) {
 					m.put("walCheckpointInterval", nv[1]);

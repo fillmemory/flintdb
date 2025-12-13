@@ -72,7 +72,7 @@ EOF
 
 
 SQL_CREATE_TABLE=$(cat <<- EOF
-CREATE TABLE ../temp/tpch_lineitem.flintdb (
+CREATE TABLE ../temp/c/tpch_lineitem.flintdb (
 	l_orderkey    UINT,
 	l_partkey     UINT,
 	l_suppkey     UINT16,
@@ -102,8 +102,8 @@ echo "CREATE TABLE"
 # ) CACHE=1M, STORAGE=MEMORY, COMPACT=140
 
 echo "INSERT FROM"
-./bin/flintdb "INSERT INTO ../temp/tpch_lineitem.flintdb FROM ../temp/tpch/lineitem.tbl.gz ${LIMIT}" -status
+./bin/flintdb "INSERT INTO ../temp/c/tpch_lineitem.flintdb FROM ../temp/tpch/lineitem.tbl.gz ${LIMIT}" -status
 
 #  LIMIT 300000
 
-ls -l ../temp/tpch_lineitem*
+ls -l ../temp/c/tpch_lineitem*

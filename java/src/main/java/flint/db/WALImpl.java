@@ -133,10 +133,11 @@ final class WALImpl implements WAL {
             // Then write COMMIT record to WAL (minimal logging)
             logger.commit(id);
             
-            // Auto-checkpoint every N transactions for TRUNCATE mode
+            // Auto-checkpoint every N transactions for TRUNCATE mode (match C version behavior)
             transactionCount++;
-            if (autoTruncate && transactionCount % CHECKPOINT_INTERVAL == 0) {
+            if (autoTruncate && transactionCount >= CHECKPOINT_INTERVAL) {
                 logger.checkpoint();
+                transactionCount = 0;
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to commit transaction " + id, e);
@@ -614,7 +615,11 @@ final class WALStorage implements Storage {
     private final int identifier; // file identifier
     private long transaction = -1; // current transaction id
     private final WAL.Callback callback; // cache synchronization callback
-    private final Map<Long, Map<Long, IoBuffer>> pendingWrites = new HashMap<>(); // txId -> (index -> data)
+    
+    // Dirty page cache for uncommitted UPDATE/DELETE operations
+    // Maps: page offset -> dirty page data (null for DELETE)
+    private final Map<Long, IoBuffer> dirtyPages = new HashMap<>();
+    private final Map<Long, Boolean> deletedPages = new HashMap<>(); // track deleted pages
 
     WALStorage(final Options options, final int identifier, final WALLogStorage logger, final WAL.Callback callback) throws IOException {
         this.origin = Storage.create(options);
@@ -659,14 +664,8 @@ final class WALStorage implements Storage {
             return; // Not our transaction
         }
         
-        // Apply pending writes to origin storage (no WAL logging for UPDATEs)
-        // Recovery strategy: Origin has all committed data, WAL only tracks COMMIT markers
-        Map<Long, IoBuffer> writes = pendingWrites.remove(id);
-        if (writes != null) {
-            for (Map.Entry<Long, IoBuffer> entry : writes.entrySet()) {
-                origin.write(entry.getKey(), entry.getValue());
-            }
-        }
+        // All writes already applied to origin (write-through mode)
+        // No pending writes to apply
         
         this.transaction = -1;
     }
@@ -676,8 +675,8 @@ final class WALStorage implements Storage {
             return; // Not our transaction
         }
         
-        // Discard pending writes without applying to origin
-        pendingWrites.remove(id);
+        // Write-through mode: changes already in origin, can't rollback
+        // WAL rollback marker prevents replay during recovery
         
         this.transaction = -1;
     }
@@ -697,7 +696,9 @@ final class WALStorage implements Storage {
         
         // Log metadata for recovery (in case of rollback, we can't undo origin write)
         // This is minimal overhead - just metadata, no data duplication
-        logger.log(WAL.OP_WRITE, transaction, identifier, index, null, true);
+        if (transaction > 0) {
+            logger.log(WAL.OP_WRITE, transaction, identifier, index, null, true);
+        }
 
         return index;
     }
@@ -705,28 +706,17 @@ final class WALStorage implements Storage {
     @Override
     public void write(long index, IoBuffer bb) throws IOException {
         IoBuffer data = bb.slice();
-        if (transaction > 0) {
-            // Log actual data to WAL for crash recovery
-            logger.log(WAL.OP_UPDATE, transaction, identifier, index, data.slice(), false);
-            
-            // Store in pending writes for commit
-            pendingWrites.computeIfAbsent(transaction, k -> new HashMap<>())
-                .put(index, data.slice());
-        } else {
-            // No transaction, write directly to origin
-            origin.write(index, data);
-        }
+        
+        // C version: table.c UPDATE path calls storage->write_at(), but never sets transaction on storage
+        // ws->transaction remains -1, so wal_storage_write_at does NOT log (transaction check fails)
+        // Java should match: no WAL logging for UPDATE operations
+        // Only INSERT (via write(IoBuffer)) logs OP_WRITE metadata
+        origin.write(index, data);
     }
 
     @Override
     public IoBuffer read(long index) throws IOException {
-        // Check pending writes first (read-your-own-writes)
-        if (transaction > 0) {
-            Map<Long, IoBuffer> writes = pendingWrites.get(transaction);
-            if (writes != null && writes.containsKey(index)) {
-                return writes.get(index).slice();
-            }
-        }
+        // Write-through mode: all data in origin (read-your-own-writes guaranteed)
         return origin.read(index);
     }
 
