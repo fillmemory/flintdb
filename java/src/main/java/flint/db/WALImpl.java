@@ -5,6 +5,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -220,8 +222,29 @@ final class WALLogStorage implements AutoCloseable {
     private int batchCount = 0;
     private final int BATCH_SIZE; // = Integer.getInteger("FLINTDB_WAL_BATCH_SIZE", 10000); // Flush after N log records
     private final int COMPRESSION_THRESHOLD; // = Integer.getInteger("FLINTDB_WAL_COMPRESSION_THRESHOLD", 8192); // Compress if data > N bytes
+    private final int DIRECT_WRITE_THRESHOLD; // Direct-write if record size >= N bytes
     private static final byte FLAG_COMPRESSED = 0x01;
     private static final byte FLAG_METADATA_ONLY = 0x02;
+
+    private static long writeFully(FileChannel ch, ByteBuffer src, long position) throws IOException {
+        while (src.hasRemaining()) {
+            int written = ch.write(src, position);
+            if (written <= 0) {
+                throw new IOException("Failed to write WAL record: wrote=" + written);
+            }
+            position += written;
+        }
+        return position;
+    }
+
+    private static ByteBuffer threadLocalHeaderBuffer() {
+        // Small reusable header buffer; ByteOrder must always be LITTLE_ENDIAN.
+        return HEADER_BUFFER.get();
+    }
+
+    private static final ThreadLocal<ByteBuffer> HEADER_BUFFER = ThreadLocal.withInitial(() ->
+            ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
+    );
 
 
     WALLogStorage(File file, boolean autoTruncate, int walBatchSize, int walCompressionThreshold) throws IOException {
@@ -240,6 +263,10 @@ final class WALLogStorage implements AutoCloseable {
         
         // Initialize batch buffer (4MB for better compression)
         this.batchBuffer = bufferPool.borrowBuffer(4 * 1024 * 1024);
+        int directWrite = Integer.getInteger("FLINTDB_WAL_DIRECT_WRITE_THRESHOLD", 64 * 1024);
+        if (directWrite < 0) directWrite = 0;
+        // Clamp to batch buffer capacity to avoid pathological settings.
+        this.DIRECT_WRITE_THRESHOLD = Math.min(directWrite, batchBuffer.capacity());
 
         if (channel.size() == 0) {
             this.HEADER = map(0, HEADER_SIZE);
@@ -305,11 +332,8 @@ final class WALLogStorage implements AutoCloseable {
         
         synchronized (channel) {
             batchBuffer.flip();
-            channel.position(currentPosition);
-            while (batchBuffer.hasRemaining()) {
-                channel.write(batchBuffer.unwrap());
-            }
-            currentPosition = channel.position();
+            ByteBuffer src = batchBuffer.unwrap();
+            currentPosition = writeFully(channel, src, currentPosition);
             batchBuffer.clear();
             batchCount = 0;
             
@@ -355,6 +379,46 @@ final class WALLogStorage implements AutoCloseable {
             recordSize += 4 + dataSize; // Compressed size + compressed data
         } else if ((flags & FLAG_METADATA_ONLY) == 0 && dataSize > 0) {
             recordSize += dataSize; // Original data
+        }
+
+        // For large records, bypass the batch buffer to avoid extra memcpy into the batchBuffer.
+        // Use offset-based writes so we don't change the channel's current position.
+        if (DIRECT_WRITE_THRESHOLD > 0 && recordSize >= DIRECT_WRITE_THRESHOLD) {
+            // Keep WAL ordering: flush pending batched records first.
+            flushBatch();
+
+            synchronized (channel) {
+                ByteBuffer header = threadLocalHeaderBuffer();
+                header.clear();
+
+                short checksum = 0; // Placeholder for checksum calculation
+                header.put(operation);
+                header.putLong(transactionId);
+                header.putShort(checksum);
+                header.putInt(fileId);
+                header.putLong(pageOffset);
+                header.put(flags);
+                header.putInt(originalSize);
+                if ((flags & FLAG_COMPRESSED) != 0) {
+                    header.putInt(dataSize);
+                }
+                header.flip();
+
+                long pos = currentPosition;
+                pos = writeFully(channel, header, pos);
+
+                if ((flags & FLAG_COMPRESSED) != 0) {
+                    ByteBuffer payload = ByteBuffer.wrap(compressedData);
+                    pos = writeFully(channel, payload, pos);
+                } else if ((flags & FLAG_METADATA_ONLY) == 0 && pageData != null && dataSize > 0) {
+                    IoBuffer slice = pageData.slice();
+                    ByteBuffer payload = slice.unwrap();
+                    pos = writeFully(channel, payload, pos);
+                }
+
+                currentPosition = pos;
+            }
+            return;
         }
         
         // If batch buffer doesn't have enough space, flush it
@@ -723,19 +787,19 @@ final class WALStorage implements Storage {
 
     @Override
     public void write(long index, IoBuffer bb) throws IOException {
-        IoBuffer data = bb.slice();
-        
         if (transaction > 0) {
             // UPDATE within transaction: don't write to origin immediately
             // Store in dirty page cache and log to WAL
-            logger.log(WAL.OP_UPDATE, transaction, identifier, index, data, false);
-            
-            // Cache the dirty page (make a copy to avoid external modification)
+            IoBuffer data = bb.slice();
+            // Make one immutable copy and reuse it for both WAL logging and dirty-page cache.
             byte[] copy = new byte[data.remaining()];
             data.get(copy);
-            dirtyPages.put(index, IoBuffer.wrap(java.nio.ByteBuffer.wrap(copy)));
+            IoBuffer cached = IoBuffer.wrap(copy);
+            logger.log(WAL.OP_UPDATE, transaction, identifier, index, cached, false);
+            dirtyPages.put(index, cached);
         } else {
             // No transaction: direct write to origin
+            IoBuffer data = bb.slice();
             origin.write(index, data);
         }
     }
