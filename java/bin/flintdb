@@ -6,7 +6,7 @@ SCRIPTDIR=$(realpath ${SCRIPTDIR})
 SCRIPTDIR=$(dirname ${SCRIPTDIR})
 
 JLIB_PATHS=(${SCRIPTDIR}/lib ${SCRIPTDIR}/build)
-JMAIN=lite.db.CLI
+JMAIN=flint.db.CLI
 
 # Allow environment variables to override defaults
 WAL_BATCH_SIZE="${FLINTDB_WAL_BATCH_SIZE:-20000}"

@@ -10,7 +10,7 @@ REM ECHO %cd%
 
 
 SET JLIB_PATH=lib
-SET JMAIN=lite.db.CLI
+SET JMAIN=flint.db.CLI
 SET JVMOPT=-Dfile.encoding=UTF-8 -Xmx16g
 REM -Duser.timezone=GMT
 SET CP=.;build\classes

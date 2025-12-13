@@ -1,0 +1,528 @@
+<!-- 
+Generator Visualization.class
+ -->
+<!doctype html>
+<html lang="en">
+<head>
+<title>B+Tree</title>
+<meta charSet="utf-8" />
+<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, minimum-scale=1.0">
+<script src="b+tree.json.js"></script>
+</head>
+<body>
+	<div id="view">
+		<svg id="svg"></svg>
+	</div>
+	<div id="log"></div>
+</body>
+</html>
+
+<script>
+	var root;
+	var storage = [];
+
+	(function() {
+		var svg = document.getElementById("svg");
+
+		var SVG_NS = "http://www.w3.org/2000/svg";
+		var width = 1200;
+		var height = 1200;
+		var KEY_WIDTH = 30;
+		var KEY_HEIGHT = 25;
+		var KEYREF_WIDTH = 50;
+		var PADDING_WIDTH = 25;
+		var PADDING_HEIGHT = 100;
+		var MARGIN_TOP = 20;
+		var NODE_WIDTH = KEY_WIDTH * 12;
+
+		function HEIGHT(n) {
+			var f = function(n, h) {
+				if (n && n.keys) {
+					var k = n.keys[0];
+					if (k.left)
+						return f(storage[k.left], h + 1);
+				}
+				return h;
+			};
+			return n ? f(n, 1) : 0;
+		}
+
+		function IS_LEAF(node) {
+			return (node && node.hasOwnProperty("left"));
+		}
+
+		function GET_LEAF(node) {
+			for (var n = node;;) {
+				if (IS_LEAF(n)) // leaf
+					return n;
+
+				var k = n.keys[0]
+				n = storage[k.left];
+				if (!n)
+					break;
+			}
+		}
+
+		function NODE_KEY(n) {
+			if (typeof n.keys[0] == "object") {
+				var leaf = storage[n.keys[0].offset];
+				if (!leaf) {
+					console.log("LEAF missing offset : ", n.keys[0].offset, "node", n);
+					return;
+				}
+				return leaf.keys[0];
+			}
+
+			return n.keys[0];
+		}
+
+		function NODE_IN_HEIGHT(R, H) {
+			var array = [];
+			storage.forEach(function(n) {
+				if (n.h == (H - (R.h - 1)))
+					array.push(n);
+			});
+			array.sort(function(n1, n2) {
+				return NODE_KEY(n1) - NODE_KEY(n2);
+			});
+			return array;
+		}
+
+		function RECT(x, y, w, h) {
+			var d = "";
+			d += "M " + x + " " + y + " ";
+			d += "L " + (x + w) + " " + y + " ";
+			d += "L " + (x + w) + " " + (y + h) + " ";
+			d += "L " + x + " " + (y + h) + " ";
+			d += "Z";
+			return d;
+		}
+
+		function LINE(s, e) {
+			var x1 = s.x + (s.width / 2);
+			var y1 = s.y + (s.height) - 5;
+
+			var x2 = e.x + 10;
+			var y2 = e.y;
+
+			var d = "";
+			d += "M " + x1 + " " + y1 + " ";
+			d += "L " + x2 + " " + (y2 - 10);
+			return d;
+		}
+
+		function getBoundingClientRect(El) {
+			var r2 = El.getBoundingClientRect();
+			var r1 = svg.getBoundingClientRect();
+			r2.x = Math.abs(r1.x - r2.x);
+			r2.y = Math.abs(r2.y - r1.y) + 8;
+			return r2;
+		}
+
+		function POSITION_X(n, d) {
+			if (typeof n.keys[0] == "object" && !IS_LEAF(n)) {
+				var l = storage[n.keys[0].left];
+				var r = storage[n.keys[n.keys.length - 1].right];
+				if (!l || !r)
+					return 0;
+				var L = document.getElementById("node-" + l.offset);
+				var R = document.getElementById("node-" + r.offset);
+				// console.log(l, r);
+				// console.log(L, R);
+				if (L == null || R == null) {
+					console.log("POSITION_X", l, r);
+					return 0;
+				}
+				var crL = getBoundingClientRect(L);
+				var crR = getBoundingClientRect(R);
+				return crL.x + (((crR.x - crL.x) + crR.width) / 2);
+			}
+			return d;
+		}
+
+		function draw2(R, TH) {
+			var SVG_NS = "http://www.w3.org/2000/svg";
+
+			svg.querySelectorAll("g").forEach(function(e) {
+				e.remove();
+			});
+
+			var canvas = document.createElementNS(SVG_NS, "g");
+			var lines = document.createElementNS(SVG_NS, "g");
+			canvas.setAttribute("id", "nodes");
+			canvas.setAttribute("transform", "translate(0,0)");
+			lines.setAttribute("id", "lines");
+			lines.setAttribute("transform", "translate(0,0)");
+			svg.appendChild(canvas);
+			svg.appendChild(lines);
+
+			for (var L = TH; L > 0; L--) {
+				var nodes = NODE_IN_HEIGHT(R, L);
+				var LX = 10;
+				nodes.forEach(function(n) {
+					var KWIDTH = IS_LEAF(n) ? KEY_WIDTH : KEYREF_WIDTH;
+					var GX = KEY_WIDTH;
+
+					var y = MARGIN_TOP + (L - 1) * (PADDING_HEIGHT);
+					var g = document.createElementNS(SVG_NS, "g");
+					g.setAttribute("transform", "translate(" + POSITION_X(n, LX) + "," + y + ")");
+					g.setAttribute("id", "node-" + n.offset);
+					g.setAttribute("tabindex", 0);
+					canvas.appendChild(g);
+
+					var head = function() {
+						var e = document.createElementNS(SVG_NS, "g");
+						e.setAttribute("transform", "translate(" + 0 + "," + 0 + ")");
+						g.appendChild(e);
+
+						var r = document.createElementNS(SVG_NS, "path");
+						r.setAttribute("d", RECT(0, 0, KEY_WIDTH, KEY_HEIGHT));
+						r.style.stroke = "#000";
+						r.style.fill = "#999";
+						e.appendChild(r);
+
+						var t = document.createElementNS(SVG_NS, "text");
+						t.setAttribute("x", 5);
+						t.setAttribute("y", 18);
+						t.style.fontSize = "small";
+						t.textContent = (IS_LEAF(n) ? "L" : "I") + n.offset;
+						e.appendChild(t);
+					};
+					head();
+
+					n.keys.forEach(function(k, i) {
+						var e = document.createElementNS(SVG_NS, "g");
+						e.setAttribute("transform", "translate(" + (GX) + "," + 0 + ")");
+						e.setAttribute("tabindex", 0);
+						e.classList.add("k");
+						e.k = k;
+						GX += KWIDTH;
+						g.appendChild(e);
+
+						var r = document.createElementNS(SVG_NS, "path");
+						r.setAttribute("d", RECT(0, 0, KWIDTH, KEY_HEIGHT));
+						r.style.stroke = "#000";
+						r.style.fill = "#fff";
+						e.appendChild(r);
+
+						var t = document.createElementNS(SVG_NS, "text");
+						t.setAttribute("x", 5);
+						t.setAttribute("y", 18);
+						t.style.fontSize = "small";
+						if (typeof k == "object") {
+							var leaf = storage[k.offset];
+							if (!leaf)
+								console.log("?", k.offset, storage[k.offset]);
+							if (leaf) {
+								t.textContent = "" + k.offset + " [" + leaf.keys[0] + "]";
+								e.setAttribute("id", "k-" + leaf.keys[0]);
+								e.setAttribute("data-l", "node-" + k.left);
+								e.setAttribute("data-r", "node-" + k.right);
+								e.classList.add("ik-" + leaf.keys[0])
+							} else
+								t.textContent = "" + k.offset + " [?]";
+						} else {
+							t.textContent = k; // LEAF KEY
+						}
+						e.appendChild(t);
+
+						e.addEventListener("click", function(e) {
+							document.querySelectorAll(".select-l").forEach(function(obj) {
+								obj.classList.remove("select-l");
+							});
+							document.querySelectorAll(".select-r").forEach(function(obj) {
+								obj.classList.remove("select-r");
+							});
+							document.querySelectorAll(".click").forEach(function(obj) {
+								obj.classList.remove("click");
+							});
+							if (!IS_LEAF(n)) {
+								console.log("key", k);
+								r.classList.add("click");
+								var L = document.getElementById("node-" + k.left);
+								var R = document.getElementById("node-" + k.right);
+								if (L != null)
+									L.classList.add("select-l");
+								if (R != null)
+									R.classList.add("select-r");
+							}
+						});
+					});
+
+					//
+
+					var connect = function(S, E, C, click) {
+						if (!E || null == E)
+							return;
+
+						var start = getBoundingClientRect(S);
+						var end = getBoundingClientRect(E);
+						var id = "line-" + S.getAttribute("id") + "-" + E.getAttribute("id");
+						var exists = document.getElementById(id);
+						if (exists && exists != null)
+							exists.remove();
+
+						var line = document.createElementNS(SVG_NS, "path");
+						line.setAttribute("id", id);
+						line.setAttribute("d", LINE(start, end));
+						line.setAttribute("tabindex", 0);
+						line.style.stroke = C;
+						line.style.fill = C;
+						line.classList.add("line");
+						lines.appendChild(line);
+
+						line.addEventListener("click", function() {
+							if (!line.classList.contains("clicked"))
+								line.classList.add("clicked");
+							else
+								line.classList.remove("clicked");
+							click();
+						});
+
+						line.addEventListener("keydown", function(e) {
+							if (e.key == "Delete")
+								line.remove();
+						});
+						return line;
+					};
+
+					var relink = function() {
+						g.querySelectorAll(".k").forEach(function(e) {
+							//console.log(e.k);
+							var S = e;
+							var L = svg.getElementById(e.getAttribute("data-l"));
+							var R = svg.getElementById(e.getAttribute("data-r"));
+							connect(S, L, "#FFA500", function() {
+
+							});
+							connect(S, R, "#006400", function() {
+
+							});
+						});
+					};
+
+					LX += getBoundingClientRect(g).width + (PADDING_WIDTH * 1);
+
+					setTimeout(relink, 400);
+
+					g.addEventListener("dblclick", function(e) {
+						if (!IS_LEAF(n)) {
+							// var TH = HEIGHT(n);
+							// draw2(n, TH);
+						} else {
+							console.log("leaf", n);
+						}
+					});
+				});
+			}
+		}
+
+		function traverse() {
+			var f = function(n, h) {
+				if (!n)
+					return;
+
+				if (n.h && n.t) {
+					console.log("structure error", n);
+					return;
+				}
+				
+				n.h = h;
+				n.t = IS_LEAF(n) ? "LEAF" : "INTERNAL";
+				n.keys.forEach(function(k) {
+					f(storage[k.left], h + 1);
+				});
+				var k = n.keys[n.keys.length - 1];
+				f(storage[k.right], h + 1);
+			};
+
+			console.log("ROOT", root);
+			f(root, 1);
+		}
+
+		function inspect() {
+			var errors = [];
+			var count = 0;
+			var mkeys = {};
+			storage.forEach(function(n, i) {
+				if (!n)
+					return;
+				var e = document.getElementById("node-" + n.offset);
+				if (null == e)
+					errors.push("node not found : " + n.offset);
+
+				if (IS_LEAF(n)) {
+					count += n.keys.length;
+				} else {
+					n.keys.forEach(function(k) {
+						var l = storage[k.offset];
+						var key = storage[k.offset].keys[0];
+						
+						var elements = document.querySelectorAll(".ik-" + key);
+						if (elements.length > 1) {
+							if (errors.length == 0)
+								errors.push("internal key dup : " + key + ", node : " + n.offset);
+							
+							document.querySelectorAll(".ik-" + key).forEach(function(el) {
+								el.classList.add("key-dup");
+							});
+						}
+					});
+				}
+			});
+
+			var LF = GET_LEAF(root);
+			for (var n = LF, key = -1; n; n = storage[n.right]) {
+				for (var i = 0; i < n.keys.length; i++) {
+					if (n.keys[i] < key) {
+						errors.push("leaf broken : " + n.offset);
+						var e = document.getElementById("node-" + n.offset);
+						if (e != null)
+							e.classList.add("broken");
+						break;
+					}
+					key = n.keys[i];
+				}
+			}
+
+			var log = document.getElementById("log");
+			log.innerHTML = "";
+			
+			[				
+				"Count  : " + count + ", Height : " + HEIGHT(root),
+			].forEach(function(message) {
+				var div = document.createElement("div");
+				div.classList.add("info");
+				log.appendChild(div);
+				div.textContent = message;
+			});
+			
+			errors.forEach(function(error) {
+				var div = document.createElement("div");
+				div.classList.add("error");
+				log.appendChild(div);
+				div.textContent = error;
+			});
+			
+		}
+
+		load(function(data) {
+			root = data[0];
+			storage = new Array(data.length);
+			data.forEach(function(e) {
+				storage[e.offset] = e;
+			});
+			traverse();
+			//console.log(data);
+			var TH = HEIGHT(root);
+			var LC = NODE_IN_HEIGHT(root, TH).length;
+
+			console.log("LOAD", TH, LC);
+
+			width = Math.max(1200, LC * (NODE_WIDTH + PADDING_WIDTH * 2));
+			height = Math.max(500, TH * 100)
+			svg.setAttribute("width", (width) + "px");
+			svg.setAttribute("height", (height) + "px");
+			//svg.setAttribute("viewBox", "0 0 " + (width / 2) + " " + (height));
+			//svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
+
+			setTimeout(function() {
+				draw2(root, TH);
+				var rect = svg.getBBox();
+				svg.setAttribute("width", (rect.width + 50) + "px");
+				svg.setAttribute("height", (rect.height + 100) + "px");
+				inspect();
+				setTimeout(function() {
+					// svg.classList.add("zoomout");
+				}, 400);
+			}, 10);
+
+			window.addEventListener("resize", function() {
+				// draw2(root, TH);
+			});
+		});
+	})();
+
+	function load(callback) {
+		var nodeList = window.data ? window.data : [ {
+			offset : 1,
+			keys : [ 1, 2, 3 ],
+			left : -1,
+			right : -1,
+		} ];
+		callback(nodeList);
+	}
+</script>
+
+<style>
+* {
+	margin: 0;
+	padding: 0;
+}
+
+svg.zoomout {
+	zoom: 60%;
+}
+
+svg path {
+	paint-order: stroke;
+}
+
+svg text {
+	user-select: none;
+}
+
+svg text::selection {
+	background: none;
+}
+
+svg *:focus {
+	outline: none;
+}
+
+svg .click {
+	fill: aquamarine !important;
+}
+
+svg .line {
+	stroke-width: 2px;
+}
+
+svg .line.clicked {
+	stroke-width: 5px;
+}
+
+svg .line:focus {
+	stroke-width: 5px;
+}
+
+svg .select-l g:first-child path {
+	fill: #FFA500 !important;
+}
+
+svg .select-r g:first-child path {
+	fill: #006400 !important;
+}
+
+div#log {
+	position: fixed;
+	top: 10px;
+	right: 10px;
+	z-index: 1;
+	font-size: small;
+	text-align: right;
+}
+
+div#log .error {
+	color: red;
+}
+
+svg .key-dup  text {
+	fill: red !important;
+}
+
+div#view {
+	overflow: auto;
+	margin-top: 10px;
+}
+</style>

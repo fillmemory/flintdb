@@ -8,7 +8,7 @@ cd ..
 REM echo Now in: %cd%
 
 REM Main class and JVM options (match bin/webui)
-SET JMAIN=lite.db.WebUI
+SET JMAIN=flint.db.WebUI
 SET JVMOPT=-Dfile.encoding=UTF-8 -Xmx4g -DTSVFILE.TYPE.INFERENCE=0
 
 REM Build classpath from jars under lib and build-gradle

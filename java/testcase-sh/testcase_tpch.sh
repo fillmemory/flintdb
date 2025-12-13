@@ -15,7 +15,7 @@ fi
 
 # Parse command line arguments
 LIMIT=""
-WAL_OPTION="NONE"
+WAL_OPTION="OFF"
 while [[ $# -gt 0 ]]; do
 	case $1 in
 		-limit)
@@ -83,7 +83,7 @@ CREATE TABLE temp/tpch_lineitem.flintdb (
 	l_comment      STRING(44),
 	
 	PRIMARY KEY (l_orderkey, l_linenumber)
-) CACHE=50K, WAL=${WAL_OPTION}
+) CACHE=50K, WAL=${WAL_OPTION}, WAL=${WAL_OPTION}, WAL_CHECKPOINT_INTERVAL=10000000, WAL_BATCH_SIZE=10000000, WAL_COMPRESSION_THRESHOLD=8192
 EOF
 )
 # WAL=NONE|TRUNCATE|LOG

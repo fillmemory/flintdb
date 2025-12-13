@@ -122,8 +122,8 @@ javadoc {
 	destinationDir = file("${buildDir}/docs/javadoc")
 	options.encoding = 'UTF-8'
 	options.charSet = 'UTF-8'
-	options.windowTitle = "Lite DB ${project.version} API"
-	options.docTitle = "Lite DB ${project.version} API"
+	options.windowTitle = "FlintDB ${project.version} API"
+	options.docTitle = "FlintDB ${project.version} API"
 	options.author = true
 	options.use = true
 	options.version = true
@@ -143,14 +143,14 @@ jar {
 	manifest {
 		attributes(
 				"Implementation-Author" : "Y",
-				"Implementation-Title" : "Lite DB",
+				"Implementation-Title" : "FlintDB",
 				"Implementation-Version" : project.version,
 				"Implementation-Date" : NOW,
 				//
 				"Implementation-Java" : targetCompatibility,
 				"Implementation-Revision" : REVISION,
 				"Implementation-License" : "APACHE LICENSE, VERSION 2.0",
-				"Main-Class" : "lite.db.CLI",
+				"Main-Class" : "flint.db.CLI",
 				// "Class-Path" : "lib/gson-2.10.1.jar lib/commons-compress-1.27.1.jar lib/zstd-jni-1.5.6-5.jar " // optional dependencies
 				)
 	}

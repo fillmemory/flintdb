@@ -9,7 +9,7 @@ SCRIPTDIR=$(realpath ${SCRIPTDIR})
 SCRIPTDIR=$(dirname ${SCRIPTDIR})
 
 JLIB_PATHS=(${SCRIPTDIR}/lib ${SCRIPTDIR}/build)
-JMAIN=lite.db.pipeline.DataPipeline
+JMAIN=flint.db.pipeline.DataPipeline
 JVMOPT="-Dfile.encoding=UTF-8 -Xmx6g -Dorg.slf4j.simpleLogger.defaultLogLevel=error"
 
 CP=.

@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# ./test.sh --build -c lite.db.tutorial.Examples
-# ./test.sh --build -c lite.db.TestcaseLargeRows
+# ./test.sh --build -c flint.db.tutorial.Examples
+# ./test.sh --build -c flint.db.TestcaseLargeRows
 
-JTEST=lite.db.tutorial.Examples
-JTEST=lite.db.TestcasePerfAll
-#JTEST=lite.db.TestcaseSQL
+JTEST=flint.db.tutorial.Examples
+JTEST=flint.db.TestcasePerfAll
+#JTEST=flint.db.TestcaseSQL
 
 # if [ -z "$1" ]; then
 #   echo "Usage: $0 <test_name>"

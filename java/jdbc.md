@@ -200,7 +200,7 @@ Ensure the appropriate JDBC driver JAR is in the classpath:
 export CLASSPATH="$CLASSPATH:lib/mysql-connector-java.jar"
 
 # Or specify when running
-java -cp "flintdb.jar:lib/mysql-connector-java.jar" lite.db.CLI "SELECT * FROM @mydb:users"
+java -cp "flintdb.jar:lib/mysql-connector-java.jar" flint.db.CLI "SELECT * FROM @mydb:users"
 ```
 
 ## Type Mapping
@@ -225,9 +225,9 @@ JDBC types are automatically mapped to FlintDB column types:
 ### Java API
 
 ```java
-import lite.db.GenericFile;
-import lite.db.JdbcTable;
-import lite.db.JdbcConfig;
+import flint.db.GenericFile;
+import flint.db.JdbcTable;
+import flint.db.JdbcConfig;
 import java.net.URI;
 
 // Direct JDBC URI
@@ -257,7 +257,7 @@ String resolved = JdbcConfig.resolve("@mydb:users");
 ### Direct JdbcTable API
 
 ```java
-import lite.db.JdbcTable;
+import flint.db.JdbcTable;
 import java.net.URI;
 
 // Open with explicit table name

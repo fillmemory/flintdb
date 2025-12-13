@@ -1,0 +1,4 @@
+#flintdb
+directory = ~/data/train/logs/
+pattern = .*\.parquet
+max_depth = 2
