@@ -1,6 +1,6 @@
 /**
  * @file flintdb.h
- * @brief B+Tree-based table and TSV/CSV/JSONL/Parquet/... various file format manipulation library
+ * @brief B+Tree-based table and TSV/CSV/JSONL/Parquet/... various data file format manipulation library
  * @author Yongho Kim
  * @version 0.0.1
  * @date 2025-09-09
