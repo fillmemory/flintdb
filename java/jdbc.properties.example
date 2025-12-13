@@ -1,0 +1,29 @@
+# FlintDB JDBC Configuration
+# Place this file as:
+#   - ./jdbc.properties (current directory)
+#   - ~/.flintdb/jdbc.properties (user home)
+#   - Or specify with: -Dflintdb.jdbc.config=/path/to/jdbc.properties
+
+# MySQL connection
+mydb = jdbc:mysql://localhost:3306/mydb?user=admin&password=secret&table={table}
+
+# H2 in-memory database
+testdb = jdbc:h2:mem:test?table={table}
+
+# PostgreSQL production
+prod = jdbc:postgresql://prod.server.com:5432/production?user=app&password=xxx&table={table}
+
+# MariaDB
+mariadb = jdbc:mariadb://localhost:3306/analytics?user=reader&password=yyy&table={table}
+
+# Oracle
+oracle = jdbc:oracle:thin:@localhost:1521:ORCL?user=system&password=zzz&table={table}
+
+# SQL Server
+sqlserver = jdbc:sqlserver://localhost:1433;databaseName=mydb;user=sa;password=aaa;table={table}
+
+# Usage examples:
+# SELECT * FROM @mydb:users
+# SELECT * FROM mydb.customers
+# INSERT INTO output.tsv FROM @prod:orders
+# INSERT INTO data.flintdb FROM testdb.products

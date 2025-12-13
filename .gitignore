@@ -1,2 +1,13 @@
 temp
 .DS_Store
+c/bin/
+c/lib/
+c/build/
+c/tutorial/rust/target/
+c/tutorial/zig/.zig-cache/
+java/bin/main/
+java/bin/test/
+java/lib/
+java/build/
+java/.gradle/
+java/.idea/

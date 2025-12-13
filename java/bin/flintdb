@@ -1,0 +1,29 @@
+#!/bin/bash
+
+SCRIPT="${BASH_SOURCE[0]}"
+SCRIPTDIR=$(dirname $SCRIPT)
+SCRIPTDIR=$(realpath ${SCRIPTDIR})
+SCRIPTDIR=$(dirname ${SCRIPTDIR})
+
+JLIB_PATHS=(${SCRIPTDIR}/lib ${SCRIPTDIR}/build)
+JMAIN=lite.db.CLI
+
+# Allow environment variables to override defaults
+WAL_BATCH_SIZE="${FLINTDB_WAL_BATCH_SIZE:-20000}"
+WAL_CHECKPOINT_INTERVAL="${FLINTDB_WAL_CHECKPOINT_INTERVAL:-10000}"
+
+JVMOPT="-Dfile.encoding=UTF-8 -Xmx16g -Dorg.slf4j.simpleLogger.defaultLogLevel=error -DFLINTDB_FILEFORMAT_GZ=tsv -DFLINTDB_WAL_BATCH_SIZE=${WAL_BATCH_SIZE} -DFLINTDB_WAL_CHECKPOINT_INTERVAL=${WAL_CHECKPOINT_INTERVAL}"
+
+CP=.
+for i in ${JLIB_PATHS[@]}
+do
+  JLIB_PATH=$i
+  if [ -d ${JLIB_PATH} ]; then
+    for j in `find ${JLIB_PATH} -type f -name "*.jar"`
+    do
+      CP=${CP}:${j}
+    done
+  fi
+done
+
+java -cp $CP $JVMOPT $JMAIN "$@"

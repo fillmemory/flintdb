@@ -1,0 +1,38 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SCRIPT="${BASH_SOURCE[0]}"
+SCRIPTDIR=$(dirname $SCRIPT)
+SCRIPTDIR=$(realpath ${SCRIPTDIR})
+SCRIPTDIR=$(dirname ${SCRIPTDIR})
+#echo $SCRIPTDIR
+cd $SCRIPTDIR
+
+JLIB_PATHS=(${SCRIPTDIR}/lib ${SCRIPTDIR}/build)
+JMAIN=lite.db.WebUI
+JVMOPT="-Dfile.encoding=UTF-8 -Xmx4g -DFLINTDB_TYPE_PREDICT=0 -DFLINTDB_FILEFORMAT_GZ=tsv"
+# if [[ "${1:-}" == "--debug" ]]; then
+#   shift
+#   JVMOPT="$JVMOPT -DWEBUI_DEBUG=1"
+# fi
+
+if ! compgen -G "${SCRIPTDIR}/lib/**/gson-*.jar" > /dev/null; then
+  echo "Gson is not in the classpath"
+  exit 1
+fi
+
+
+CP="."
+for i in ${JLIB_PATHS[@]}
+do
+  JLIB_PATH=$i
+  if [ -d ${JLIB_PATH} ]; then
+    for j in `find ${JLIB_PATH} -type f -name "*.jar"`
+    do
+      CP=${CP}:${j}
+    done
+  fi
+done
+
+java -cp $CP $JVMOPT $JMAIN "$@"

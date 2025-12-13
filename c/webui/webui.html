@@ -1,0 +1,1498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>FlintDB</title>
+<meta charSet="utf-8"/>
+<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, minimum-scale=1.0">
+</head>
+<body>
+	<div class="container">
+		<div class="sidebar" id="sidebar">
+			<div class="sidebar-header"><span>Tables</span><button type="button" id="btn-refresh" class="icon-btn" title="Refresh Tables">⟳</button></div>
+			<div id="table-list" class="table-list"></div>
+			<div class="sidebar-header"><span>Query History</span><button type="button" id="btn-clear-history" class="icon-btn" title="Clear Query History">🗑</button></div>
+			<div id="query-history-list" class="query-history-list">
+				<div id="query-history-items" class="history-items"></div>
+			</div>
+		</div>
+		
+		<div class="resizer" id="resizer"></div>
+		
+		<div class="main-content">
+			<form id="editor" autocomplete="off">
+				<div class="toolbar">
+					<div class="toolbar-right">
+						<button type="button" id="btn-toggle-sidebar" title="Toggle Sidebar">Sidebar</button>
+						<button type="button" id="btn-go">Run</button>
+						<button type="button" id="btn-download-csv" title="Download CSV" disabled>Download CSV</button>
+						<button type="button" id="btn-table-layout" title="Toggle Table Layout (Fixed/Auto)">Layout: Auto</button>
+						<button type="button" id="btn-reset-warning" title="Reset page leave warning">Reset Warning</button>
+					</div>
+				</div>
+
+				<div class="editor">
+					<textarea id="u" style="display: none"></textarea>
+					<textarea id="q" class="scrollbar">SHOW TABLES WHERE . OPTION -R</textarea>
+				</div>
+
+				<div id="result" style="margin-top: 20px" class="scrollbar"></div>
+			</form>
+		</div>
+	</div>
+</body>
+</html>
+
+<script>
+	// 현재 결과 데이터를 저장하는 전역 변수
+	var currentResultData = null;
+	var currentColumnTypes = null; // inferred types per column: number|date|time|string
+	var sortState = {
+		columnIndex: -1,
+		ascending: true
+	};
+	
+	// 테이블 레이아웃 상태
+	var tableLayoutFixed = false;
+	
+	// 쿼리 히스토리 관련 변수
+	var queryHistory = [];
+	var maxHistorySize = 50;
+	
+	// 페이지 나가기 확인 관련 변수
+	var hasUnsavedChanges = false;
+	var hasExecutedQuery = false;
+
+	function inferColumnTypes(data) {
+		if (!data || data.length <= 1) return [];
+		var header = data[0];
+		var types = new Array(header.length).fill('string');
+		for (var c = 0; c < header.length; c++) {
+			var sawNum = false, sawDate = false, sawTime = false, sawOther = false;
+			for (var r = 1; r < data.length; r++) {
+				var v = data[r][c];
+				if (v == null || v === '') continue;
+				if (typeof v !== 'string') v = String(v);
+				// 과학적 표기법(scientific notation)을 포함한 숫자 인식: 1.23, -45.67, 1e10, 1.23e-4 등
+				if (/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(v)) { sawNum = true; continue; }
+				if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { sawDate = true; continue; }
+				if (/^\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(v)) { sawTime = true; continue; }
+				sawOther = true; break;
+			}
+			if (sawNum && !sawOther && !sawDate && !sawTime) types[c] = 'number';
+			else if (sawDate && !sawOther && !sawNum && !sawTime) types[c] = 'date';
+			else if (sawTime && !sawOther && !sawNum && !sawDate) types[c] = 'time';
+		}
+		return types;
+	}
+
+	function rows(data, keepSortState) {
+		var $result = document.querySelector("#result");
+		$result.innerHTML = "";
+
+		// 현재 결과 데이터 저장
+		currentResultData = data;
+		
+		// 정렬 상태 초기화 (새로운 쿼리 결과일 때만) 및 타입 재추론
+		if (!keepSortState) {
+			sortState.columnIndex = -1;
+			sortState.ascending = true;
+			currentColumnTypes = inferColumnTypes(data);
+		} else if (!currentColumnTypes) {
+			currentColumnTypes = inferColumnTypes(data);
+		}
+		
+		// 다운로드 버튼 상태 업데이트
+		var $downloadBtn = document.querySelector("#btn-download-csv");
+		if (data.length > 0) {
+			$downloadBtn.disabled = false;
+		} else {
+			$downloadBtn.disabled = true;
+		}
+
+		if (data.length == 0)
+			return;
+
+		// 테이블 컨테이너 생성
+		var $tableContainer = document.createElement("div");
+		$tableContainer.className = "table-container";
+		$result.appendChild($tableContainer);
+
+		// 단일 테이블 생성
+		var $table = document.createElement("table");
+		$table.className = "data-table";
+		
+		// 테이블 레이아웃 적용
+		if (tableLayoutFixed) {
+			$table.classList.add("fixed-layout");
+		} else {
+			$table.classList.add("auto-layout");
+		}
+		
+		$tableContainer.appendChild($table);
+
+		// 헤더 생성
+		var $thead = document.createElement("thead");
+		$table.appendChild($thead);
+		var $headerRow = document.createElement("tr");
+		$thead.appendChild($headerRow);
+
+		// 바디 생성
+		var $tbody = document.createElement("tbody");
+		$table.appendChild($tbody);
+
+		var isSingleColumn = (data[0].length === 1);
+		if (isSingleColumn) {
+			$table.classList.add("single-column");
+		}
+
+		// 헤더 셀 생성
+		data[0].forEach(function(column, index) {
+			var $th = document.createElement("th");
+			$headerRow.appendChild($th);
+			$th.textContent = column;
+			$th.setAttribute("title", column);
+			$th.dataset.columnIndex = index;
+			$th.style.cursor = "pointer";
+			$th.classList.add("sortable");
+			
+			// 정렬 아이콘 컨테이너 추가
+			var $sortIcon = document.createElement("span");
+			$sortIcon.className = "sort-icon";
+			$sortIcon.innerHTML = "↕";
+			$th.appendChild($sortIcon);
+			
+			// 헤더 클릭 이벤트
+			$th.addEventListener("click", function() {
+				sortTable(parseInt(this.dataset.columnIndex));
+			});
+		});
+
+		// 데이터 행 생성 (헤더 길이에 맞춰 패딩)
+		var colCount = data[0].length;
+		for (var i = 1; i < data.length; i++) {
+			var $tr = document.createElement("tr");
+			$tbody.appendChild($tr);
+			for (var c = 0; c < colCount; c++) {
+				var column = (data[i][c] !== undefined) ? data[i][c] : null;
+				var $td = document.createElement("td");
+				if (currentColumnTypes && currentColumnTypes[c]) {
+					$td.classList.add('col-' + currentColumnTypes[c]);
+				}
+				$tr.appendChild($td);
+				if (column == null) {
+					$td.classList.add("null-value");
+				} else {
+					var displayText = column;
+					if (typeof column === 'string') {
+						displayText = column
+							.replace(/\\n/g, '\n')
+							.replace(/\\t/g, '\t')
+							.replace(/\\r/g, '\r')
+							.replace(/\\\"/g, '"')
+							.replace(/\\'/g, "'")
+							.replace(/\\\\/g, '\\')
+							.replace(/\\u0027/g, "'");
+						if (displayText.includes('\n')) {
+							$td.classList.add('multiline');
+						}
+					}
+					$td.textContent = displayText;
+					$td.setAttribute("title", displayText);
+				}
+				$td.addEventListener("dblclick", function(e) {
+					e.preventDefault();
+					var sel = window.getSelection();
+					var range = document.createRange();
+					range.selectNodeContents(this);
+					sel.removeAllRanges();
+					sel.addRange(range);
+				});
+			}
+		}
+	}
+
+	function encode(s) {
+		var buffer = new TextEncoder().encode(s).buffer;
+		return [...new Uint8Array(buffer)]
+		    .map(x => x.toString(16).padStart(2, '0'))
+		    .join('');
+	}
+
+	function run(u, q, callback) {
+		// 버튼 비활성화
+		var $btnGo = document.querySelector("#btn-go");
+		$btnGo.disabled = true;
+		$btnGo.textContent = "Running...";
+		$btnGo.classList.add("running");
+		
+		var xhr = new XMLHttpRequest();
+		xhr.open("POST", document.location.pathname, true);
+		xhr.onerror = function(event) {
+			console.log("error", event);
+			// 버튼 다시 활성화
+			$btnGo.disabled = false;
+			$btnGo.textContent = "Run";
+			$btnGo.classList.remove("running");
+			callback([["ERROR"], ["Network error"]]);
+		};
+		xhr.onprogress = function(event) {
+			if (event.lengthComputable) {
+				console.log("progress", event.loaded, event.total);
+			}
+		};
+		xhr.onloadend = function(event) {
+			console.log("progress", "complete");
+			//progressBar.value = event.loaded;
+		};
+		xhr.onload = function(event) {
+			// 버튼 다시 활성화
+			$btnGo.textContent = "Run";
+			$btnGo.disabled = false;
+			$btnGo.classList.remove("running");
+			
+			var status = this.status;
+			var type = xhr.getResponseHeader("content-type");
+			// 200 OK + (100~599) 범위의 응답이라도 application/json 이면 동일하게 JSON 처리
+			// (리다이렉트/클라이언트/서버 에러를 JSON payload 로 표 형태로 보여주기 위함)
+			if (type && type.indexOf("application/json") == 0) {
+				try {
+					var result = JSON.parse(xhr.response);
+					callback(result);
+				} catch (e) {
+					callback([["ERROR"], ["Invalid JSON response"]]);
+				}
+			} else if (status == 200 && type && type.indexOf("text/plain") == 0) {
+				callback([["text/plain"], [xhr.response]]);
+			} else if (status == 200) {
+				// 200 이지만 우리가 인식하지 못한 타입 -> 단순 텍스트로 감싸기
+				callback([["text"], [xhr.response]]);
+			} else {
+				// JSON 아니면 기존 에러 처리
+				callback([["ERROR"], [status + " " + this.statusText]]);
+			}
+		};
+		xhr.send(JSON.stringify({
+			a : [],
+			u : u,
+			q : q, // encode(q)
+		}));
+	}
+
+	function loadTables() {
+		run("", "SHOW TABLES WHERE . OPTION -R", function(data) {
+			var $tableList = document.querySelector("#table-list");
+			$tableList.innerHTML = "";
+			if (data.length > 1) {
+				// 헤더 확인 (Path, Bytes, Modified, Format, Rows 등)
+				var headers = data[0];
+				var pathIndex = headers.indexOf("Path");
+				var bytesIndex = headers.indexOf("Bytes");
+				var modifiedIndex = headers.indexOf("Modified");
+				var formatIndex = headers.indexOf("Format");
+				var rowsIndex = headers.indexOf("Rows");
+
+				data = new Array(data[0]).concat(data.slice(1).sort(function(a, b) {
+					// // Path 기준으로 정렬
+					// var pathA = a[pathIndex] || a[0];
+					// var pathB = b[pathIndex] || b[0];
+					// return pathA.localeCompare(pathB);
+					return 0;
+				}));
+				
+				for (var i = 1; i < data.length; i++) {
+					var row = data[i];
+					var tablePath = row[pathIndex] || row[0];
+					var tableBytes = row[bytesIndex] || "";
+					var tableModified = row[modifiedIndex] || "";
+					var tableFormat = row[formatIndex] || "";
+					var tableRows = row[rowsIndex] || "";
+					
+					if (tablePath) {
+						var $tableItem = document.createElement("div");
+						$tableItem.className = "table-item";
+						
+						// 포맷에 따른 아이콘 생성
+						var $icon = document.createElement("span");
+						$icon.className = "table-icon";
+						
+						var isTextFormat = tableFormat && (tableFormat.includes("tsv") || tableFormat.includes("csv"));
+						var isLiteFormat = tableFormat && tableFormat.includes("flint");
+						
+						if (isTextFormat) {
+							$icon.innerHTML = "📄"; // 텍스트 파일 아이콘
+							$icon.className += " text-format";
+							$icon.title = "Text Format (" + tableFormat + ")";
+						} else if (isLiteFormat) {
+							$icon.innerHTML = "🗂️"; // 바이너리 데이터베이스 아이콘  
+							$icon.className += " flint-format";
+							$icon.title = "Lite Format (" + tableFormat + ")";
+						} else {
+							$icon.innerHTML = "📋"; // 기본 테이블 아이콘
+							$icon.className += " default-format";
+							$icon.title = "Table (" + (tableFormat || "unknown") + ")";
+						}
+						
+						// 아이콘과 테이블명을 포함하는 컨테이너
+						var $content = document.createElement("div");
+						$content.className = "table-item-content";
+						
+						var $name = document.createElement("span");
+						$name.className = "table-name";
+						$name.textContent = tablePath;
+						
+						$content.appendChild($icon);
+						$content.appendChild($name);
+						$tableItem.appendChild($content);
+						
+						// 테이블 정보를 데이터 속성으로 저장
+						$tableItem.dataset.path = tablePath;
+						$tableItem.dataset.format = tableFormat;
+						$tableItem.dataset.bytes = tableBytes;
+						$tableItem.dataset.modified = tableModified;
+						$tableItem.dataset.rows = tableRows;
+						
+						// 커스텀 툴팁 이벤트
+						$tableItem.addEventListener("mouseenter", function(e) {
+							showTooltip(e, this);
+						});
+						
+						$tableItem.addEventListener("mouseleave", function() {
+							hideTooltip();
+						});
+						
+						$tableItem.addEventListener("click", function(e) {
+							showTableMenu(e, this);
+						});
+						
+						$tableList.appendChild($tableItem);
+					}
+				}
+			}
+		});
+	}
+
+	function showTableMenu(event, tableItem) {
+		event.preventDefault();
+		event.stopPropagation();
+		
+		// 기존 메뉴 제거
+		var existingMenu = document.querySelector(".table-menu");
+		if (existingMenu) {
+			existingMenu.remove();
+		}
+		
+		var tablePath = tableItem.dataset.path;
+		var tableFormat = tableItem.dataset.format;
+		
+		var $menu = document.createElement("div");
+		$menu.className = "table-menu";
+		$menu.style.position = "absolute";
+		$menu.style.left = event.pageX + "px";
+		$menu.style.top = event.pageY + "px";
+		
+		// SELECT 메뉴 항목
+		var $selectItem = document.createElement("div");
+		$selectItem.className = "menu-item";
+		$selectItem.textContent = "SELECT";
+		$selectItem.addEventListener("click", function() {
+			var $q = document.querySelector("#q");
+			$q.value = "SELECT * FROM " + tablePath + " LIMIT 100";
+			runSQL();
+			$menu.remove();
+		});
+		$menu.appendChild($selectItem);
+		
+		// 포맷에 따른 추가 메뉴
+		var isTextFormat = tableFormat && (
+			tableFormat.includes("tsv") 
+			|| tableFormat.includes("csv") 
+			|| tableFormat.includes("parquet")
+			|| tableFormat.includes("jsonl")
+		);
+		var isLiteFormat = tableFormat && tableFormat.includes("flint");
+		
+		if (isTextFormat || isLiteFormat) {
+			// DESC 메뉴 항목
+			var $descItem = document.createElement("div");
+			$descItem.className = "menu-item";
+			$descItem.textContent = "DESC";
+			$descItem.addEventListener("click", function() {
+				var $q = document.querySelector("#q");
+				$q.value = "DESC " + tablePath + "";
+				runSQL();
+				$menu.remove();
+			});
+			$menu.appendChild($descItem);
+		}
+		
+		if (isTextFormat || isLiteFormat) {
+			// META 메뉴 항목
+			var $metaItem = document.createElement("div");
+			$metaItem.className = "menu-item";
+			$metaItem.textContent = "META";
+			$metaItem.addEventListener("click", function() {
+				var $q = document.querySelector("#q");
+				$q.value = "META " + tablePath + "";
+				runSQL();
+				$menu.remove();
+			});
+			$menu.appendChild($metaItem);
+		}
+		
+		document.body.appendChild($menu);
+		
+		// 메뉴 외부 클릭 시 닫기
+		setTimeout(function() {
+			document.addEventListener("click", function closeMenu() {
+				$menu.remove();
+				document.removeEventListener("click", closeMenu);
+			});
+		}, 0);
+	}
+
+	function showTooltip(event, tableItem) {
+		hideTooltip(); // 기존 툴팁 제거
+		
+		var $tooltip = document.createElement("div");
+		$tooltip.className = "custom-tooltip";
+		$tooltip.id = "custom-tooltip";
+		
+		var path = tableItem.dataset.path;
+		var format = tableItem.dataset.format;
+		var bytes = tableItem.dataset.bytes;
+		var modified = tableItem.dataset.modified;
+		var rows = tableItem.dataset.rows;
+		
+		var html = "<div class='tooltip-title'>Table Information</div>";
+		html += "<div class='tooltip-row'><span class='tooltip-label'>Path:</span> <span class='tooltip-value'>" + path + "</span></div>";
+		if (rows) html += "<div class='tooltip-row'><span class='tooltip-label'>Rows:</span> <span class='tooltip-value'>" + rows + "</span></div>";
+		if (bytes) html += "<div class='tooltip-row'><span class='tooltip-label'>Bytes:</span> <span class='tooltip-value'>" + bytes + "</span></div>";
+		if (modified) html += "<div class='tooltip-row'><span class='tooltip-label'>Modified:</span> <span class='tooltip-value'>" + modified + "</span></div>";
+		if (format) html += "<div class='tooltip-row'><span class='tooltip-label'>Format:</span> <span class='tooltip-value'>" + format + "</span></div>";
+		
+		$tooltip.innerHTML = html;
+		
+		document.body.appendChild($tooltip);
+		
+		// 위치 계산
+		var rect = tableItem.getBoundingClientRect();
+		$tooltip.style.left = (rect.right + 10) + "px";
+		$tooltip.style.top = rect.top + "px";
+		
+		// 화면 경계 확인 및 조정
+		var tooltipRect = $tooltip.getBoundingClientRect();
+		if (tooltipRect.right > window.innerWidth) {
+			$tooltip.style.left = (rect.left - tooltipRect.width - 10) + "px";
+		}
+		if (tooltipRect.bottom > window.innerHeight) {
+			$tooltip.style.top = (rect.bottom - tooltipRect.height) + "px";
+		}
+	}
+
+	function hideTooltip() {
+		var $tooltip = document.getElementById("custom-tooltip");
+		if ($tooltip) {
+			$tooltip.remove();
+		}
+	}
+
+	function sortTable(columnIndex) {
+		if (!currentResultData || currentResultData.length <= 1) {
+			return;
+		}
+		
+		// 정렬 방향 결정
+		if (sortState.columnIndex === columnIndex) {
+			sortState.ascending = !sortState.ascending;
+		} else {
+			sortState.columnIndex = columnIndex;
+			sortState.ascending = true;
+		}
+		
+		// 헤더를 제외한 데이터만 정렬
+		var header = currentResultData[0];
+		var dataRows = currentResultData.slice(1);
+		
+		// 데이터 정렬
+		var colType = currentColumnTypes ? currentColumnTypes[columnIndex] : null;
+		dataRows.sort(function(a, b) {
+			var aVal = a[columnIndex];
+			var bVal = b[columnIndex];
+			if (aVal == null && bVal == null) return 0;
+			if (aVal == null) return sortState.ascending ? 1 : -1;
+			if (bVal == null) return sortState.ascending ? -1 : 1;
+			if (colType === 'number') {
+				var aNum = parseFloat(aVal); var bNum = parseFloat(bVal);
+				return sortState.ascending ? (aNum - bNum) : (bNum - aNum);
+			} else if (colType === 'date') {
+				// YYYY-MM-DD lexical compare works but parse for robustness
+				var aTime = Date.parse(aVal + 'T00:00:00Z');
+				var bTime = Date.parse(bVal + 'T00:00:00Z');
+				if (isNaN(aTime) || isNaN(bTime)) {
+					return sortState.ascending ? (aVal.localeCompare(bVal)) : (bVal.localeCompare(aVal));
+				}
+				return sortState.ascending ? (aTime - bTime) : (bTime - aTime);
+			} else if (colType === 'time') {
+				// HH:MM:SS(.fff)
+				var timeToMs = function(v){
+					var m = /^([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?$/.exec(v);
+					if (!m) return NaN;
+					var ms = (+m[1])*3600000 + (+m[2])*60000 + (+m[3])*1000;
+					if (m[4]) { var frac = m[4].slice(0,3); while(frac.length<3) frac+='0'; ms += parseInt(frac,10); }
+					return ms;
+				};
+				var aMs = timeToMs(aVal), bMs = timeToMs(bVal);
+				if (isNaN(aMs) || isNaN(bMs)) {
+					return sortState.ascending ? (String(aVal).localeCompare(String(bVal))) : (String(bVal).localeCompare(String(aVal)));
+				}
+				return sortState.ascending ? (aMs - bMs) : (bMs - aMs);
+			} else {
+				var aStr = String(aVal).toLowerCase();
+				var bStr = String(bVal).toLowerCase();
+				if (aStr < bStr) return sortState.ascending ? -1 : 1;
+				if (aStr > bStr) return sortState.ascending ? 1 : -1;
+				return 0;
+			}
+		});
+		
+		// 헤더와 정렬된 데이터 결합
+		var sortedData = [header].concat(dataRows);
+		
+		// 테이블 다시 렌더링 (정렬 상태 유지)
+		rows(sortedData, true);
+		
+		// 정렬 아이콘 업데이트
+		updateSortIcons();
+	}
+
+	function updateSortIcons() {
+		var $headers = document.querySelectorAll(".data-table th.sortable");
+		$headers.forEach(function($th, index) {
+			var $sortIcon = $th.querySelector(".sort-icon");
+			if (parseInt($th.dataset.columnIndex) === sortState.columnIndex) {
+				$sortIcon.innerHTML = sortState.ascending ? "↑" : "↓";
+				$th.classList.add("sorted");
+			} else {
+				$sortIcon.innerHTML = "↕";
+				$th.classList.remove("sorted");
+			}
+		});
+	}
+
+	function downloadCSV() {
+		if (!currentResultData || currentResultData.length === 0) {
+			alert("No data to download");
+			return;
+		}
+
+		// CSV 데이터 생성
+		var csvContent = "";
+		
+		// 헤더 처리
+		if (currentResultData.length > 0) {
+			var headers = currentResultData[0].map(function(header) {
+				return escapeCSVField(String(header || ""));
+			});
+			csvContent += headers.join(",") + "\n";
+		}
+		
+		// 데이터 행 처리
+		for (var i = 1; i < currentResultData.length; i++) {
+			var row = currentResultData[i].map(function(field) {
+				if (field === null || field === undefined) {
+					return "";
+				}
+				return escapeCSVField(String(field));
+			});
+			csvContent += row.join(",") + "\n";
+		}
+
+		// 파일 다운로드
+		var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+		var link = document.createElement("a");
+		var url = URL.createObjectURL(blob);
+		link.setAttribute("href", url);
+		
+		// 파일명 생성 (현재 날짜/시간 포함)
+		var now = new Date();
+		var timestamp = now.getFullYear() + 
+			String(now.getMonth() + 1).padStart(2, '0') + 
+			String(now.getDate()).padStart(2, '0') + '_' +
+			String(now.getHours()).padStart(2, '0') + 
+			String(now.getMinutes()).padStart(2, '0') + 
+			String(now.getSeconds()).padStart(2, '0');
+		
+		link.setAttribute("download", "query_result_" + timestamp + ".csv");
+		link.style.visibility = 'hidden';
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+	}
+
+	function escapeCSVField(field) {
+		// CSV 필드 이스케이프 처리
+		if (field.includes('"') || field.includes(',') || field.includes('\n') || field.includes('\r')) {
+			// 따옴표를 두 번 연속으로 써서 이스케이프
+			return '"' + field.replace(/"/g, '""') + '"';
+		}
+		return field;
+	}
+
+	// 쿼리 히스토리 관리 함수들
+	function loadQueryHistory() {
+		try {
+			var stored = localStorage.getItem('flintdb_query_history');
+			if (stored) {
+				queryHistory = JSON.parse(stored);
+			}
+		} catch (e) {
+			console.error('Error loading query history:', e);
+			queryHistory = [];
+		}
+		updateQueryHistoryDisplay();
+	}
+
+	function saveQueryHistory() {
+		try {
+			localStorage.setItem('flintdb_query_history', JSON.stringify(queryHistory));
+		} catch (e) {
+			console.error('Error saving query history:', e);
+		}
+	}
+
+	function addToQueryHistory(query) {
+		// SELECT 쿼리만 히스토리에 추가
+		var trimmedQuery = query.trim();
+		if (!trimmedQuery.toUpperCase().startsWith('SELECT')) {
+			return;
+		}
+		
+		// 중복 제거 (동일한 쿼리가 있으면 제거)
+		queryHistory = queryHistory.filter(function(item) {
+			return item.query !== trimmedQuery;
+		});
+		
+		// 새 쿼리를 맨 앞에 추가
+		queryHistory.unshift({
+			query: trimmedQuery,
+			timestamp: new Date().toISOString(),
+			displayTime: new Date().toLocaleString()
+		});
+		
+		// 최대 크기 제한
+		if (queryHistory.length > maxHistorySize) {
+			queryHistory = queryHistory.slice(0, maxHistorySize);
+		}
+		
+		saveQueryHistory();
+		updateQueryHistoryDisplay();
+	}
+
+	function updateQueryHistoryDisplay() {
+		var $historyItems = document.querySelector("#query-history-items");
+		if(!$historyItems) return; // fallback
+		$historyItems.innerHTML = "";
+		
+		if (queryHistory.length === 0) {
+			var $emptyMsg = document.createElement("div");
+			$emptyMsg.className = "history-empty";
+			$emptyMsg.textContent = "No query history";
+			$historyItems.appendChild($emptyMsg);
+			return;
+		}
+		
+		queryHistory.forEach(function(item, index) {
+			var $historyItem = document.createElement("div");
+			$historyItem.className = "history-item";
+			
+			var $queryText = document.createElement("div");
+			$queryText.className = "history-query";
+			// 긴 쿼리는 줄임표로 표시
+			var displayQuery = item.query.length > 50 ? 
+				item.query.substring(0, 50) + "..." : item.query;
+			$queryText.textContent = displayQuery;
+			$queryText.title = item.query; // 전체 쿼리를 툴팁으로
+			
+			var $timeText = document.createElement("div");
+			$timeText.className = "history-time";
+			$timeText.textContent = item.displayTime;
+			
+			var $deleteBtn = document.createElement("button");
+			$deleteBtn.className = "history-delete";
+			$deleteBtn.innerHTML = "×";
+			$deleteBtn.title = "Delete this query";
+			$deleteBtn.addEventListener("click", function(e) {
+				e.stopPropagation();
+				deleteQueryHistory(index);
+			});
+			
+			$historyItem.appendChild($queryText);
+			$historyItem.appendChild($timeText);
+			$historyItem.appendChild($deleteBtn);
+			
+			$historyItem.addEventListener("click", function() {
+				loadQueryFromHistory(item.query);
+			});
+			
+			$historyItems.appendChild($historyItem);
+		});
+	}
+
+	function loadQueryFromHistory(query) {
+		var $q = document.querySelector("#q");
+		$q.value = query;
+		$q.focus();
+		
+		// 쿼리가 변경되었으므로 unsaved changes로 표시
+		hasUnsavedChanges = true;
+	}
+
+	function deleteQueryHistory(index) {
+		queryHistory.splice(index, 1);
+		saveQueryHistory();
+		updateQueryHistoryDisplay();
+	}
+
+	function clearQueryHistory() {
+		if (confirm("Are you sure you want to clear all query history?")) {
+			queryHistory = [];
+			saveQueryHistory();
+			updateQueryHistoryDisplay();
+		}
+	}
+
+	// 페이지 나가기 경고 리셋 기능
+	function resetLeaveWarning() {
+		hasUnsavedChanges = false;
+		hasExecutedQuery = false;
+		alert("Page leave warning has been reset. You can now navigate away without warnings.");
+	}
+
+	// 테이블 레이아웃 토글 기능
+	function toggleTableLayout() {
+		tableLayoutFixed = !tableLayoutFixed;
+		
+		// 버튼 텍스트 업데이트
+		var $layoutBtn = document.querySelector("#btn-table-layout");
+		$layoutBtn.textContent = "Layout: " + (tableLayoutFixed ? "Fixed" : "Auto");
+		$layoutBtn.title = "Toggle Table Layout (" + (tableLayoutFixed ? "Fixed" : "Auto") + ")";
+		
+		// 로컬스토리지에 설정 저장
+		localStorage.setItem('flintdb_table_layout_fixed', tableLayoutFixed.toString());
+		
+		// 현재 테이블이 있다면 다시 렌더링
+		if (currentResultData && currentResultData.length > 0) {
+			rows(currentResultData, true);
+		}
+	}
+
+	// 테이블 레이아웃 설정 로드
+	function loadTableLayoutSetting() {
+		var saved = localStorage.getItem('flintdb_table_layout_fixed');
+		if (saved !== null) {
+			tableLayoutFixed = saved === 'true';
+		}
+		
+		// 버튼 텍스트 업데이트
+		var $layoutBtn = document.querySelector("#btn-table-layout");
+		if ($layoutBtn) {
+			$layoutBtn.textContent = "Layout: " + (tableLayoutFixed ? "Fixed" : "Auto");
+			$layoutBtn.title = "Toggle Table Layout (" + (tableLayoutFixed ? "Fixed" : "Auto") + ")";
+		}
+	}
+
+	// 사이드바 리사이저 기능
+	function initSidebarResizer() {
+		var resizer = document.getElementById('resizer');
+		var sidebar = document.getElementById('sidebar');
+		var isResizing = false;
+		var startX = 0;
+		var startWidth = 0;
+		
+		// 로컬스토리지에서 저장된 사이드바 폭 불러오기
+		var savedWidth = localStorage.getItem('flintdb_sidebar_width');
+		if (savedWidth) {
+			sidebar.style.width = savedWidth + 'px';
+		}
+		
+		resizer.addEventListener('mousedown', function(e) {
+			isResizing = true;
+			startX = e.clientX;
+			startWidth = parseInt(window.getComputedStyle(sidebar).width, 10);
+			
+			document.body.style.cursor = 'col-resize';
+			document.body.style.userSelect = 'none';
+			
+			e.preventDefault();
+		});
+		
+		document.addEventListener('mousemove', function(e) {
+			if (!isResizing) return;
+			
+			var newWidth = startWidth + (e.clientX - startX);
+			
+			// 최소/최대 폭 제한
+			if (newWidth < 150) newWidth = 150;
+			if (newWidth > 500) newWidth = 500;
+			
+			sidebar.style.width = newWidth + 'px';
+			
+			// 숨김 상태의 margin도 업데이트
+			var style = document.querySelector('style');
+			var cssText = style.textContent;
+			var regex = /\.sidebar\.hidden\s*{\s*margin-left:\s*-\d+px;/;
+			var newRule = '.sidebar.hidden { margin-left: -' + newWidth + 'px;';
+			
+			if (regex.test(cssText)) {
+				style.textContent = cssText.replace(regex, newRule);
+			}
+		});
+		
+		document.addEventListener('mouseup', function() {
+			if (isResizing) {
+				isResizing = false;
+				document.body.style.cursor = '';
+				document.body.style.userSelect = '';
+				
+				// 현재 폭을 로컬스토리지에 저장
+				var currentWidth = parseInt(window.getComputedStyle(sidebar).width, 10);
+				localStorage.setItem('flintdb_sidebar_width', currentWidth);
+			}
+		});
+		
+		// 더블클릭으로 기본 크기로 리셋
+		resizer.addEventListener('dblclick', function() {
+			sidebar.style.width = '250px';
+			localStorage.setItem('flintdb_sidebar_width', '250');
+			
+			// CSS 규칙도 업데이트
+			var style = document.querySelector('style');
+			var cssText = style.textContent;
+			var regex = /\.sidebar\.hidden\s*{\s*margin-left:\s*-\d+px;/;
+			var newRule = '.sidebar.hidden { margin-left: -250px;';
+			
+			if (regex.test(cssText)) {
+				style.textContent = cssText.replace(regex, newRule);
+			}
+		});
+	}
+
+	// 페이지 나가기 확인 기능
+	function initBeforeUnloadWarning() {
+		// beforeunload 이벤트 리스너
+		window.addEventListener('beforeunload', function(e) {
+			// 쿼리를 실행했거나 unsaved changes가 있는 경우에만 경고
+			if (hasExecutedQuery || hasUnsavedChanges) {
+				var confirmationMessage = 'Are you sure you want to leave? Any unsaved work will be lost.';
+				
+				// 표준 방법
+				e.preventDefault();
+				e.returnValue = confirmationMessage;
+				
+				// 일부 브라우저를 위한 fallback
+				return confirmationMessage;
+			}
+		});
+		
+		// 텍스트 영역 변경 감지
+		var $queryTextarea = document.querySelector("#q");
+		var originalQuery = $queryTextarea.value;
+		
+		$queryTextarea.addEventListener('input', function() {
+			var currentQuery = this.value.trim();
+			var originalQueryTrimmed = originalQuery.trim();
+			
+			// 기본 쿼리가 아닌 다른 내용이 있고, 원래 쿼리와 다르면 unsaved changes로 표시
+			if (currentQuery !== originalQueryTrimmed && 
+				currentQuery !== "SHOW TABLES WHERE . OPTION -R") {
+				hasUnsavedChanges = true;
+			} else {
+				hasUnsavedChanges = false;
+			}
+		});
+		
+		// 페이지 로드 완료 시 초기 상태 설정
+		setTimeout(function() {
+			hasUnsavedChanges = false;
+			hasExecutedQuery = false;
+		}, 1000);
+	}
+
+	var runSQL = function() {
+		var $q = document.querySelector("#q");
+		var $u = document.querySelector("#u");
+		var q = $q.value.trim();
+		var u = $u.value.trim();
+		if (q == "")
+			return;
+
+		// 페이지 나가기 확인을 위한 상태 업데이트
+		hasExecutedQuery = true;
+		hasUnsavedChanges = false; // 쿼리를 실행하면 저장된 것으로 간주
+
+		// 쿼리를 히스토리에 추가
+		addToQueryHistory(q);
+
+		run(u, q, function(data) {
+			rows(data);
+		});
+	};
+
+	(function() {
+		document.querySelector("#btn-go").addEventListener("click", runSQL);
+		
+		// CSV 다운로드 기능
+		document.querySelector("#btn-download-csv").addEventListener("click", downloadCSV);
+		
+		// 테이블 레이아웃 토글 기능
+		document.querySelector("#btn-table-layout").addEventListener("click", toggleTableLayout);
+		
+		// 히스토리 클리어 기능
+		document.querySelector("#btn-clear-history").addEventListener("click", clearQueryHistory);
+		
+		// 페이지 나가기 경고 리셋 기능
+		document.querySelector("#btn-reset-warning").addEventListener("click", resetLeaveWarning);
+		
+		// 사이드바 토글 기능
+		document.querySelector("#btn-toggle-sidebar").addEventListener("click", function() {
+			var sidebar = document.querySelector(".sidebar");
+			sidebar.classList.toggle("hidden");
+		});
+		
+		// 새로고침 기능
+		document.querySelector("#btn-refresh").addEventListener("click", function() {
+			loadTables();
+		});
+		
+		document.addEventListener("DOMContentLoaded", function() {
+			loadTableLayoutSetting(); // 테이블 레이아웃 설정 로드
+			initSidebarResizer(); // 사이드바 리사이저 초기화
+			initBeforeUnloadWarning(); // 페이지 나가기 확인 초기화
+			loadQueryHistory(); // 쿼리 히스토리 로드
+			loadTables();
+			runSQL();
+		});
+		
+		document.querySelector("#q").addEventListener("keydown", function(e) {
+			// 디버깅용 로그
+			if (e.keyCode == 13) {
+				console.log("Enter pressed - ctrlKey:", e.ctrlKey, "metaKey:", e.metaKey, "keyCode:", e.keyCode);
+			}
+			
+			if ((e.ctrlKey || e.metaKey) && e.keyCode == 13) {
+				e.preventDefault();
+				runSQL();
+			}
+		});
+	})();
+</script>
+<style>
+html, body {
+	font-family: Consolas, "Courier New", Monaco, monospace, Camingocoderegular, "DejaVu Sans Mono";
+	overflow: hidden;
+	margin: 0;
+	padding: 0;
+}
+
+.container {
+	display: flex;
+	height: 100vh;
+}
+
+.resizer {
+	width: 4px;
+	background-color: #ddd;
+	cursor: col-resize;
+	flex-shrink: 0;
+	border-left: 1px solid #ccc;
+	border-right: 1px solid #ccc;
+	transition: background-color 0.2s ease;
+}
+
+.resizer:hover {
+	background-color: #007acc;
+}
+
+.sidebar {
+	width: 250px; /* 사이드바 폭 증가 */
+	background-color: #f5f5f5;
+	border-right: 1px solid #ccc;
+	display: flex;
+	flex-direction: column;
+	transition: margin-left 0.3s ease;
+}
+
+.sidebar.hidden {
+	margin-left: -250px;
+}
+
+.sidebar-header {
+	padding: 10px;
+	background-color: #e0e0e0;
+	border-bottom: 1px solid #ccc;
+	font-weight: bold;
+	font-size: 14px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.table-list {
+	flex: 1;
+	overflow-y: auto;
+	padding: 5px;
+}
+
+.table-item {
+	padding: 8px 10px;
+	cursor: pointer;
+	border-radius: 3px;
+	margin-bottom: 2px;
+	font-size: 13px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.table-item:hover {
+	background-color: #d0d0d0;
+}
+
+.table-item-content {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.table-icon {
+	font-size: 16px;
+	flex-shrink: 0;
+	width: 20px;
+	height: 20px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.table-icon.text-format {
+	filter: brightness(1.2);
+}
+
+.table-icon.flint-format {
+	filter: hue-rotate(200deg);
+}
+
+.table-icon.default-format {
+	filter: grayscale(0.3);
+}
+
+.table-name {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.table-menu {
+	background-color: white;
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	z-index: 1002;
+	min-width: 120px;
+}
+
+.menu-item {
+	padding: 8px 12px;
+	cursor: pointer;
+	font-size: 13px;
+	border-bottom: 1px solid #eee;
+}
+
+.menu-item:last-child {
+	border-bottom: none;
+}
+
+.menu-item:hover {
+	background-color: #f0f0f0;
+}
+
+.custom-tooltip {
+	position: absolute;
+	background-color: #333;
+	color: white;
+	padding: 8px 12px;
+	border-radius: 6px;
+	font-size: 12px;
+	z-index: 1001;
+	max-width: 300px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	pointer-events: none;
+}
+
+.tooltip-title {
+	font-weight: bold;
+	margin-bottom: 6px;
+	color: #ffd700;
+	border-bottom: 1px solid #555;
+	padding-bottom: 4px;
+}
+
+.tooltip-row {
+	margin-bottom: 3px;
+	display: flex;
+}
+
+.tooltip-label {
+	font-weight: bold;
+	min-width: 60px;
+	color: #ccc;
+}
+
+.tooltip-value {
+	color: white;
+	word-break: break-all;
+}
+
+.main-content {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	overflow: hidden;
+}
+
+#editor {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-width: 0;
+}
+
+.scrollbar::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+.scrollbar::-webkit-scrollbar-track:vertical {
+	border-radius: 8px;
+}
+
+.scrollbar::-webkit-scrollbar-thumb {
+	background-color: rgba(0, 0, 0, 0.5);
+	border-radius: 10px;
+	border: 8px solid rgba(0, 0, 0, 0.25);
+}
+
+.scrollbar::-webkit-scrollbar-track {
+	background-color: tranparent;
+}
+
+.scrollbar::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+.toolbar {
+	margin: 4px 4px;
+	display: flex;
+}
+
+.toolbar-right {
+	margin: auto;
+	margin-right: 4px;
+	display: flex;
+}
+
+.toolbar>div {
+	display: inline;
+}
+
+.toolbar-right>button {
+	padding: 6px 12px;
+	border: 1px solid #ccc;
+	background-color: #f8f8f8;
+	cursor: pointer;
+	border-radius: 3px;
+	font-size: 13px;
+	margin: auto;
+	width: 140px;
+}
+.toolbar-right>div>button:last-child {
+	margin-right: 0;
+}
+
+.toolbar button:hover {
+	background-color: #e8e8e8;
+}
+
+.toolbar button:disabled {
+	background-color: #f0f0f0;
+	color: #999;
+	cursor: not-allowed;
+	border-color: #ddd;
+}
+
+.toolbar button:disabled:hover {
+	background-color: #f0f0f0;
+}
+
+/* 요청 진행 중 버튼 스타일 */
+.toolbar button.running {
+	pointer-events: none;
+	opacity: 0.6;
+	background-color: #e0e0e0;
+	cursor: not-allowed;
+}
+
+.editor {
+	padding: 0 6px 0 4px;
+	z-index: 1;
+	position: relative;
+}
+
+textarea {
+	margin: 0;
+	padding: 4px;
+	resize: vertical;
+	outline: none;
+	box-shadow: none;
+	width: 100%;
+	height: 80px;
+	border: 1px solid;
+	box-sizing: border-box;
+}
+
+#result {
+	font-size: 15px;
+	flex: 1;
+	margin-top: 4px;
+	margin-bottom: 4px;
+	padding: 0 4px 0 4px;
+	width: 100%;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.table-container {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 200px;
+	overflow: auto;
+	border-radius: 4px;
+}
+
+.data-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 14px;
+	background-color: white;
+}
+
+.data-table.fixed-layout {
+	table-layout: fixed;
+}
+
+.data-table.auto-layout {
+	table-layout: auto;
+}
+
+.data-table th {
+	background-color: #f5f5f5;
+	border: 1px solid #ddd;
+	padding: 8px 12px;
+	text-align: left;
+	font-weight: 600;
+	font-size: 13px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	user-select: none;
+}
+
+.data-table th.sortable {
+	position: relative;
+	padding-right: 30px;
+}
+
+.data-table th.sortable:hover {
+	background-color: #e8e8e8;
+}
+
+.data-table th.sorted {
+	background-color: #d4edda;
+}
+
+.sort-icon {
+	position: absolute;
+	right: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+	font-size: 12px;
+	color: #666;
+	font-weight: normal;
+}
+
+.data-table td {
+	border: 1px solid #ddd;
+	padding: 6px 12px;
+	vertical-align: top;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Alignment based on inferred types */
+.data-table td.col-number { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table td.col-date { text-align: center; }
+.data-table td.col-time { text-align: center; }
+
+/* Fixed 레이아웃일 때 컬럼 너비 제한 */
+.data-table.fixed-layout td {
+	max-width: 300px;
+}
+
+/* Auto 레이아웃일 때는 컬럼 너비 제한 없음 */
+.data-table.auto-layout td {
+	max-width: none;
+}
+
+.data-table td.multiline {
+	white-space: pre-wrap !important;
+	max-width: none !important;
+	min-width: 400px;
+	max-height: 200px;
+	overflow-y: auto;
+	font-family: 'Courier New', Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.4;
+	background-color: #f9f9f9;
+}
+
+.data-table td.null-value {
+	color: #999;
+	font-style: italic;
+}
+
+.data-table td.null-value:empty::after {
+	content: 'NULL';
+}
+
+.data-table tbody tr:hover {
+	background-color: #f0f8ff;
+}
+
+.data-table tbody tr:nth-child(even) {
+	background-color: #fafafa;
+}
+
+.data-table tbody tr:nth-child(even):hover {
+	background-color: #f0f8ff;
+}
+
+/* Single column 테이블 */
+.data-table.single-column {
+	table-layout: fixed;
+}
+
+.data-table.single-column th,
+.data-table.single-column td {
+	width: 100%;
+	max-width: none;
+}
+
+/* Query History 스타일 */
+.query-history-list {
+	flex: 1;
+	overflow-y: auto;
+	padding: 5px;
+	border-top: 1px solid #ccc;
+	max-height: 300px;
+	display: flex;
+	flex-direction: column;
+}
+
+.history-items { flex: 1; overflow-y: auto; }
+
+.icon-btn {
+	background: none;
+	border: none;
+	cursor: pointer;
+	font-size: 14px;
+	padding: 2px 4px;
+	line-height: 1;
+	border-radius: 4px;
+}
+
+.icon-btn:hover { background-color: #d5d5d5; }
+
+.icon-btn:active { background-color: #c0c0c0; }
+
+.history-item {
+	padding: 8px 10px;
+	cursor: pointer;
+	border-radius: 3px;
+	margin-bottom: 3px;
+	font-size: 12px;
+	border: 1px solid #e0e0e0;
+	background-color: white;
+	position: relative;
+}
+
+.history-item:hover {
+	background-color: #f0f0f0;
+	border-color: #ccc;
+}
+
+.history-query {
+	font-weight: 500;
+	margin-bottom: 3px;
+	color: #333;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	padding-right: 20px;
+}
+
+.history-time {
+	font-size: 10px;
+	color: #666;
+	margin-bottom: 2px;
+}
+
+.history-delete {
+	position: absolute;
+	top: 5px;
+	right: 5px;
+	background: none;
+	border: none;
+	color: #999;
+	cursor: pointer;
+	font-size: 14px;
+	width: 16px;
+	height: 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 2px;
+}
+
+.history-delete:hover {
+	background-color: #ff4444;
+	color: white;
+}
+
+.history-empty {
+	padding: 10px;
+	text-align: center;
+	color: #999;
+	font-size: 11px;
+	font-style: italic;
+}
+</style>

@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-c",
+			"type": "shell",
+			"command": "make",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		}
+	]
+}

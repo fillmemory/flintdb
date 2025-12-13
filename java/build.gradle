@@ -1,0 +1,217 @@
+apply plugin: "java"
+
+// gradle clean build jar -x test --no-daemon
+
+def NOW = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ").format(new Date())
+def VERSION = "1.0." + new java.text.SimpleDateFormat("yyMMdd").format(new Date())
+def REVISION = "1"
+
+project.group = "flintdb"
+project.archivesBaseName = "flintdb"
+project.version = VERSION
+
+configurations {
+	compileOnlyResolved {
+		extendsFrom compileOnly
+		canBeResolved = true
+		canBeConsumed = false
+	}
+	testCompileClasspath {
+        extendsFrom compileOnly
+    }
+    testRuntimeClasspath {
+        extendsFrom compileOnly
+    }
+}
+
+// Target latest LTS Java 21
+sourceCompatibility = JavaVersion.VERSION_17 // Minimum 14
+targetCompatibility = sourceCompatibility
+
+// Prefer Gradle Java toolchain to ensure a consistent Java 21 compile/runtime
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+def JARNAME = archivesBaseName + "-" + project.version + ".jar"
+def DEBUG_ENABLED = !project.hasProperty("RELEASE")
+println("JAVA_VERSION : " + JavaVersion.current())
+println("TARGET_COMPAT : " + targetCompatibility)
+try {
+	println("TOOLCHAIN_LANG_VER : " + java.toolchain.languageVersion.map { it.asInt() }.orElse(null))
+} catch (Throwable t) {
+	// ignore when Gradle older than toolchain support
+}
+
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// All dependencies are not necessary for the core functionality
+
+	// WebUI
+	compileOnly "com.google.code.gson:gson:2.9.0" // compileOnly
+
+	// Parquet
+	compileOnly "org.apache.commons:commons-compress:1.27.1"
+	compileOnly "com.github.luben:zstd-jni:1.5.6-5"
+	compileOnly('org.apache.parquet:parquet-avro:1.15.2') {
+		exclude group: 'org.apache.parquet', module: 'parquet-hadoop'
+	}
+	// Use shaded bundle to avoid shipping Hadoop, but keep types available at compile time
+	compileOnly 'org.apache.parquet:parquet-hadoop-bundle:1.15.2'
+	// Keep Hadoop types available for compilation (Path, Configuration), but do not ship at runtime
+	compileOnly 'org.apache.hadoop:hadoop-common:3.4.1'
+
+	// Ensure MapReduce client classes are available at runtime (for Parquet/Hadoop integrations)
+	compileOnly 'org.apache.hadoop:hadoop-mapreduce-client-core:3.4.1'
+	compileOnly 'org.apache.hadoop:hadoop-mapreduce-client-common:3.4.1'
+	compileOnly 'org.apache.hadoop:hadoop-mapreduce-client-app:3.4.1'
+
+	// Provide SLF4J binding at runtime to avoid the "Failed to load StaticLoggerBinder" warning
+	// Use slf4j-simple which doesn't require log4j.properties
+	compileOnly 'org.slf4j:slf4j-simple:1.7.36'
+
+	// Test-only JDBC driver (H2 in-memory) for JdbcAdapter tests
+	testImplementation 'com.h2database:h2:2.2.224'
+}
+
+sourceSets {
+	main {
+		java {
+			srcDirs = [
+				"src/main/java",
+				"src/rc/java", // Release Candidate
+				"src/webui/java",
+			]
+		}
+		resources {
+			srcDirs = [
+                "src/webui/java"
+            ]
+		}
+	}
+
+	test {
+		java {
+			srcDirs = [
+				"src/test/java",
+				"src/tutorial/java" // Tutorial tests
+			]
+		}
+		resources {
+			srcDirs = [
+                "src/rc/java"
+            ]
+		}
+	}
+}
+
+compileJava {
+	options.fork = true
+	options.debug = true
+}
+
+javadoc {
+	source = sourceSets.main.allJava
+	classpath = configurations.compileClasspath
+	destinationDir = file("${buildDir}/docs/javadoc")
+	options.encoding = 'UTF-8'
+	options.charSet = 'UTF-8'
+	options.windowTitle = "Lite DB ${project.version} API"
+	options.docTitle = "Lite DB ${project.version} API"
+	options.author = true
+	options.use = true
+	options.version = true
+	options.addStringOption('Xdoclint:none', '-quiet')
+	options.addStringOption('Xmaxwarns', '1')
+	options.addBooleanOption('quiet', true)
+	failOnError = false
+}
+
+task javadocjar(type: Jar, dependsOn: 'javadoc') {
+	from javadoc.destinationDir
+	archiveClassifier = 'javadoc'
+	destinationDirectory = project.buildDir
+}
+
+jar {
+	manifest {
+		attributes(
+				"Implementation-Author" : "Y",
+				"Implementation-Title" : "Lite DB",
+				"Implementation-Version" : project.version,
+				"Implementation-Date" : NOW,
+				//
+				"Implementation-Java" : targetCompatibility,
+				"Implementation-Revision" : REVISION,
+				"Implementation-License" : "APACHE LICENSE, VERSION 2.0",
+				"Main-Class" : "lite.db.CLI",
+				// "Class-Path" : "lib/gson-2.10.1.jar lib/commons-compress-1.27.1.jar lib/zstd-jni-1.5.6-5.jar " // optional dependencies
+				)
+	}
+
+	destinationDirectory = project.buildDir
+	entryCompression = ZipEntryCompression.DEFLATED
+}
+
+task copyDependencies(type: Copy) {
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	// Clean destination to avoid stale jars from previous runs
+	doFirst {
+		delete 'lib/optional'
+		mkdir 'lib/optional'
+	}
+	// Only include a safe, minimal set of optional jars for features (WebUI, Parquet) without Hadoop
+	def whitelistPrefixes = [
+		'gson-',
+
+		'slf4j-api-',
+		'slf4j-simple-',
+
+		'avro-',
+		'parquet-avro-',
+		'parquet-column-',
+		'parquet-common-',
+		'parquet-encoding-',
+		'parquet-format-structures-',
+		'parquet-jackson-',
+		'parquet-hadoop-bundle-', // shaded, no external Hadoop deps
+		'hadoop-common-',
+
+		'hadoop-shaded-guava-',
+		'hadoop-mapreduce-client-core-',
+		'hadoop-mapreduce-client-common-',
+		'hadoop-mapreduce-client-app-',
+		
+		'zstd-jni-',
+		'snappy-',
+		
+		'jackson-',
+
+		'commons-compress-',
+		'commons-collections-',
+
+		'woodstox-',
+		'stax2-api-',
+	]
+
+	def includeIfWhitelisted = { details ->
+		def n = details.file.name
+		boolean ok = whitelistPrefixes.any { p -> n.startsWith(p) }
+		if (!ok) details.exclude()
+	}
+
+	from (configurations.runtimeClasspath) { eachFile includeIfWhitelisted }
+	from (configurations.compileOnlyResolved) { eachFile includeIfWhitelisted }
+	into 'lib/optional'
+
+	doLast {
+		println "Dependencies copied to lib/optional/"
+		fileTree(dir: 'lib/optional', include: '*.jar').files.each { f -> println "  - ${f.name}" }
+	}
+}
