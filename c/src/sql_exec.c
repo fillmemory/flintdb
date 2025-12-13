@@ -1709,30 +1709,27 @@ static struct flintdb_row *gf_cursor_next(struct cursor_row *c, char **e) {
     // Build a projected row with only selected columns, in SELECT order
     struct flintdb_meta *m = (struct flintdb_meta *)r->meta;
     
-    // Initialize projection metadata on first call
-    if (!priv->proj_meta) {
-        priv->proj_meta = (struct flintdb_meta *)CALLOC(1, sizeof(struct flintdb_meta));
-        if (!priv->proj_meta) {
+    // Build projection metadata from source row metadata
+    // We create a temporary metadata structure for the projected columns
+    struct flintdb_meta proj_meta_temp;
+    memset(&proj_meta_temp, 0, sizeof(proj_meta_temp));
+    proj_meta_temp.columns.length = priv->proj_count;
+    
+    for (int i = 0; i < priv->proj_count; i++) {
+        int src = priv->proj_indexes[i];
+        if (src < 0 || src >= m->columns.length) {
+            // invalid mapping; fail hard
             r->free(r);
+            if (e) *e = "Invalid column index in projection";
             return NULL;
         }
-        priv->proj_meta->columns.length = priv->proj_count;
-        for (int i = 0; i < priv->proj_count; i++) {
-            int src = priv->proj_indexes[i];
-            if (src < 0 || src >= m->columns.length) {
-                // invalid mapping; fail hard
-                r->free(r);
-                FREE(priv->proj_meta);
-                priv->proj_meta = NULL;
-                return NULL;
-            }
-            priv->proj_meta->columns.a[i] = m->columns.a[src];
-        }
+        // Deep copy column definition to avoid dangling references
+        proj_meta_temp.columns.a[i] = m->columns.a[src];
     }
     
     // Create a new projected row for each call
     // Cannot reuse row because caller may retain it for later use (e.g., pretty print)
-    struct flintdb_row *proj_row = flintdb_row_new(priv->proj_meta, e);
+    struct flintdb_row *proj_row = flintdb_row_new(&proj_meta_temp, e);
     if (e && *e) {
         r->free(r);
         return NULL;
@@ -1769,11 +1766,7 @@ static void gf_cursor_close(struct cursor_row *c) {
         return;
     struct gf_cursor_priv *priv = (struct gf_cursor_priv *)c->p;
     if (priv) {
-        // proj_row is no longer stored - each row is independently created
-        if (priv->proj_meta) {
-            FREE(priv->proj_meta);
-            priv->proj_meta = NULL;
-        }
+        // proj_row and proj_meta are no longer stored - each row uses temporary metadata
         if (priv->inner_cursor && priv->inner_cursor->close) {
             priv->inner_cursor->close(priv->inner_cursor);
         }
@@ -2108,7 +2101,7 @@ struct flintdb_table_cursor_priv {
     // projection: length = number of SELECT expressions, values are source column indexes
     int proj_count;
     int proj_indexes[MAX_COLUMNS_LIMIT];
-    struct flintdb_meta *proj_meta; // cached projection meta (owned) when proj_count > 0
+    // proj_meta is now stack-allocated per row (not cached, to avoid cross-query contamination)
     struct flintdb_row *stream_row; // reused decode buffer for SELECT * streaming (bypass cache)
 };
 
@@ -2153,24 +2146,19 @@ static struct flintdb_row *sql_table_cursor_next(struct cursor_row *c, char **e)
     const struct flintdb_row *r = priv->table->read(priv->table, rowid, e);
     if ((e && *e) || !r) return NULL;
 
-    // Build (or reuse) a projected row with only selected columns, in SELECT order
+    // Build projected meta on stack (not cached, to avoid contamination across queries)
+    struct flintdb_meta proj_meta_temp = {0};
     struct flintdb_meta *m = (struct flintdb_meta *)r->meta;
-    if (!priv->proj_meta) {
-        // Allocate projection meta once and cache in priv
-        struct flintdb_meta *pm = (struct flintdb_meta *)CALLOC(1, sizeof(struct flintdb_meta));
-        if (!pm) return NULL;
-        pm->columns.length = priv->proj_count;
-        for (int i = 0; i < priv->proj_count; i++) {
-            int src = priv->proj_indexes[i];
-            if (src < 0 || src >= m->columns.length) {
-                FREE(pm);
-                return NULL;
-            }
-            pm->columns.a[i] = m->columns.a[src];
+    proj_meta_temp.columns.length = priv->proj_count;
+    for (int i = 0; i < priv->proj_count; i++) {
+        int src = priv->proj_indexes[i];
+        if (src < 0 || src >= m->columns.length) {
+            return NULL;
         }
-        priv->proj_meta = pm; // hold for reuse
+        proj_meta_temp.columns.a[i] = m->columns.a[src];
     }
-    struct flintdb_row *out = flintdb_row_pool_acquire(priv->proj_meta, e);
+    
+    struct flintdb_row *out = flintdb_row_pool_acquire(&proj_meta_temp, e);
     if ((e && *e) || !out) {
         return NULL;
     }
@@ -2202,11 +2190,7 @@ static void sql_table_cursor_close(struct cursor_row *c) {
         if (priv->table && priv->table->close) {
             priv->table->close(priv->table);
         }
-        if (priv->proj_meta) {
-            // projection meta was shallow (column structs copied); safe to free struct only
-            FREE(priv->proj_meta);
-            priv->proj_meta = NULL;
-        }
+        // proj_meta is now stack-allocated, no need to free
         if (priv->stream_row) {
             // Return streaming row buffer to pool
             priv->stream_row->free(priv->stream_row);
