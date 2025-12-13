@@ -729,20 +729,42 @@ final class WALStorage implements Storage {
         if (this.transaction != id) {
             return; // Not our transaction
         }
-        
-        // Flush dirty pages to origin storage
+
+        // Commit ordering matters for crash-safety without recovery:
+        // write all non-root pages first, then update root pointer (commonly index 0) last.
+        // This ensures a crash mid-commit yields only orphan pages, not a broken tree.
+        final long rootIndex = 0L;
+
+        // Flush dirty pages to origin storage (excluding rootIndex)
         for (Map.Entry<Long, IoBuffer> entry : dirtyPages.entrySet()) {
             long index = entry.getKey();
+            if (index == rootIndex) continue;
             IoBuffer data = entry.getValue();
             data.position(0); // Reset position before write
             origin.write(index, data);
         }
-        
-        // Apply deletes to origin storage
+
+        // Apply deletes to origin storage (excluding rootIndex)
         for (Long index : deletedPages.keySet()) {
+            if (index == rootIndex) continue;
             boolean deleted = origin.delete(index);
             if (deleted && callback != null) {
                 callback.refresh(index);
+            }
+        }
+
+        // Apply rootIndex update last (if present)
+        IoBuffer rootUpdate = dirtyPages.get(rootIndex);
+        if (rootUpdate != null) {
+            rootUpdate.position(0);
+            origin.write(rootIndex, rootUpdate);
+        }
+
+        // Apply rootIndex delete last (very uncommon; keep ordering consistent)
+        if (deletedPages.containsKey(rootIndex)) {
+            boolean deleted = origin.delete(rootIndex);
+            if (deleted && callback != null) {
+                callback.refresh(rootIndex);
             }
         }
         

@@ -730,9 +730,19 @@ static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e) {
     
     // Flush dirty pages to origin storage
     if (ws->dirty_pages) {
+        // Commit ordering matters for crash-safety without recovery:
+        // apply all non-root offsets first, then apply root (offset 0) last.
+        // This ensures a crash mid-commit yields only orphan pages, not a broken tree.
+        struct dirty_page *root_page = NULL;
         struct map_iterator it = {0};
         while (ws->dirty_pages->iterate(ws->dirty_pages, &it)) {
             struct dirty_page *page = (struct dirty_page*)(uintptr_t)it.val;
+
+            if (page->offset == 0) {
+                root_page = page;
+                continue;
+            }
+
             if (page->is_delete) {
                 // Apply delete
                 ws->origin->delete(ws->origin, page->offset, e);
@@ -744,6 +754,21 @@ static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e) {
                 // Apply update
                 page->buf.position = 0;
                 ws->origin->write_at(ws->origin, page->offset, &page->buf, e);
+                if (e && *e) return;
+            }
+        }
+
+        // Apply root pointer record last (if present)
+        if (root_page) {
+            if (root_page->is_delete) {
+                ws->origin->delete(ws->origin, root_page->offset, e);
+                if (e && *e) return;
+                if (ws->callback) {
+                    ws->callback(ws->callback_obj, root_page->offset);
+                }
+            } else if (root_page->data_size > 0) {
+                root_page->buf.position = 0;
+                ws->origin->write_at(ws->origin, root_page->offset, &root_page->buf, e);
                 if (e && *e) return;
             }
         }
