@@ -554,7 +554,7 @@ int flintdb_variant_copy(struct flintdb_variant *dest, const struct flintdb_vari
 	return 0;
 }
 
-const char *flintdb_variant_string_get(const struct flintdb_variant *v) {
+const char * flintdb_variant_string_get(const struct flintdb_variant *v) {
 	if (!v) return NULL;
 	if (v->type == VARIANT_STRING) return v->value.b.data;
 	// Provide string views for numeric and date/time types only
@@ -769,7 +769,7 @@ struct flintdb_decimal  flintdb_variant_decimal_get(const struct flintdb_variant
 	return d;
 }
 
-const char *flintdb_variant_bytes_get(const struct flintdb_variant *v, u32 *length, char **e) {
+const char * flintdb_variant_bytes_get(const struct flintdb_variant *v, u32 *length, char **e) {
 	if (length) *length = 0;
 	if (!v) { if (e) *e = variant_error_set(v, "variant is NULL"); return NULL; }
 	if (v->type == VARIANT_BYTES) {
@@ -794,7 +794,7 @@ time_t flintdb_variant_time_get(const struct flintdb_variant *v, char **e) {
 	return (time_t)0;
 }
 
-const char *flintdb_variant_uuid_get(const struct flintdb_variant *v, u32 *length, char **e) {
+const char * flintdb_variant_uuid_get(const struct flintdb_variant *v, u32 *length, char **e) {
 	if (length) *length = 0;
 	if (!v) { if (e) *e = variant_error_set(v, "variant is NULL"); return NULL; }
 	if (v->type == VARIANT_UUID) {
@@ -805,7 +805,7 @@ const char *flintdb_variant_uuid_get(const struct flintdb_variant *v, u32 *lengt
 	return NULL;
 }
 
-const char *flintdb_variant_ipv6_get(const struct flintdb_variant *v, u32 *length, char **e) {
+const char * flintdb_variant_ipv6_get(const struct flintdb_variant *v, u32 *length, char **e) {
 	if (length) *length = 0;
 	if (!v) { if (e) *e = variant_error_set(v, "variant is NULL"); return NULL; }
 	if (v->type == VARIANT_IPV6) {

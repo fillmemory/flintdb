@@ -28,7 +28,7 @@
 
 // Ensure and return path to temp directory. Uses environment variable FLINTDB_TEMP_DIR if set,
 // otherwise falls back to the default macro. Automatically creates the directory if missing.
-static const char *ensure_temp_dir(void) {
+static const char * ensure_temp_dir(void) {
     static int initialized = 0;
     static char path[PATH_MAX];
     const char *envp = getenv("FLINTDB_TEMP_DIR");
@@ -94,8 +94,8 @@ void sql_exec_cleanup() {
  */
 
 // Forward declarations for functions referenced by sql_exec
-static struct flintdb_sql_result*sql_exec_select(struct flintdb_sql *q, char **e);
-static struct flintdb_sql_result*sql_exec_gf_select(struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_gf_select(struct flintdb_sql *q, char **e);
 static int sql_exec_insert(struct flintdb_sql *q, char **e);
 static int sql_exec_update(struct flintdb_sql *q, char **e);
 static int sql_exec_delete(struct flintdb_sql *q, char **e);
@@ -104,20 +104,20 @@ static int sql_exec_select_into(struct flintdb_sql *q, char **e);
 static int sql_exec_create(struct flintdb_sql *q, char **e);
 static int sql_exec_drop(struct flintdb_sql *q, char **e);
 static int sql_exec_alter(struct flintdb_sql *q, char **e);
-static struct flintdb_sql_result*sql_exec_describe(struct flintdb_sql *q, char **e);
-static struct flintdb_sql_result*sql_exec_meta(struct flintdb_sql *q, char **e);
-static struct flintdb_sql_result*sql_exec_show_tables(struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_describe(struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_meta(struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_show_tables(struct flintdb_sql *q, char **e);
 // helper forward decls used before definition
-static struct flintdb_sql_result*sql_exec_fast_count(struct flintdb_sql *q, struct flintdb_table *table, char **e);
+static struct flintdb_sql_result * sql_exec_fast_count(struct flintdb_sql *q, struct flintdb_table *table, char **e);
 
 // Other helpers used before their definitions
-static struct flintdb_table *sql_exec_table_borrow(const char *table, char **e);
+static struct flintdb_table * sql_exec_table_borrow(const char *table, char **e);
 static int has_aggregate_function(struct flintdb_sql *q);
-static struct flintdb_sql_result*sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_row *cr, struct flintdb_genericfile *gf, char **e);
-static struct flintdb_sql_result*sql_exec_select_groupby_i64(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_i64 *cr, char **e);
-static struct flintdb_sql_result*sql_exec_sort(struct cursor_row *cr, const char *orderby, const char *limit, char **e);
+static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_row *cr, struct flintdb_genericfile *gf, char **e);
+static struct flintdb_sql_result * sql_exec_select_groupby_i64(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_i64 *cr, char **e);
+static struct flintdb_sql_result * sql_exec_sort(struct cursor_row *cr, const char *orderby, const char *limit, char **e);
 
-extern const char *variant_type_name(enum flintdb_variant_type  t);
+extern const char * flintdb_variant_type_name(enum flintdb_variant_type  t);
 
 // Helper: format bytes into human readable string (similar to Java IO.readableBytesSize)
 static char *bytes_human(i64 bytes, char *buf, size_t cap) {
@@ -268,7 +268,7 @@ static void pool_close_shim(struct flintdb_table *me) {
 }
 
 // Open a flintdb table using pool (FLINTDB_RDWR). Returned table->close returns to pool.
-static struct flintdb_table *sql_exec_table_borrow(const char *file, char **e) {
+static struct flintdb_table * sql_exec_table_borrow(const char *file, char **e) {
     table_pool_init();
     if (!file || !*file) {
         THROW(e, "file is NULL");
@@ -316,7 +316,7 @@ EXCEPTION:
 }
 #else
 // Open a flintdb table without pooling (FLINTDB_RDWR).
-static struct flintdb_table *sql_exec_table_borrow(const char *file, char **e) {
+static struct flintdb_table * sql_exec_table_borrow(const char *file, char **e) {
     struct flintdb_table *t = flintdb_table_open(file, FLINTDB_RDWR, NULL, e);
     if (e && *e)
         return NULL;
@@ -366,7 +366,7 @@ static inline void sql_exec_indexable_where(const struct flintdb_meta *meta, str
 }
 
 // SQL execution entry point
-struct flintdb_sql_result*flintdb_sql_exec(const char *sql, void *reserved, char **e) {
+struct flintdb_sql_result * flintdb_sql_exec(const char *sql, void *reserved, char **e) {
     struct flintdb_sql *q = NULL;
 
     if (sql == NULL || strlen(sql) == 0)
@@ -968,7 +968,7 @@ static void array_cursor_close(struct cursor_row *c) {
     FREE(c);
 }
 
-static struct flintdb_sql_result*sql_exec_describe(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_describe(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct cursor_array_priv *priv = NULL;
     struct cursor_row *c = NULL;
@@ -1034,7 +1034,7 @@ static struct flintdb_sql_result*sql_exec_describe(struct flintdb_sql *q, char *
 
         // Type formatted with size/precision
         char type_str[256] = {0};
-        const char *type_name = variant_type_name(m->columns.a[i].type);
+        const char *type_name = flintdb_variant_type_name(m->columns.a[i].type);
         if (m->columns.a[i].type == VARIANT_DECIMAL) {
             snprintf(type_str, sizeof(type_str), "%s(%d,%d)", type_name, m->columns.a[i].bytes, m->columns.a[i].precision);
         } else if (m->columns.a[i].type == VARIANT_STRING || m->columns.a[i].type == VARIANT_BYTES) {
@@ -1099,7 +1099,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result*sql_exec_meta(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_meta(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct cursor_array_priv *priv = NULL;
     struct cursor_row *c = NULL;
@@ -1186,7 +1186,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result*sql_exec_show_tables(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_show_tables(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct cursor_array_priv *priv = NULL;
     struct cursor_row *c = NULL;
@@ -1709,8 +1709,8 @@ static struct flintdb_row *gf_cursor_next(struct cursor_row *c, char **e) {
     // Build a projected row with only selected columns, in SELECT order
     struct flintdb_meta *m = (struct flintdb_meta *)r->meta;
     
-    // Initialize reusable projection row on first call
-    if (!priv->proj_row) {
+    // Initialize projection metadata on first call
+    if (!priv->proj_meta) {
         priv->proj_meta = (struct flintdb_meta *)CALLOC(1, sizeof(struct flintdb_meta));
         if (!priv->proj_meta) {
             r->free(r);
@@ -1728,34 +1728,40 @@ static struct flintdb_row *gf_cursor_next(struct cursor_row *c, char **e) {
             }
             priv->proj_meta->columns.a[i] = m->columns.a[src];
         }
-        priv->proj_row = flintdb_row_new(priv->proj_meta, e);
-        if (e && *e) {
-            r->free(r);
-            FREE(priv->proj_meta);
-            priv->proj_meta = NULL;
-            return NULL;
-        }
     }
     
-    // Reuse the pre-allocated row and copy values
+    // Create a new projected row for each call (cannot reuse due to reference sharing)
+    struct flintdb_row *proj_row = flintdb_row_new(priv->proj_meta, e);
+    if (e && *e) {
+        r->free(r);
+        return NULL;
+    }
+    if (!proj_row) {
+        r->free(r);
+        return NULL;
+    }
+    
+    // Copy values from source row to projected row
     for (int i = 0; i < priv->proj_count; i++) {
         int src = priv->proj_indexes[i];
         struct flintdb_variant *v = r->get(r, src, e);
         if (e && *e) {
             r->free(r);
+            proj_row->free(proj_row);
             return NULL;
         }
-        priv->proj_row->set(priv->proj_row, i, v, e);
+        proj_row->set(proj_row, i, v, e);
         if (e && *e) {
             r->free(r);
+            proj_row->free(proj_row);
             return NULL;
         }
     }
-    priv->proj_row->rowid = r->rowid;
+    proj_row->rowid = r->rowid;
     r->free(r);
     
-    // Return retained reference to reused row
-    return priv->proj_row->retain(priv->proj_row);
+    // Return the new projected row
+    return proj_row;
 }
 
 static void gf_cursor_close(struct cursor_row *c) {
@@ -1763,10 +1769,7 @@ static void gf_cursor_close(struct cursor_row *c) {
         return;
     struct gf_cursor_priv *priv = (struct gf_cursor_priv *)c->p;
     if (priv) {
-        if (priv->proj_row) {
-            priv->proj_row->free(priv->proj_row);
-            priv->proj_row = NULL;
-        }
+        // proj_row is no longer stored here - each row is independently allocated
         if (priv->proj_meta) {
             FREE(priv->proj_meta);
             priv->proj_meta = NULL;
@@ -1784,9 +1787,9 @@ static void gf_cursor_close(struct cursor_row *c) {
 
 #define GF_FAST_PATH 1
 
-static struct flintdb_sql_result*sql_exec_gf_fast_count(struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_gf_fast_count(struct flintdb_sql *q, char **e);
 
-static struct flintdb_sql_result*sql_exec_gf_select(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_gf_select(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_genericfile *gf = NULL;
     struct cursor_row *c = NULL;
@@ -1912,7 +1915,7 @@ EXCEPTION:
 }
 
 // Helper: fast COUNT(*) for text/gz files without decoding rows
-static struct flintdb_sql_result*sql_exec_gf_fast_count(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_gf_fast_count(struct flintdb_sql *q, char **e) {
     if (!q) return NULL;
     if (!(q->columns.length == 1 && strempty(q->where) && strempty(q->groupby) && strempty(q->orderby) && !q->distinct))
         return NULL;
@@ -2215,7 +2218,7 @@ static void sql_table_cursor_close(struct cursor_row *c) {
 }
 
 // Fast path: handle SELECT COUNT(*) [alias] FROM <table> with no WHERE/GROUP/ORDER/DISTINCT
-static struct flintdb_sql_result*sql_exec_fast_count(struct flintdb_sql *q, struct flintdb_table *table, char **e) {
+static struct flintdb_sql_result * sql_exec_fast_count(struct flintdb_sql *q, struct flintdb_table *table, char **e) {
     if (!q || !table) return NULL;
     if (q->columns.length != 1) return NULL;
     if (!strempty(q->where) || !strempty(q->groupby) || !strempty(q->orderby) || q->distinct)
@@ -2318,7 +2321,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result*sql_exec_select(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct cursor_i64 *cr = NULL;
     struct cursor_row *c = NULL;
@@ -2731,7 +2734,7 @@ static int apply_having_filter(struct flintdb_row **rows, int row_count, const c
 }
 
 // New implementation using aggregate API from aggregate.c
-static struct flintdb_sql_result*sql_exec_select_groupby_i64(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_i64 *cr, char **e) {
+static struct flintdb_sql_result * sql_exec_select_groupby_i64(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_i64 *cr, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_aggregate *agg = NULL;
     struct flintdb_aggregate_groupby **groupbys = NULL;
@@ -3028,7 +3031,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result*sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_row *cr, struct flintdb_genericfile *gf, char **e);
+static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_row *cr, struct flintdb_genericfile *gf, char **e);
 
 // (GROUP BY implementation moved earlier; duplicate wrapper & comparator removed)
 /* forward declaration updated above */
@@ -3037,7 +3040,7 @@ static struct flintdb_sql_result*sql_exec_select_groupby_row(struct flintdb_sql 
 // parse_groupby_columns moved to sql.c (sql_parse_groupby_columns)
 
 // GROUP BY implementation for generic cursor_row (generic files) using new aggregate API
-static struct flintdb_sql_result*sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_row *cr, struct flintdb_genericfile *gf, char **e) {
+static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct cursor_row *cr, struct flintdb_genericfile *gf, char **e) {
     (void)table;
     struct flintdb_sql_result*result = NULL;
     struct flintdb_aggregate *agg = NULL;
@@ -3334,7 +3337,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result*sql_exec_sort(struct cursor_row *cr, const char *orderby, const char *limit, char **e) {
+static struct flintdb_sql_result * sql_exec_sort(struct cursor_row *cr, const char *orderby, const char *limit, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_filesort *sorter = NULL;
     if (!cr || strempty(orderby))

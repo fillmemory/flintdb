@@ -305,7 +305,7 @@ FLINTDB_API int flintdb_variant_zero_set(struct flintdb_variant *v);
 FLINTDB_API int flintdb_variant_copy(struct flintdb_variant *dest, const struct flintdb_variant *src);
 
 FLINTDB_API int flintdb_variant_length(const struct flintdb_variant *v);
-FLINTDB_API const char *flintdb_variant_string_get(const struct flintdb_variant *v);
+FLINTDB_API const char * flintdb_variant_string_get(const struct flintdb_variant *v);
 FLINTDB_API i8 flintdb_variant_i8_get(const struct flintdb_variant *v, char **e);
 FLINTDB_API u8 flintdb_variant_u8_get(const struct flintdb_variant *v, char **e);
 FLINTDB_API i16 flintdb_variant_i16_get(const struct flintdb_variant *v, char **e);
@@ -315,11 +315,11 @@ FLINTDB_API u32 flintdb_variant_u32_get(const struct flintdb_variant *v, char **
 FLINTDB_API i64 flintdb_variant_i64_get(const struct flintdb_variant *v, char **e);
 FLINTDB_API f64 flintdb_variant_f64_get(const struct flintdb_variant *v, char **e);
 FLINTDB_API struct flintdb_decimal  flintdb_variant_decimal_get(const struct flintdb_variant *v, char **e);
-FLINTDB_API const char *flintdb_variant_bytes_get(const struct flintdb_variant *v, u32 *length, char **e);
+FLINTDB_API const char * flintdb_variant_bytes_get(const struct flintdb_variant *v, u32 *length, char **e);
 FLINTDB_API time_t flintdb_variant_date_get(const struct flintdb_variant *v, char **e);
 FLINTDB_API time_t flintdb_variant_time_get(const struct flintdb_variant *v, char **e);
-FLINTDB_API const char *flintdb_variant_uuid_get(const struct flintdb_variant *v, u32 *length, char **e);
-FLINTDB_API const char *flintdb_variant_ipv6_get(const struct flintdb_variant *v, u32 *length, char **e);
+FLINTDB_API const char * flintdb_variant_uuid_get(const struct flintdb_variant *v, u32 *length, char **e);
+FLINTDB_API const char * flintdb_variant_ipv6_get(const struct flintdb_variant *v, u32 *length, char **e);
 FLINTDB_API i8 flintdb_variant_is_null(const struct flintdb_variant *v);
 
 
@@ -344,7 +344,7 @@ FLINTDB_API struct flintdb_row * flintdb_row_cast(struct flintdb_row *src, struc
 FLINTDB_API int flintdb_row_cast_reuse(const struct flintdb_row *src, struct flintdb_row *dst, char **e);
 FLINTDB_API void flintdb_print_row(const struct flintdb_row *r);
 // Row pooling API (optional performance optimization)
-FLINTDB_API struct flintdb_row *flintdb_row_pool_acquire(struct flintdb_meta *meta, char **e);
+FLINTDB_API struct flintdb_row * flintdb_row_pool_acquire(struct flintdb_meta *meta, char **e);
 FLINTDB_API void flintdb_row_pool_release(struct flintdb_row *r);
 
 

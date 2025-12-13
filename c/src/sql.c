@@ -1781,7 +1781,7 @@ EXCEPTION:
 }
 
 // --- stringify helpers for meta -> SQL
-const char *variant_type_name(enum flintdb_variant_type  t) {
+const char * flintdb_variant_type_name(enum flintdb_variant_type  t) {
     switch (t) {
     case VARIANT_INT32:
         return "INT";
@@ -1885,7 +1885,7 @@ int flintdb_meta_to_sql_string(const struct flintdb_meta *m, char *s, i32 len, c
 
         s_cat(tmp, sizeof(tmp), c->name);
         s_cat(tmp, sizeof(tmp), " ");
-        s_cat(tmp, sizeof(tmp), variant_type_name(c->type));
+        s_cat(tmp, sizeof(tmp), flintdb_variant_type_name(c->type));
         if (c->bytes > 0 || c->precision > 0) {
             s_cat(tmp, sizeof(tmp), "(");
             char nb[32];

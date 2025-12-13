@@ -22,10 +22,18 @@ while [[ $# -gt 0 ]]; do
 			LIMIT="LIMIT $2"
 			shift 2
 			;;
-        -wal)
-            WAL_OPTION="$2"
-            shift 2
-            ;;
+		-limit=*)
+			LIMIT="LIMIT ${1#-limit=}"
+			shift
+			;;
+		-wal)
+			WAL_OPTION="$2"
+			shift 2
+			;;
+		-wal=*)
+			WAL_OPTION="${1#-wal=}"
+			shift
+			;;
 		*)
 			shift
 			;;
