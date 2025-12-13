@@ -76,8 +76,8 @@ interface WAL extends AutoCloseable {
         }
     };
 
-    static WAL open(File file, String mode) throws IOException {
-        return new WALImpl(file, mode);
+    static WAL open(File file, Meta meta) throws IOException {
+        return new WALImpl(file, meta);
     }
 
     static Storage wrap(WAL wal, Storage.Options options, Callback callback) throws IOException {

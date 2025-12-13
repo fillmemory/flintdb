@@ -32,7 +32,7 @@ final class TSVFile implements GenericFile {
 
     static final int OPEN_APPEND = (Table.OPEN_WRITE | (Table.OPEN_WRITE << 1));
     static final int GZIP_BUFSZ = 8192;
-    static final boolean TYPE_PREDICT = System.getProperty("LITEDB_TYPE_PREDICT", "0").equals("1"); // experimental
+    static final boolean TYPE_PREDICT = System.getProperty("FLINTDB_TYPE_PREDICT", "0").equals("1"); // experimental
 
     /**
      * Open TSV/CSV file for reading with specified format and logger

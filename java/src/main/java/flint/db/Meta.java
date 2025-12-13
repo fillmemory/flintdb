@@ -26,6 +26,10 @@ public final class Meta {
     private Integer increment;
     private Integer cacheSize;
     private String walMode; // WAL Mode: NONE, TRUNCATE, LOG
+    private int walCheckpointInterval;
+    private int walBatchSize;
+    private int walCompressionThreshold;
+
     private Index[] indexes = null;
     private Column[] columns = null;
 
@@ -405,6 +409,18 @@ public final class Meta {
         return walMode != null ? walMode.toUpperCase() : WAL_OPT_OFF;
     }
 
+    public int walCheckpointInterval() {
+        return walCheckpointInterval;
+    }
+
+    public int walBatchSize() {
+        return walBatchSize;
+    }
+
+    public int walCompressionThreshold() {
+        return walCompressionThreshold;
+    }
+
     /**
      * Set WAL mode
      * 
@@ -425,16 +441,18 @@ public final class Meta {
         return this;
     }
 
-    /**
-     * Enable or disable WAL (Write-Ahead Logging)
-     * 
-     * @param enabled true to enable WAL (TRUNCATE mode), false to disable (NONE mode)
-     * @return This metadata instance for chaining
-     * @deprecated Use walMode(String) instead
-     */
-    @Deprecated
-    public Meta walEnabled(final boolean enabled) {
-        this.walMode = enabled ? WAL_OPT_TRUNCATE : WAL_OPT_OFF;
+    public Meta walCheckpointInterval(final int interval) {
+        this.walCheckpointInterval = interval;
+        return this;
+    }
+
+    public Meta walBatchSize(final int size) {
+        this.walBatchSize = size;
+        return this;
+    }
+
+    public Meta walCompressionThreshold(final int threshold) {
+        this.walCompressionThreshold = threshold;
         return this;
     }
 
@@ -677,6 +695,12 @@ public final class Meta {
         m.quote = quote;
         m.nullString = nullString;
         m.format = format;
+
+        m.walMode = walMode;
+        m.walCheckpointInterval = walCheckpointInterval;
+        m.walBatchSize = walBatchSize;
+        m.walCompressionThreshold = walCompressionThreshold;
+        
         return m;
     }
 

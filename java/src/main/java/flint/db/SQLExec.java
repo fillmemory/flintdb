@@ -173,7 +173,7 @@ public final class SQLExec {
         if (n.endsWith(Meta.TABLE_NAME_SUFFIX))
             return "flintdb";
 
-        String fmt = System.getProperty("LITEDB_FILEFORMAT_GZ", "").toLowerCase();
+        String fmt = System.getProperty("FLINTDB_FILEFORMAT_GZ", "").toLowerCase();
         if (("csv".equals(fmt) || "tsv".equals(fmt) || "jsonl".equals(fmt)) && (n.endsWith(".gz") || n.endsWith(".zip")))
             return fmt;
         return null;

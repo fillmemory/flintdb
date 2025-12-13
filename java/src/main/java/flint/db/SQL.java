@@ -142,7 +142,10 @@ final class SQL {
 	private final String compact;
 	private final String increment;
 	private final String cache;
-	private final String walEnabled;
+	private final String walMode;
+	private final String walBatchSize;
+	private final String walCheckpointInterval;
+	private final String walCompressionThreshold;
 	private final String date;
 	private final String directory;
 	private final String storage;
@@ -186,7 +189,10 @@ final class SQL {
 		this.compact = stmt.get("compact");
 		this.increment = stmt.get("increment");
 		this.cache = stmt.get("cache");
-		this.walEnabled = stmt.get("walEnabled");
+		this.walMode = stmt.get("walMode");
+		this.walBatchSize = stmt.get("walBatchSize");
+		this.walCheckpointInterval = stmt.get("walCheckpointInterval");
+		this.walCompressionThreshold = stmt.get("walCompressionThreshold");
 		this.date = stmt.get("date");
 		this.directory = stmt.get("directory");
 		this.storage = stmt.get("storage");
@@ -313,8 +319,17 @@ final class SQL {
 			meta.increment(parseBytes(increment));
 		if (cache != null)
 			meta.cacheSize(parseBytes(cache));
-		if (walEnabled != null)
-			meta.walMode(walEnabled);
+		if (walMode != null) {
+			meta.walMode(walMode);
+			if (!"OFF".equalsIgnoreCase(walMode)) {
+				if (walBatchSize != null && !walBatchSize.isEmpty())
+					meta.walBatchSize(parseInt(walBatchSize));
+				if (walCheckpointInterval != null && !walCheckpointInterval.isEmpty())
+					meta.walCheckpointInterval(parseInt(walCheckpointInterval));
+				if (walCompressionThreshold != null && !walCompressionThreshold.isEmpty())
+					meta.walCompressionThreshold(parseInt(walCompressionThreshold));
+			}
+		}
 		if (date != null)
 			meta.date(date);
 
@@ -414,6 +429,19 @@ final class SQL {
 		if (meta.walEnabled()) {
 			s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL=").append(meta.walMode());
 			extras++;
+
+			if (meta.walBatchSize() > 0) {
+				s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_BATCH=").append(meta.walBatchSize());
+				extras++;
+			}
+			if (meta.walCheckpointInterval() > 0) {
+				s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_CHECKPOINT=").append(meta.walCheckpointInterval());
+				extras++;
+			}
+			if (meta.walCompressionThreshold() > 0) {
+				s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_COMPRESSION=").append(meta.walCompressionThreshold());
+				extras++;
+			}
 		}
 		if (meta.compressor() != null && !"none".equalsIgnoreCase(meta.compressor())) {
 			s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("COMPRESSOR=").append(meta.compressor());
@@ -801,11 +829,16 @@ final class SQL {
 					m.put("increment", nv[1].toUpperCase());
 				} else if ("CACHE".equalsIgnoreCase(nv[0])) {
 					m.put("cache", nv[1].toUpperCase());
-				} else if ("WAL".equalsIgnoreCase(nv[0]) || "WALENABLED".equalsIgnoreCase(nv[0])) {
-					m.put("walEnabled", nv[1]);
+				} else if ("WAL".equalsIgnoreCase(nv[0])) {
+					m.put("walMode", nv[1]);
+				} else if ("WAL_BATCHSIZE".equalsIgnoreCase(nv[0])) {
+					m.put("walBatchSize", nv[1]);
+				} else if ("WAL_CHECKPOINT_INTERVAL".equalsIgnoreCase(nv[0])) {
+					m.put("walCheckpointInterval", nv[1]);
+				} else if ("WAL_COMPRESSION_THRESHOLD".equalsIgnoreCase(nv[0])) {
+					m.put("walCompressionThreshold", nv[1]);
 				} else if ("DATE".equalsIgnoreCase(nv[0])) {
 					m.put("date", nv[1].toUpperCase());
-
 				} else if ("HEADER".equalsIgnoreCase(nv[0])) { // Text File
 					m.put("header", nv[1]);
 				} else if ("DELIMITER".equalsIgnoreCase(nv[0])) {
@@ -900,6 +933,22 @@ final class SQL {
 			i = i.substring(0, i.length() - 1);
 		} else if (i.charAt(i.length() - 1) == 'G') {
 			m = 1024 * 1024 * 1024;
+			i = i.substring(0, i.length() - 1);
+		}
+		return Integer.parseInt(i) * m;
+	}
+
+	static int parseInt(final String s) {
+		int m = 1;
+		String i = s.toUpperCase();
+		if (i.charAt(i.length() - 1) == 'K') {
+			m = 1000;
+			i = i.substring(0, i.length() - 1);
+		} else if (i.charAt(i.length() - 1) == 'M') {
+			m = 1000 * 1000;
+			i = i.substring(0, i.length() - 1);
+		} else if (i.charAt(i.length() - 1) == 'G') {
+			m = 1000 * 1000 * 1000;
 			i = i.substring(0, i.length() - 1);
 		}
 		return Integer.parseInt(i) * m;

@@ -76,7 +76,7 @@ final class TableImpl implements Table {
             // Initialize WAL based on meta configuration
             if ((OPEN_WRITE & mode) > 0 && meta.walEnabled() && !Storage.TYPE_MEMORY.equalsIgnoreCase(meta.storage())) {
                 final File walFile = new File(file.getParentFile(), file.getName() + ".wal");
-                this.wal = WAL.open(walFile, meta.walMode());
+                this.wal = WAL.open(walFile, meta);
             } else {
                 this.wal = WAL.NONE; // WAL disabled or read-only mode
             }

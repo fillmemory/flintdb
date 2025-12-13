@@ -24,7 +24,6 @@ import java.util.zip.Deflater;
  * 
  * 
  * <pre>
- *  * BPlusTree, Table 의 구조를 변경을 최소화 하도록 WAL Layer만 추가
  *  * Phase 1: Allow dirty reads (uncommitted changes visible to other transactions)
  *  *          - Simpler implementation, better performance
  *  *          - Crash recovery through WAL replay
@@ -41,6 +40,7 @@ import java.util.zip.Deflater;
  *  * ✓ Crash recovery with WAL replay
  *  * ✓ Auto-checkpoint and truncation
  *  * ✓ Read-your-own-writes within transaction
+ * 
  *  * TODO: Async WAL writing for better performance
  * </pre>
  * 
@@ -79,12 +79,14 @@ final class WALImpl implements WAL {
     final Map<File, WALStorage> storages = new HashMap<>();
     private final boolean autoTruncate;
     private long transactionCount = 0;
-    private static final long CHECKPOINT_INTERVAL = Long.getLong("LITEDB_WAL_CHECKPOINT_INTERVAL", 10000L);
+    private final long CHECKPOINT_INTERVAL;
 
-    WALImpl(File file, String mode) throws IOException {
-        String m = mode != null ? mode.toUpperCase() : Meta.WAL_OPT_TRUNCATE;
+    WALImpl(File file, Meta meta) throws IOException {
+        String m = meta.walMode() != null ? meta.walMode().toUpperCase() : Meta.WAL_OPT_TRUNCATE;
         this.autoTruncate = Meta.WAL_OPT_TRUNCATE.equals(m);
-        this.logger = new WALLogStorage(file, this.autoTruncate);
+        this.CHECKPOINT_INTERVAL = meta.walCheckpointInterval() > 0 ? meta.walCheckpointInterval() : Long.getLong("FLINTDB_WAL_CHECKPOINT_INTERVAL", 10000L);
+         // Initialize WAL log storage
+        this.logger = new WALLogStorage(file, this.autoTruncate, meta.walBatchSize(), meta.walCompressionThreshold());
     }
 
     @Override
@@ -215,14 +217,16 @@ final class WALLogStorage implements AutoCloseable {
     // Batch logging
     private final IoBuffer batchBuffer;
     private int batchCount = 0;
-    private static final int BATCH_SIZE = Integer.getInteger("LITEDB_WAL_BATCH_SIZE", 10000); // Flush after N log records
-    private static final int COMPRESSION_THRESHOLD = Integer.getInteger("LITEDB_WAL_COMPRESSION_THRESHOLD", 8192); // Compress if data > N bytes
+    private final int BATCH_SIZE; // = Integer.getInteger("FLINTDB_WAL_BATCH_SIZE", 10000); // Flush after N log records
+    private final int COMPRESSION_THRESHOLD; // = Integer.getInteger("FLINTDB_WAL_COMPRESSION_THRESHOLD", 8192); // Compress if data > N bytes
     private static final byte FLAG_COMPRESSED = 0x01;
     private static final byte FLAG_METADATA_ONLY = 0x02;
 
 
-    WALLogStorage(File file, boolean autoTruncate) throws IOException {
+    WALLogStorage(File file, boolean autoTruncate, int walBatchSize, int walCompressionThreshold) throws IOException {
         this.autoTruncate = autoTruncate;
+        this.BATCH_SIZE = walBatchSize > 0 ? walBatchSize : Integer.getInteger("FLINTDB_WAL_BATCH_SIZE", 10000);
+        this.COMPRESSION_THRESHOLD = walCompressionThreshold > 0 ? walCompressionThreshold : Integer.getInteger("FLINTDB_WAL_COMPRESSION_THRESHOLD", 8192);
         final Set<java.nio.file.OpenOption> opt = new java.util.HashSet<>();
         opt.add(java.nio.file.StandardOpenOption.READ);
         opt.add(java.nio.file.StandardOpenOption.WRITE);

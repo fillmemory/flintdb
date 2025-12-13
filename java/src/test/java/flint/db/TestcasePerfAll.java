@@ -29,7 +29,7 @@ public class TestcasePerfAll {
             case "TESTCASE_PERF_VARIANT_COMPARE" -> testcase_variant_compare();
             case "TESTCASE_PERF_BIN_DECODE" -> testcase_bin_decode();
             case "TESTCASE_PERF_BIN_ENCODE" -> testcase_bin_encode();
-            case "TESTCASE_LITEDB_TPCH_LINEITEM_READ" -> testcase_perf_lineitemread();
+            case "TESTCASE_FLINTDB_TPCH_LINEITEM_READ" -> testcase_perf_lineitemread();
             default -> System.out.
                 println("""
                                           No valid TESTCASE specified. 
