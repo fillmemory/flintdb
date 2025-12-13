@@ -2101,7 +2101,8 @@ struct flintdb_table_cursor_priv {
     // projection: length = number of SELECT expressions, values are source column indexes
     int proj_count;
     int proj_indexes[MAX_COLUMNS_LIMIT];
-    // proj_meta is now stack-allocated per row (not cached, to avoid cross-query contamination)
+    struct flintdb_meta *proj_meta; // cached projection meta (owned, created once per cursor)
+    struct flintdb_row *proj_row;   // reused projection row buffer (for performance)
     struct flintdb_row *stream_row; // reused decode buffer for SELECT * streaming (bypass cache)
 };
 
@@ -2146,19 +2147,30 @@ static struct flintdb_row *sql_table_cursor_next(struct cursor_row *c, char **e)
     const struct flintdb_row *r = priv->table->read(priv->table, rowid, e);
     if ((e && *e) || !r) return NULL;
 
-    // Build projected meta on stack (not cached, to avoid contamination across queries)
-    struct flintdb_meta proj_meta_temp = {0};
+    // Build (or reuse) projected meta once per cursor
     struct flintdb_meta *m = (struct flintdb_meta *)r->meta;
-    proj_meta_temp.columns.length = priv->proj_count;
-    for (int i = 0; i < priv->proj_count; i++) {
-        int src = priv->proj_indexes[i];
-        if (src < 0 || src >= m->columns.length) {
-            return NULL;
+    if (!priv->proj_meta) {
+        // Allocate projection meta once and cache in cursor
+        struct flintdb_meta *pm = (struct flintdb_meta *)CALLOC(1, sizeof(struct flintdb_meta));
+        if (!pm) return NULL;
+        pm->columns.length = priv->proj_count;
+        for (int i = 0; i < priv->proj_count; i++) {
+            int src = priv->proj_indexes[i];
+            if (src < 0 || src >= m->columns.length) {
+                FREE(pm);
+                return NULL;
+            }
+            pm->columns.a[i] = m->columns.a[src];
         }
-        proj_meta_temp.columns.a[i] = m->columns.a[src];
+        priv->proj_meta = pm; // cache for cursor lifetime
     }
     
-    struct flintdb_row *out = flintdb_row_pool_acquire(&proj_meta_temp, e);
+    // Lazily allocate proj_row once per cursor and reuse (like stream_row)
+    if (!priv->proj_row) {
+        priv->proj_row = flintdb_row_pool_acquire(priv->proj_meta, e);
+        if ((e && *e) || !priv->proj_row) return NULL;
+    }
+    struct flintdb_row *out = priv->proj_row; // reuse buffer
     if ((e && *e) || !out) {
         return NULL;
     }
@@ -2166,16 +2178,12 @@ static struct flintdb_row *sql_table_cursor_next(struct cursor_row *c, char **e)
         int src = priv->proj_indexes[i];
         struct flintdb_variant *v = r->get((struct flintdb_row *)r, src, e);
         if (e && *e)
-            goto FAIL;
+            return NULL;
         out->set(out, i, v, e);
         if (e && *e)
-            goto FAIL;
+            return NULL;
     }
-    return out;
-
-FAIL:
-    if (out) out->free(out);
-    return NULL;
+    return out; // caller must NOT free (owned by cursor, reused per row)
 }
 
 static void sql_table_cursor_close(struct cursor_row *c) {
@@ -2190,7 +2198,16 @@ static void sql_table_cursor_close(struct cursor_row *c) {
         if (priv->table && priv->table->close) {
             priv->table->close(priv->table);
         }
-        // proj_meta is now stack-allocated, no need to free
+        if (priv->proj_meta) {
+            // projection meta was shallow (column structs copied); safe to free struct only
+            FREE(priv->proj_meta);
+            priv->proj_meta = NULL;
+        }
+        if (priv->proj_row) {
+            // Return projection row buffer to pool
+            priv->proj_row->free(priv->proj_row);
+            priv->proj_row = NULL;
+        }
         if (priv->stream_row) {
             // Return streaming row buffer to pool
             priv->stream_row->free(priv->stream_row);
