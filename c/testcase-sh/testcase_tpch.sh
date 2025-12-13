@@ -42,7 +42,7 @@ done
 
 # https://github.com/electrum/tpch-dbgen
 
-rm -f ../temp/tpch_lineitem.flintdb*
+rm -f ../temp/c/tpch_lineitem.flintdb*
 
 if [ ! -f ../temp/tpch/lineitem.tbl.gz ]; then
 	echo "lineitem.tbl.gz not found"
