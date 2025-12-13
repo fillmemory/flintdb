@@ -636,23 +636,25 @@ final class WALStorage implements Storage {
         // Replay WAL record to origin storage
         switch (record.operation) {
             case WAL.OP_UPDATE -> {
+                // UPDATE: replay data to origin
                 if (record.data != null) {
                     IoBuffer buffer = IoBuffer.wrap(java.nio.ByteBuffer.wrap(record.data));
                     origin.write(record.pageOffset, buffer);
                 }
             }
             case WAL.OP_DELETE -> {
+                // DELETE: replay delete to origin
                 origin.delete(record.pageOffset);
                 if (callback != null) {
                     callback.refresh(record.pageOffset);
                 }
             }
             case WAL.OP_WRITE -> {
+                // WRITE (INSERT): already written to origin during transaction
+                // Metadata-only record, no replay needed
             }
         }
-        // WRITE operations with metadata-only flag don't need replay
-        // (already written to origin during transaction)
-            }
+    }
 
     @Override
     public void transaction(long id) {
@@ -664,9 +666,25 @@ final class WALStorage implements Storage {
             return; // Not our transaction
         }
         
-        // All writes already applied to origin (write-through mode)
-        // No pending writes to apply
+        // Flush dirty pages to origin storage
+        for (Map.Entry<Long, IoBuffer> entry : dirtyPages.entrySet()) {
+            long index = entry.getKey();
+            IoBuffer data = entry.getValue();
+            data.position(0); // Reset position before write
+            origin.write(index, data);
+        }
         
+        // Apply deletes to origin storage
+        for (Long index : deletedPages.keySet()) {
+            boolean deleted = origin.delete(index);
+            if (deleted && callback != null) {
+                callback.refresh(index);
+            }
+        }
+        
+        // Clear caches after commit
+        dirtyPages.clear();
+        deletedPages.clear();
         this.transaction = -1;
     }
 
@@ -675,9 +693,9 @@ final class WALStorage implements Storage {
             return; // Not our transaction
         }
         
-        // Write-through mode: changes already in origin, can't rollback
-        // WAL rollback marker prevents replay during recovery
-        
+        // Discard dirty pages and deleted pages (don't apply to origin)
+        dirtyPages.clear();
+        deletedPages.clear();
         this.transaction = -1;
     }
 
@@ -707,32 +725,58 @@ final class WALStorage implements Storage {
     public void write(long index, IoBuffer bb) throws IOException {
         IoBuffer data = bb.slice();
         
-        // C version: table.c UPDATE path calls storage->write_at(), but never sets transaction on storage
-        // ws->transaction remains -1, so wal_storage_write_at does NOT log (transaction check fails)
-        // Java should match: no WAL logging for UPDATE operations
-        // Only INSERT (via write(IoBuffer)) logs OP_WRITE metadata
-        origin.write(index, data);
+        if (transaction > 0) {
+            // UPDATE within transaction: don't write to origin immediately
+            // Store in dirty page cache and log to WAL
+            logger.log(WAL.OP_UPDATE, transaction, identifier, index, data, false);
+            
+            // Cache the dirty page (make a copy to avoid external modification)
+            byte[] copy = new byte[data.remaining()];
+            data.get(copy);
+            dirtyPages.put(index, IoBuffer.wrap(java.nio.ByteBuffer.wrap(copy)));
+        } else {
+            // No transaction: direct write to origin
+            origin.write(index, data);
+        }
     }
 
     @Override
     public IoBuffer read(long index) throws IOException {
-        // Write-through mode: all data in origin (read-your-own-writes guaranteed)
+        // Check if page is deleted in current transaction
+        if (deletedPages.containsKey(index) && transaction > 0) {
+            throw new IOException("Page " + index + " has been deleted in current transaction");
+        }
+        
+        // Check dirty page cache first (read-your-own-writes)
+        IoBuffer dirtyPage = dirtyPages.get(index);
+        if (dirtyPage != null) {
+            // Return a copy to avoid external modification
+            IoBuffer copy = dirtyPage.duplicate();
+            copy.position(0);
+            return copy;
+        }
+        
+        // Not in dirty cache, read from origin storage
         return origin.read(index);
     }
 
     @Override
     public boolean delete(long index) throws IOException {
         if (transaction > 0) {
-            // Log the delete operation to WAL before deleting
+            // DELETE within transaction: don't delete from origin immediately
+            // Mark as deleted in cache and log to WAL
             logger.log(WAL.OP_DELETE, transaction, identifier, index, null);
+            deletedPages.put(index, true);
+            dirtyPages.remove(index); // Remove from dirty cache if exists
+            return true;
+        } else {
+            // No transaction: direct delete from origin
+            boolean result = origin.delete(index);
+            if (result && callback != null) {
+                callback.refresh(index);
+            }
+            return result;
         }
-        // Delete from origin storage
-        boolean result = origin.delete(index);
-        // Invoke callback to synchronize cache
-        if (result && callback != null) {
-            callback.refresh(index);
-        }
-        return result;
     }
 
     @Override

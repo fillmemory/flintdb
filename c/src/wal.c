@@ -65,6 +65,14 @@ struct wal_impl {
     struct hashmap *storages;  // Map of file -> wal_storage
 };
 
+// Dirty page entry for uncommitted UPDATE/DELETE operations
+struct dirty_page {
+    i64 offset;                 // Page offset
+    struct buffer *data;        // Page data (NULL for DELETE)
+    int is_delete;              // 1 if this is a DELETE operation
+    struct dirty_page *next;    // Next in linked list
+};
+
 // Storage wrapper structure
 struct wal_storage {
     struct storage base;        // Base storage structure (must be first!)
@@ -74,6 +82,7 @@ struct wal_storage {
     i64 transaction;            // Current transaction ID
     int (*callback)(const void *obj, i64 offset); // Cache synchronization callback
     const void *callback_obj;   // Callback object context
+    struct dirty_page *dirty_pages; // Linked list of dirty pages
 };
 
 // A WAL implementation that does nothing
@@ -109,6 +118,8 @@ static void wal_log(struct wal_impl *impl, u8 operation, i64 transaction_id, i32
 static void wal_flush_batch(struct wal_impl *impl);
 static void wal_flush_header(struct wal_impl *impl);
 static char* wal_compress_data(const char *data, i32 size, i32 *compressed_size);
+static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e);
+static void wal_storage_rollback(struct wal_storage *ws, i64 id);
 
 static i64 wal_begin(struct wal *me, char **e) {
     struct wal_impl *impl = me->impl;
@@ -131,18 +142,23 @@ static i64 wal_begin(struct wal *me, char **e) {
 static i64 wal_commit(struct wal *me, i64 id, char **e) {
     struct wal_impl *impl = me->impl;
     
-    // Log commit record
+    // Flush dirty pages to origin storage first
+    if (impl->storages) {
+        struct map_iterator it = {0};
+        while (impl->storages->iterate(impl->storages, &it)) {
+            struct wal_storage *ws = (struct wal_storage*)(uintptr_t)it.val;
+            if (ws) {
+                wal_storage_commit(ws, id, e);
+                if (e && *e) return -1;
+            }
+        }
+    }
+    
+    // Then log commit record to WAL
     wal_log(impl, OP_COMMIT, id, 0, 0, NULL, 0, 0);
     impl->committed_offset = impl->current_position;
     impl->total_count++;
     impl->transaction_count++;
-    
-    // // Debug: Print WAL status every 10000 transactions
-    // if (impl->transaction_count % 10000 == 0) {
-    //     DEBUG("WAL: %lld transactions, position: %lld bytes, compression: %s", 
-    //          impl->transaction_count, impl->current_position, 
-    //          impl->enable_compression ? "ON" : "OFF");
-    // }
     
     // Auto checkpoint every N transactions
     if (impl->auto_truncate && impl->transaction_count >= impl->checkpoint_interval) {
@@ -155,7 +171,18 @@ static i64 wal_commit(struct wal *me, i64 id, char **e) {
 static i64 wal_rollback(struct wal *me, i64 id, char **e) {
     struct wal_impl *impl = me->impl;
     
-    // Log rollback record
+    // Rollback all storages (discard dirty pages)
+    if (impl->storages) {
+        struct map_iterator it = {0};
+        while (impl->storages->iterate(impl->storages, &it)) {
+            struct wal_storage *ws = (struct wal_storage*)(uintptr_t)it.val;
+            if (ws) {
+                wal_storage_rollback(ws, id);
+            }
+        }
+    }
+    
+    // Then log rollback record
     wal_log(impl, OP_ROLLBACK, id, 0, 0, NULL, 0, 0);
     impl->total_count++;
     
@@ -351,6 +378,18 @@ EXCEPTION:
 
 static void wal_storage_close(struct storage *me) {
     struct wal_storage *ws = (struct wal_storage*)me;
+    
+    // Free dirty pages
+    struct dirty_page *page = ws->dirty_pages;
+    while (page) {
+        struct dirty_page *next = page->next;
+        if (page->data) {
+            page->data->free(page->data);
+        }
+        FREE(page);
+        page = next;
+    }
+    
     if (ws->origin) {
         ws->origin->close(ws->origin);
         FREE(ws->origin);
@@ -370,7 +409,26 @@ static i64 wal_storage_bytes_get(struct storage *me) {
 
 static struct buffer* wal_storage_read(struct storage *me, i64 offset, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
+    
+    // Check dirty page cache first (read-your-own-writes)
+    struct dirty_page *page = ws->dirty_pages;
+    while (page) {
+        if (page->offset == offset) {
+            if (page->is_delete) {
+                THROW(e, "Page %lld has been deleted in current transaction", offset);
+            }
+            // Return dirty page data directly
+            // Note: Origin storage expects to manage the buffer lifetime
+            return page->data;
+        }
+        page = page->next;
+    }
+    
+    // Not in dirty cache, read from origin
     return ws->origin->read(ws->origin, offset, e);
+    
+EXCEPTION:
+    return NULL;
 }
 
 static i64 wal_storage_write(struct storage *me, struct buffer *in, char **e) {
@@ -389,37 +447,138 @@ static i64 wal_storage_write(struct storage *me, struct buffer *in, char **e) {
 static i64 wal_storage_write_at(struct storage *me, i64 offset, struct buffer *in, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
     
-    // Match Java behavior: no WAL logging for UPDATE operations
-    // Only INSERT (via write()) logs OP_WRITE metadata
-    // UPDATE operations go directly to origin storage
+    if (ws->transaction > 0) {
+        // UPDATE within transaction: don't write to origin immediately
+        // Store in dirty page cache and log to WAL
+        i32 data_size = in->limit - in->position;
+        wal_log(ws->logger, OP_UPDATE, ws->transaction, ws->identifier, offset, 
+                in->array + in->position, data_size, 0);
+        
+        // Cache the dirty page (make a copy)
+        struct dirty_page *page = CALLOC(1, sizeof(struct dirty_page));
+        if (!page) THROW(e, "Out of memory");
+        
+        page->offset = offset;
+        // Allocate and copy data
+        char *data_copy = CALLOC(1, data_size);
+        if (!data_copy) {
+            FREE(page);
+            THROW(e, "Out of memory");
+        }
+        memcpy(data_copy, in->array + in->position, data_size);
+        
+        struct buffer *buf = CALLOC(1, sizeof(struct buffer));
+        if (!buf) {
+            FREE(data_copy);
+            FREE(page);
+            THROW(e, "Out of memory");
+        }
+        buffer_wrap(data_copy, data_size, buf);
+        buf->limit = data_size;
+        buf->position = 0;
+        page->data = buf;
+        page->is_delete = 0;
+        page->next = ws->dirty_pages;
+        ws->dirty_pages = page;
+        
+        return 0;
+    } else {
+        // No transaction: direct write to origin
+        i64 result = ws->origin->write_at(ws->origin, offset, in, e);
+        return result;
+    }
     
-    // Write-through: update origin immediately
-    i64 result = ws->origin->write_at(ws->origin, offset, in, e);
-    return result;
+EXCEPTION:
+    return -1;
 }
 
 static i32 wal_storage_delete(struct storage *me, i64 offset, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
     
-    // Log to WAL if transaction is active
-    if (ws->transaction > 0 && ws->logger) {
+    if (ws->transaction > 0) {
+        // DELETE within transaction: don't delete from origin immediately
+        // Mark as deleted in cache and log to WAL
         wal_log(ws->logger, OP_DELETE, ws->transaction, ws->identifier, offset, NULL, 0, 0);
+        
+        struct dirty_page *page = CALLOC(1, sizeof(struct dirty_page));
+        if (!page) THROW(e, "Out of memory");
+        
+        page->offset = offset;
+        page->data = NULL;
+        page->is_delete = 1;
+        page->next = ws->dirty_pages;
+        ws->dirty_pages = page;
+        
+        return 1;
+    } else {
+        // No transaction: direct delete from origin
+        i32 result = ws->origin->delete(ws->origin, offset, e);
+        if (result && ws->callback != NULL) {
+            ws->callback(ws->callback_obj, offset);
+        }
+        return result;
     }
     
-    // Delete from origin storage
-    i32 result = ws->origin->delete(ws->origin, offset, e);
-    
-    // Invoke callback to synchronize cache
-    if (result && ws->callback != NULL) {
-        ws->callback(ws->callback_obj, offset);
-    }
-    
-    return result;
+EXCEPTION:
+    return 0;
 }
 
 static void wal_storage_transaction(struct storage *me, i64 id, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
     ws->transaction = id;
+}
+
+static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e) {
+    if (ws->transaction != id) {
+        return; // Not our transaction
+    }
+    
+    // Flush dirty pages to origin storage
+    struct dirty_page *page = ws->dirty_pages;
+    while (page) {
+        if (page->is_delete) {
+            // Apply delete
+            ws->origin->delete(ws->origin, page->offset, e);
+            if (e && *e) return;
+            if (ws->callback) {
+                ws->callback(ws->callback_obj, page->offset);
+            }
+        } else if (page->data) {
+            // Apply update
+            page->data->position = 0;
+            ws->origin->write_at(ws->origin, page->offset, page->data, e);
+            if (e && *e) return;
+        }
+        page = page->next;
+    }
+    
+    // Clear dirty pages
+    page = ws->dirty_pages;
+    while (page) {
+        struct dirty_page *next = page->next;
+        if (page->data) page->data->free(page->data);
+        FREE(page);
+        page = next;
+    }
+    ws->dirty_pages = NULL;
+    ws->transaction = -1;
+}
+
+static void wal_storage_rollback(struct wal_storage *ws, i64 id) {
+    if (ws->transaction != id) {
+        return; // Not our transaction
+    }
+    
+    // Discard dirty pages (don't apply to origin)
+    struct dirty_page *page = ws->dirty_pages;
+    while (page) {
+        struct dirty_page *next = page->next;
+        if (page->data) page->data->free(page->data);
+        FREE(page);
+        page = next;
+    }
+    ws->dirty_pages = NULL;
+    ws->transaction = -1;
 }
 
 static struct buffer* wal_storage_mmap(struct storage *me, i64 offset, i32 length, char **e) {
@@ -442,6 +601,7 @@ static struct storage* wal_wrap_storage(struct storage* origin, struct wal* wal,
     ws->transaction = -1;
     ws->callback = callback;
     ws->callback_obj = callback_obj;
+    ws->dirty_pages = NULL;
 
     // Setup storage function pointers in base
     ws->base.close = wal_storage_close;
