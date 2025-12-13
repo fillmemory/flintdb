@@ -1730,7 +1730,8 @@ static struct flintdb_row *gf_cursor_next(struct cursor_row *c, char **e) {
         }
     }
     
-    // Create a new projected row for each call (cannot reuse due to reference sharing)
+    // Create a new projected row for each call
+    // Cannot reuse row because caller may retain it for later use (e.g., pretty print)
     struct flintdb_row *proj_row = flintdb_row_new(priv->proj_meta, e);
     if (e && *e) {
         r->free(r);
@@ -1741,7 +1742,7 @@ static struct flintdb_row *gf_cursor_next(struct cursor_row *c, char **e) {
         return NULL;
     }
     
-    // Copy values from source row to projected row
+    // Copy projected columns from source row
     for (int i = 0; i < priv->proj_count; i++) {
         int src = priv->proj_indexes[i];
         struct flintdb_variant *v = r->get(r, src, e);
@@ -1760,7 +1761,6 @@ static struct flintdb_row *gf_cursor_next(struct cursor_row *c, char **e) {
     proj_row->rowid = r->rowid;
     r->free(r);
     
-    // Return the new projected row
     return proj_row;
 }
 
@@ -1769,7 +1769,7 @@ static void gf_cursor_close(struct cursor_row *c) {
         return;
     struct gf_cursor_priv *priv = (struct gf_cursor_priv *)c->p;
     if (priv) {
-        // proj_row is no longer stored here - each row is independently allocated
+        // proj_row is no longer stored - each row is independently created
         if (priv->proj_meta) {
             FREE(priv->proj_meta);
             priv->proj_meta = NULL;
