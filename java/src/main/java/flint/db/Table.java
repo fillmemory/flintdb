@@ -65,19 +65,18 @@ public interface Table extends Closeable {
 	String format();
 
 	/**
-	 * Add new row or update existing row
+	 * Add new row
 	 * 
-	 * @param row Row data to insert or update
+	 * @param row Row data to insert
 	 * @return Row ID (0 ~ Long.MAX_VALUE), -1 if error occurred
 	 * @throws IOException if operation fails
 	 */
 	long apply(final Row row) throws IOException;
 
-
     /**
      * Add new row or update existing row with upsert option
-     * @param row
-     * @param upsert
+     * @param row Row data to insert or update
+     * @param upsert If true, update existing row if primary key exists
      * @return
      * @throws IOException
      */
@@ -92,6 +91,71 @@ public interface Table extends Closeable {
 	 * @throws IOException if operation fails
 	 */
 	long apply(final long i, final Row row) throws IOException;
+
+	/**
+	 * Delete row by row ID
+	 * 
+	 * @param i Row ID to delete (0 ~ Long.MAX_VALUE)
+	 * @return Number of affected rows (1 if successful, 0 if not found)
+	 * @throws IOException if delete operation fails
+	 */
+	long delete(final long i) throws IOException;
+
+	/**
+	 * Add new row within transaction
+	 * @param row Row data to insert
+	 * @param tx Transaction
+	 * @return Row ID (0 ~ Long.MAX_VALUE), -1 if error occurred
+	 * @throws IOException
+	 */
+	default long apply(final Row row, final Transaction tx) throws IOException {
+		throw new UnsupportedOperationException("Transactional apply(row, t) not supported");
+	}
+
+	/**
+	 * Add new row or update existing row with upsert option within transaction
+	 * @param row Row data to insert or update
+	 * @param upsert If true, update existing row if primary key exists
+	 * @param tx Transaction
+	 * @return Row ID (0 ~ Long.MAX_VALUE), -1 if error occurred
+	 * @throws IOException
+	 */
+	default long apply(final Row row, final boolean upsert, final Transaction tx) throws IOException {
+		throw new UnsupportedOperationException("Transactional apply(row, upsert, t) not supported");
+	}
+
+	/**
+	 * Update existing row at specified position within transaction
+	 * @param i Row ID to update
+	 * @param row New row data
+	 * @param tx Transaction
+	 * @return Row ID of updated row
+	 * @throws IOException
+	 */
+	default long apply(final long i, final Row row, final Transaction tx) throws IOException {
+		throw new UnsupportedOperationException("Transactional apply(i, row, t) not supported");
+	}
+
+	/**
+	 * Delete row by row ID within transaction
+	 * @param i Row ID to delete (0 ~ Long.MAX_VALUE)
+	 * @param tx Transaction
+	 * @return Number of affected rows (1 if successful, 0 if not found)
+	 * @throws IOException
+	 */
+	default long delete(final long i, final Transaction tx) throws IOException {
+		throw new UnsupportedOperationException("Transactional delete(i, t) not supported");
+	}
+
+	/**
+	 * Begin new transaction
+	 * @return
+	 * @throws IOException
+	 */
+	default Transaction begin() throws IOException {
+		throw new UnsupportedOperationException("Transaction begin() not supported");
+	}
+
 
 	/**
 	 * Find rows using index-based search with filters
@@ -158,15 +222,6 @@ public interface Table extends Closeable {
 	 * @throws IOException if read operation fails
 	 */
 	Row read(final long i) throws IOException;
-
-	/**
-	 * Delete row by row ID
-	 * 
-	 * @param i Row ID to delete (0 ~ Long.MAX_VALUE)
-	 * @return Number of affected rows (1 if successful, 0 if not found)
-	 * @throws IOException if delete operation fails
-	 */
-	long delete(final long i) throws IOException;
 
 	/**
 	 * Drop (delete) the entire table and all associated files

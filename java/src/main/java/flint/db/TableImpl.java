@@ -8,7 +8,6 @@ import java.io.File;
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -241,11 +240,59 @@ final class TableImpl implements Table {
 
 	@Override
 	public long apply(final Row row) throws IOException {
-		return apply(row, true);
+		return apply(row, false);
 	}
 
 	@Override
     public long apply(final Row row, final boolean upsert) throws IOException {
+		try (final Transaction tx = begin()) {
+			final long v = apply(row, upsert, tx);
+			tx.commit();
+			return v;
+		} catch (IOException e) {
+			throw e;
+		} catch (Exception e) {
+			// TransactionImpl.close() auto-rollbacks if not committed.
+			throw new IOException(e);
+		}
+	}
+	
+	@Override
+	public long apply(final long node, final Row row) throws IOException {
+		try (final Transaction tx = begin()) {
+			final long v = apply(node, row, tx);
+			tx.commit();
+			return v;
+		} catch (IOException e) {
+			throw e;
+		} catch (Exception e) {
+			// TransactionImpl.close() auto-rollbacks if not committed.
+			throw new IOException(e);
+		}
+	}
+
+	@Override
+	public long delete(final long node) throws IOException {
+		// return delete(node, begin());
+		try (final Transaction tx = begin()) {
+			final long v = delete(node, tx);
+			tx.commit();
+			return v;
+		} catch (IOException e) {
+			throw e;
+		} catch (Exception e) {
+			// TransactionImpl.close() auto-rollbacks if not committed.
+			throw new IOException(e);
+		}
+	}
+
+	@Override
+	public Transaction begin() throws IOException {
+		return new TransactionImpl(this, wal);
+	}
+
+	@Override
+    public long apply(final Row row, final boolean upsert, final Transaction tx) throws IOException {
         if (meta().columns().length != row.array().length)
 			throw new DatabaseException(ErrorCode.COLUMN_MISMATCH);
 
@@ -256,9 +303,7 @@ final class TableImpl implements Table {
 		// throw new IOException("row bytes exceeded");
 		// }
 
-		tableLock();
 		final Primary primary = (Primary) sorters[Index.PRIMARY];
-        final long transaction = wal.begin();
 		try {
 			final long exists = (row.id() > -1) //
 					? row.id() //
@@ -273,7 +318,6 @@ final class TableImpl implements Table {
 				for (int i = 1; i < sorters.length; i++) {
 					sorters[i].create(node);
 				}
-                wal.commit(transaction);
 				return node;
 			} else {
                 if (!upsert) 
@@ -301,37 +345,28 @@ final class TableImpl implements Table {
 				for (int i = 1; i < sorters.length; i++) {
 					sorters[i].create(node);
 				}
-
-                wal.commit(transaction);
 				return node;
 			}
 		} catch (DatabaseException ex) {
-			// Preserve DatabaseException to maintain error codes
-			// Don't log as error since these are expected business logic exceptions
-			wal.rollback(transaction);
 			throw ex;
 		} catch (Exception ex) {
 			// ex.printStackTrace();
 			logger.error("apply(" + row + " => " + remaining + ", " + ex.getMessage());
-			wal.rollback(transaction);
 			throw new IOException(this + ".apply(" + row + " => " + remaining, ex);
 		} finally {
-			tableUnlock();
 			rowformatter.release(raw);
 		}
     }
 
 	@Override
-	public long apply(final long node, final Row row) throws IOException {
+	public long apply(final long node, final Row row, final Transaction tx) throws IOException {
 		if (node < 0)
 			return apply(row);
 
 		if (meta().columns().length != row.array().length)
 			throw new DatabaseException(ErrorCode.COLUMN_MISMATCH);
 			
-		tableLock();
 		final IoBuffer raw = rowformatter.format(row);
-        final long transaction = wal.begin();
 		try {
 			final int remaining = raw.remaining();
 			if (remaining > (meta().rowBytes()))
@@ -357,16 +392,12 @@ final class TableImpl implements Table {
 			for (int i = 1; i < sorters.length; i++) {
 				sorters[i].create(node);
 			}
-
-            wal.commit(transaction);
 			return node;
         } catch (Exception ex) {
             // ex.printStackTrace();
             logger.error("apply(" + row + " => " + ex.getMessage());
-            wal.rollback(transaction);
             throw new IOException(this + ".apply(" + row, ex);
 		} finally {
-			tableUnlock();
 			rowformatter.release(raw);
 		}
 	}
@@ -398,16 +429,6 @@ final class TableImpl implements Table {
 		return null;
 	}
 
-	// // Public locked version
-	// private final Row row(final long node) {
-	// 	tableLock();
-	// 	try {
-	// 		return rowUnlocked(node);
-	// 	} finally {
-	// 		tableUnlock();
-	// 	}
-	// }
-
 	@Override
 	public final Row read(final long node) throws IOException {
 		tableLock();
@@ -438,10 +459,8 @@ final class TableImpl implements Table {
 	}
 
 	@Override
-	public long delete(final long node) throws IOException {
-		tableLock();
+	public long delete(final long node, final Transaction tx) throws IOException {
 		final Primary primary = (Primary) sorters[Index.PRIMARY];
-        final long transaction = wal.begin();
 		try {
 			final Row r = rowUnlocked(node);
 			if (r != null) {
@@ -458,16 +477,12 @@ final class TableImpl implements Table {
 
 					cache.remove(node);
 					storage.delete(node);
-                    wal.commit(transaction);
 					return 1;
 				}
 			}
 		} catch (Exception ex) {
 			// ex.printStackTrace();
 			logger.error("delete(" + node + ") => " + ex.getMessage());
-            wal.rollback(transaction);
-		} finally {
-			tableUnlock();
 		}
 		return -1;
 	}
@@ -867,6 +882,65 @@ final class TableImpl implements Table {
 					return filter.toString();
 				}
 			});
+		}
+	}
+
+
+	static final class TransactionImpl implements Transaction {
+		private final TableImpl table;
+		private final WAL wal;
+		private final long transaction;
+		private boolean done = false;
+
+		public TransactionImpl(final TableImpl table, final WAL wal) throws IOException {
+			this.table = table;
+			this.wal = wal;
+			this.transaction = wal.begin();
+			table.tableLock();
+		}
+
+		@Override
+		public long id() {
+			return transaction;
+		}
+
+		@Override
+		public void commit() {
+			try {
+				wal.commit(transaction);
+				done = true;
+			} catch (Exception ex) {
+				table.logger.error("Transaction.commit() => " + ex.getMessage());
+				throw new RuntimeException(ex);
+			} finally {
+				table.tableUnlock();
+			}
+		}
+
+		@Override
+		public void rollback() {
+			try {
+				wal.rollback(transaction);
+				done = true;
+			} catch (Exception ex) {
+				table.logger.error("Transaction.rollback() => " + ex.getMessage());
+				throw new RuntimeException(ex);
+			} finally {
+				table.tableUnlock();
+			}
+		}
+
+		@Override
+		public void close() {
+			if (done)
+				return;
+
+			try {
+				done = true;
+				rollback();
+			} finally {
+				table.tableUnlock();
+			}
 		}
 	}
 }
