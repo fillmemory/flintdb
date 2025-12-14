@@ -16,6 +16,7 @@ fi
 # Parse command line arguments
 LIMIT=""
 WAL_OPTION="OFF"
+WAL_CHECKPOINT_INTERVAL="${WAL_CHECKPOINT_INTERVAL:-10000000}"
 while [[ $# -gt 0 ]]; do
 	case $1 in
 		-limit)
@@ -26,6 +27,10 @@ while [[ $# -gt 0 ]]; do
             WAL_OPTION="$2"
             shift 2
             ;;
+		-checkpoint)
+			WAL_CHECKPOINT_INTERVAL="$2"
+			shift 2
+			;;
 		*)
 			shift
 			;;
@@ -83,7 +88,7 @@ CREATE TABLE temp/java/tpch_lineitem.flintdb (
 	l_comment      STRING(44),
 	
 	PRIMARY KEY (l_orderkey, l_linenumber)
-) CACHE=50K, WAL=${WAL_OPTION}, WAL_CHECKPOINT_INTERVAL=10000000, WAL_BATCH_SIZE=50000, WAL_COMPRESSION_THRESHOLD=8K, WAL_SYNC=OFF, WAL_BUFFER_SIZE=256M, WAL_PAGE_DATA=OFF
+) CACHE=50K, WAL=${WAL_OPTION}, WAL_CHECKPOINT_INTERVAL=${WAL_CHECKPOINT_INTERVAL}, WAL_BATCH_SIZE=50000, WAL_COMPRESSION_THRESHOLD=8K, WAL_SYNC=OFF, WAL_BUFFER_SIZE=256M, WAL_PAGE_DATA=OFF
 EOF
 )
 # WAL=NONE|TRUNCATE|LOG

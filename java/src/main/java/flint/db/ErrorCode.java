@@ -34,6 +34,7 @@ public enum ErrorCode {
     LOCK_TIMEOUT(-5000, "Lock acquisition timeout"),
     DEADLOCK_DETECTED(-5001, "Deadlock detected"),
     TRANSACTION_FAILED(-5002, "Transaction failed"),
+    TRANSACTION_NOT_STARTED(-5003, "Transaction not started"),
     
     // General errors (-9000 to -9999)
     INVALID_OPERATION(-9000, "Invalid operation"),

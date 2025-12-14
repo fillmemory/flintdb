@@ -78,9 +78,14 @@ PY
 # Keep recovery tests deterministic: include page images so replay is possible
 export FLINTDB_WAL_PAGE_DATA=1
 
+ORIG_WAL_CHECKPOINT_INTERVAL="${FLINTDB_WAL_CHECKPOINT_INTERVAL-}"
+
 echo "========================================="
 echo "Test 1: WAL=TRUNCATE (auto-truncate mode)"
 echo "========================================="
+
+# For TRUNCATE-mode tests, force frequent checkpoints so truncation is observable even in short-lived CLI runs.
+export FLINTDB_WAL_CHECKPOINT_INTERVAL=1
 
 SQL_CREATE_TABLE=$(cat <<- EOF
 CREATE TABLE temp/testcase.flintdb (
@@ -136,6 +141,13 @@ if [ -f temp/testcase.flintdb.wal ]; then
     ls -lh temp/testcase.flintdb.wal
 else
     echo "WAL file not found (may have been truncated)"
+fi
+
+# Restore checkpoint interval for subsequent tests
+if [[ -n "${ORIG_WAL_CHECKPOINT_INTERVAL}" ]]; then
+    export FLINTDB_WAL_CHECKPOINT_INTERVAL="${ORIG_WAL_CHECKPOINT_INTERVAL}"
+else
+    unset FLINTDB_WAL_CHECKPOINT_INTERVAL
 fi
 
 echo ""

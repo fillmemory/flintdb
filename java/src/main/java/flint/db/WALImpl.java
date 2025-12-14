@@ -103,9 +103,9 @@ final class WALImpl implements WAL {
         // Make WAL header offsets durable and, in TRUNCATE mode, avoid leaving a large WAL
         // that will be fully scanned on next open.
         try (logger) {
-            if (autoTruncate) {
-                logger.checkpoint();
-            }
+            // if (autoTruncate) {
+            //     logger.checkpoint();
+            // }
             logger.sync();
         }
         storages.entrySet().forEach(entry -> {
@@ -513,7 +513,10 @@ final class WALLogStorage implements AutoCloseable {
         try {
             // Write commit record to WAL
             log(WAL.OP_COMMIT, id, 0, 0, null);
-            committedOffset = currentPosition;
+            // currentPosition only advances on flushBatch()/direct writes.
+            // When the record is buffered, we must account for batchBuffer.position()
+            // so committedOffset points to the logical end of committed WAL records.
+            committedOffset = currentPosition + (batchBuffer != null ? batchBuffer.position() : 0);
             totalCount++;
             // Batch will auto-flush and sync when full (BATCH_SIZE)
         } catch (IOException e) {
@@ -525,6 +528,11 @@ final class WALLogStorage implements AutoCloseable {
         try {
             // Write rollback record to WAL
             log(WAL.OP_ROLLBACK, id, 0, 0, null);
+            // Keep committedOffset monotonic with buffered writes; rollback itself doesn't
+            // represent committed data, but advancing prevents recovery scanEnd from being
+            // stuck at HEADER_SIZE when only buffered records exist.
+            committedOffset = Math.max(committedOffset,
+                    currentPosition + (batchBuffer != null ? batchBuffer.position() : 0));
             totalCount++;
             // Don't flush - let OS buffer for performance
         } catch (IOException e) {

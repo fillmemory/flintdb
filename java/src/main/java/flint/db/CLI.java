@@ -16,17 +16,17 @@ public final class CLI {
     
     static boolean LOG = false;
 
-    // Shutdown hook for graceful cleanup
-    static {
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            // System.err.println("\nReceived shutdown signal, cleaning up...");
-            try {
-                SQLExec.cleanup();
-            } catch (Exception e) {
-                System.err.println("Error during cleanup: " + e.getMessage());
-            }
-        }));
-    }
+    // // Shutdown hook for graceful cleanup
+    // static {
+    //     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+    //         // System.err.println("\nReceived shutdown signal, cleaning up...");
+    //         try {
+    //             SQLExec.cleanup();
+    //         } catch (Exception e) {
+    //             System.err.println("Error during cleanup: " + e.getMessage());
+    //         }
+    //     }));
+    // }
 
     public static void main(String[] args) {
         try {

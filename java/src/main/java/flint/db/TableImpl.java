@@ -293,6 +293,11 @@ final class TableImpl implements Table {
 
 	@Override
     public long apply(final Row row, final boolean upsert, final Transaction tx) throws IOException {
+		assert tx != null : "Transaction is null";
+		assert tx.id() > -1 : "Transaction is not started";
+		if (tx.id() < 0)
+			throw new DatabaseException(ErrorCode.TRANSACTION_NOT_STARTED);
+		
         if (meta().columns().length != row.array().length)
 			throw new DatabaseException(ErrorCode.COLUMN_MISMATCH);
 
@@ -360,8 +365,13 @@ final class TableImpl implements Table {
 
 	@Override
 	public long apply(final long node, final Row row, final Transaction tx) throws IOException {
+		assert tx != null : "Transaction is null";
+		assert tx.id() > -1 : "Transaction is not started";
+		if (tx.id() < 0)
+			throw new DatabaseException(ErrorCode.TRANSACTION_NOT_STARTED);
+
 		if (node < 0)
-			return apply(row);
+			return apply(row, false, tx);
 
 		if (meta().columns().length != row.array().length)
 			throw new DatabaseException(ErrorCode.COLUMN_MISMATCH);
@@ -460,6 +470,7 @@ final class TableImpl implements Table {
 
 	@Override
 	public long delete(final long node, final Transaction tx) throws IOException {
+		assert tx != null : "Transaction is null";
 		final Primary primary = (Primary) sorters[Index.PRIMARY];
 		try {
 			final Row r = rowUnlocked(node);
@@ -934,13 +945,8 @@ final class TableImpl implements Table {
 		public void close() {
 			if (done)
 				return;
-
-			try {
-				done = true;
-				rollback();
-			} finally {
-				table.tableUnlock();
-			}
+			// rollback() already marks done and unlocks in its finally
+			rollback();
 		}
 	}
 }
