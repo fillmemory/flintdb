@@ -153,13 +153,16 @@ static inline void wal_encode_record_header(
     u8 flags,
     i32 original_size
 ) {
-    *(u8*)(buf + 0) = operation;
-    *(i64*)(buf + 1) = transaction_id;
-    *(i16*)(buf + 9) = checksum;
-    *(i32*)(buf + 11) = file_id;
-    *(i64*)(buf + 15) = page_offset;
-    *(u8*)(buf + 23) = flags;
-    *(i32*)(buf + 24) = original_size;
+    // Avoid UB from misaligned typed stores by using memcpy into the byte buffer.
+    // NOTE: This preserves the existing on-disk byte order (host endianness).
+    // The WAL format in this project assumes little-endian hosts.
+    buf[0] = (char)operation;
+    memcpy(buf + 1, &transaction_id, sizeof(transaction_id));
+    memcpy(buf + 9, &checksum, sizeof(checksum));
+    memcpy(buf + 11, &file_id, sizeof(file_id));
+    memcpy(buf + 15, &page_offset, sizeof(page_offset));
+    buf[23] = (char)flags;
+    memcpy(buf + 24, &original_size, sizeof(original_size));
 }
 
 // Dirty page entry for uncommitted UPDATE/DELETE operations.

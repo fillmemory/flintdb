@@ -114,6 +114,17 @@ TESTCASE=${1:-}
 CC=gcc
 STD=c23 # c99, c11, c17, c23
 
+# Optional sanitizers (clang recommended):
+#   SANITIZE=address   -> AddressSanitizer
+#   SANITIZE=undefined -> UndefinedBehaviorSanitizer
+# Notes:
+# - Prefer ALLOCATOR=none with sanitizers (jemalloc/tcmalloc can interfere).
+SANITIZE="${SANITIZE:-}"
+if [[ -n "$SANITIZE" ]]; then
+    # clang tends to have better sanitizer support on macOS.
+    CC=clang
+fi
+
 # -DMTRACE for memory leak check with mtrace()
 # -O0 -g for debug
 # -O2 for release
@@ -121,6 +132,25 @@ STD=c23 # c99, c11, c17, c23
 CFLAGS="-O3 -march=native -std=$STD -DUNIT_TEST -I/usr/local/include "
 #LDFLAGS="-lc -lm -lpthread -lz -llz4 -lzstd -lsnappy -L/usr/local/lib "
 LDFLAGS="-lc -lm -lpthread -lz -L/usr/local/lib "
+
+# Apply sanitizers (must be set before compile).
+case "$SANITIZE" in
+    address)
+        # Avoid -march=native with sanitizers for more predictable stack traces.
+        CFLAGS="${CFLAGS/-march=native /} -fsanitize=address -fno-omit-frame-pointer"
+        LDFLAGS="$LDFLAGS -fsanitize=address"
+        ;;
+    undefined)
+        CFLAGS="${CFLAGS/-march=native /} -fsanitize=undefined -fno-omit-frame-pointer"
+        LDFLAGS="$LDFLAGS -fsanitize=undefined"
+        ;;
+    "")
+        ;;
+    *)
+        echo "Unknown SANITIZE=$SANITIZE (supported: address, undefined)" >&2
+        exit 2
+        ;;
+esac
 
 # Optional allocator selection: none|jemalloc|tcmalloc|auto
 ALLOCATOR="${ALLOCATOR:-auto}"

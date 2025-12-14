@@ -46,6 +46,11 @@ final class BPlusTree implements Tree {
 	private final Comparator<Long> sorter;
 	private final Reader reader;
 	private long count = 0;
+	private boolean metaLoaded = false;
+	private boolean metaDirty = false;
+
+	private static final byte[] META_ROOT = new byte[] { 'R', 'O', 'O', 'T' };
+	private static final byte[] META_CNT = new byte[] { 'C', 'N', 'T', '!' };
 
 	static final int NODE_BYTE_ALIGN = Integer.parseInt(System.getProperty("BPTREE.NODE_BYTE_ALIGN", String.format("%d", (1024)))); // (128 * 2); // Performance 256 ≥ 512 > 128
 	static final int STORAGE_HEAD_BYTES = 16; // Storage.java block header ==> TODO : V2 changed to 11 bytes
@@ -91,7 +96,13 @@ final class BPlusTree implements Tree {
 				// .increment(Math.max(increment, NODE_BYTES * 1024)) // disable : -1, 1024 * 1024
 				.increment(DEFAULT_INCREMENT_BYTES) // c default 16MB
 				.storage(storage), // Storage.TYPE_DEFAULT, Storage.TYPE_V2, Storage.TYPE_MEMORY
-                offset -> cache.remove(offset)
+				offset -> {
+					cache.remove(offset);
+					// After rollback (or deletes), cached nodes can be stale.
+					// Force metadata+root reload lazily on next access.
+					root = null;
+					metaLoaded = false;
+				}
 		);
 
 		this.header = this.storage.head(HEAD_BYTES);
@@ -110,12 +121,13 @@ final class BPlusTree implements Tree {
 			if (Arrays.compare(signature, MAGIC_NUMBER) != 0)
 				throw new IOException("Bad Signature - " + (new String(signature, java.nio.charset.StandardCharsets.UTF_8)) + " " + file);
 
-			count = hbb.getLong(); // count
-
+			// Backward-compatible fallback: old format stored count in header.
+			count = hbb.getLong();
+			metaLoaded = false;
 			root();
 		} else {
 			hbb.put(MAGIC_NUMBER);
-			hbb.putLong(0L);
+			hbb.putLong(0L); // legacy header count (no longer updated)
 
 			root(null);
 		}
@@ -125,6 +137,7 @@ final class BPlusTree implements Tree {
 
 	@Override
 	public void close() throws IOException {
+		flushMeta();
 		storage.close();
 		cache.close();
 	}
@@ -134,13 +147,8 @@ final class BPlusTree implements Tree {
 	}
 
 	public long count() throws IOException {
+		ensureMetaLoaded();
 		return count;
-	}
-
-	// @ForceInline
-	private void count(final long v) throws IOException {
-		final IoBuffer mbb = header.slice(4, Long.BYTES);
-		mbb.putLong(v);
 	}
 
 	public Storage storage() {
@@ -727,24 +735,64 @@ final class BPlusTree implements Tree {
 	///
 	Node root = null;
 
-	Node root() throws IOException {
-		if (root != null)
-			return root;
+	private void ensureMetaLoaded() throws IOException {
+		if (metaLoaded)
+			return;
+		loadMetaFromStorage();
+	}
 
+	private void loadMetaFromStorage() throws IOException {
 		final IoBuffer bb = storage.read(ROOT_SEEK_OFFSET);
-		bb.getInt();
+		final byte[] tag = new byte[4];
+		bb.get(tag);
 		final long offset = bb.getLong();
-		return OFFSET_NULL == offset ? null : (root = read(offset));
+		root = OFFSET_NULL == offset ? null : read(offset);
+
+		boolean hasCount = false;
+		if (bb.remaining() >= (4 + Long.BYTES)) {
+			final byte[] tag2 = new byte[4];
+			bb.get(tag2);
+			if (Arrays.compare(tag2, META_CNT) == 0) {
+				count = bb.getLong();
+				hasCount = true;
+			}
+		}
+		metaLoaded = true;
+
+		// If this is an older file (no CNT tag), migrate on next commit/close.
+		if (!hasCount && !storage.readOnly()) {
+			metaDirty = true;
+		}
+	}
+
+	Node root() throws IOException {
+		ensureMetaLoaded();
+		return root;
 	}
 
 	private void root(final Node n) throws IOException {
+		writeMetaBlock(n);
+	}
+
+	private void writeMetaBlock(final Node n) throws IOException {
 		final IoBuffer bb = IoBuffer.allocate(NODE_BYTES);
-		bb.put(new byte[] { 'R', 'O', 'O', 'T' });
+		bb.put(META_ROOT);
 		bb.putLong((n == null) ? OFFSET_NULL : n.offset());
+		bb.put(META_CNT);
+		bb.putLong(count);
 		bb.flip();
 		storage.write(ROOT_SEEK_OFFSET, bb);
 
 		root = n;
+		metaLoaded = true;
+		metaDirty = false;
+	}
+
+	@Override
+	public void flushMeta() throws IOException {
+		if (!metaDirty)
+			return;
+		writeMetaBlock(root);
 	}
 
 	public int height() throws IOException {
@@ -917,7 +965,8 @@ final class BPlusTree implements Tree {
 		// }
         
 		flush(leaf);
-		count(++count);
+		count++;
+		metaDirty = true;
 		return popped;
 	}
 
@@ -1053,7 +1102,8 @@ final class BPlusTree implements Tree {
 			leaf.update(new long[] { key });
 			flush(leaf);
 			root(leaf);
-			count(++count);
+			count++;
+			metaDirty = true;
 		} else {
 			put(null, root, key);
 		}
@@ -1110,7 +1160,8 @@ final class BPlusTree implements Tree {
 			return;
 
 		out[0] = key; // => deletion ok
-		count(--count);
+		count--;
+		metaDirty = true;
 
 		long[] temp = new long[keys.length - 1];
 		for (int i = 0, j = 0; i < temp.length;) {

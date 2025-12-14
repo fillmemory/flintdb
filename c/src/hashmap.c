@@ -25,10 +25,13 @@ static inline u32 hashmap_next(struct hashmap *map, u32 idx) {
 
 u32 hashmap_string_hash(keytype k) {
     const char *s = (const char *)k;
-    int hash = 0;
-    int c;
-    for (; (c = *s++) != 0;)
-        hash = ((hash << 5) + hash) + c;
+    // Use unsigned arithmetic to avoid UB on signed overflow.
+    u32 hash = 0;
+    unsigned char c;
+    while ((c = (unsigned char)*s++) != 0) {
+        // djb2 variant: hash = hash * 33 + c
+        hash = (hash * 33u) + (u32)c;
+    }
     return hash;
 }
 

@@ -19,6 +19,13 @@ interface Tree extends Closeable {
     Long get(final Comparable<Long> key) throws Exception;
 
     /**
+     * Flushes any buffered metadata (e.g., root/count) to the underlying Storage.
+     * Default is no-op for tree implementations that don't buffer metadata.
+     */
+    default void flushMeta() throws IOException {
+    }
+
+    /**
      * Create a new instance of B+Tree.
      *
      * @param file      B+Tree index file

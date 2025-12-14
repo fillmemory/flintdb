@@ -876,7 +876,27 @@ final class WALStorage implements Storage {
         if (this.transaction != id) {
             return; // Not our transaction
         }
-        
+
+        // Invalidate caches for any pages that were modified in this transaction.
+        // This is critical because callers may have cached objects based on dirty reads;
+        // after rollback those pages revert to origin contents.
+        if (callback != null) {
+            for (Long index : dirtyPages.keySet()) {
+                try {
+                    callback.refresh(index);
+                } catch (IOException ignore) {
+                    // Best-effort cache invalidation; rollback correctness does not depend on it.
+                }
+            }
+            for (Long index : deletedPages.keySet()) {
+                try {
+                    callback.refresh(index);
+                } catch (IOException ignore) {
+                    // Best-effort cache invalidation; rollback correctness does not depend on it.
+                }
+            }
+        }
+
         // Discard dirty pages and deleted pages (don't apply to origin)
         dirtyPages.clear();
         deletedPages.clear();

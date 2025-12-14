@@ -607,6 +607,13 @@ final class TableImpl implements Table {
 
 		Storage storage();
 
+		/**
+		 * Flushes any buffered index metadata (e.g., B+Tree count/root) before commit.
+		 * Default is no-op for index implementations without buffered metadata.
+		 */
+		default void flushMeta() throws IOException {
+		}
+
 		static String format(String s) {
 			if (s == null || s.isEmpty() || Storage.compressed(s))
 				return Storage.TYPE_DEFAULT;
@@ -702,6 +709,11 @@ final class TableImpl implements Table {
 		@Override
 		public Storage storage() {
 			return tree.storage();
+		}
+
+		@Override
+		public void flushMeta() throws IOException {
+			tree.flushMeta();
 		}
 
 		@Override
@@ -850,6 +862,11 @@ final class TableImpl implements Table {
 		}
 
 		@Override
+		public void flushMeta() throws IOException {
+			tree.flushMeta();
+		}
+
+		@Override
 		public long find(final Row key) throws Exception {
 			final Long found = tree.get(new Comparable<Long>() {
 				final byte[] keys = Meta.translate(meta, index.keys());
@@ -918,6 +935,13 @@ final class TableImpl implements Table {
 		@Override
 		public void commit() {
 			try {
+				if (table.sorters != null) {
+					for (final Sorter sorter : table.sorters) {
+						if (sorter != null) {
+							sorter.flushMeta();
+						}
+					}
+				}
 				wal.commit(transaction);
 				done = true;
 			} catch (Exception ex) {
