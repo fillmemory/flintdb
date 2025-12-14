@@ -239,6 +239,9 @@ static void mmap_free(struct buffer *me) {
 }
 
 static void buffer_slice_to(struct buffer *me, i32 offset, i32 length, struct buffer *out, char **e) {
+    if (UNLIKELY(me == NULL || out == NULL)) {
+        THROW(e, "buffer_slice: input buffer is NULL");
+    }
     if (UNLIKELY(offset < 0 || length < 0 || (me->position + offset + length) > me->limit))
         THROW(e, "buffer_slice offset : %d, length : %d, limit : %d", offset, length, me->limit);
 
@@ -272,10 +275,25 @@ EXCEPTION:
 }
 
 struct buffer *buffer_slice(struct buffer *in, i32 offset, i32 length, char **e) {
-    struct buffer *out = CALLOC(1, sizeof(struct buffer));
+    struct buffer *out = NULL;
+    if (UNLIKELY(in == NULL)) {
+        THROW(e, "buffer_slice: input buffer is NULL");
+    }
+    out = CALLOC(1, sizeof(struct buffer));
+    if (!out) {
+        THROW(e, "Out of memory");
+    }
     out->freeable = 1;
     buffer_slice_to(in, offset, length, out, e);
+    if (e && *e) {
+        out->free(out);
+        return NULL;
+    }
     return out;
+
+EXCEPTION:
+    if (out) out->free(out);
+    return NULL;
 }
 
 struct buffer *buffer_wrap(char *array, u32 capacity, struct buffer *out) {

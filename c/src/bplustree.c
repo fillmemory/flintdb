@@ -1672,10 +1672,12 @@ int bplustree_init(
     me->cache = lruhashmap_new(cache_limit * 2, cache_limit, &hashmap_int_hash, &hashmap_i64_cmpr);
 
     me->header = me->storage->head(me->storage, 0, HEAD_BYTES, e);
-    if (e && *e) THROW(e, "storage mmap failed: %s", *e ? *e : "unknown");
+    if (e && *e) THROW(e, "storage head failed: %s", *e ? *e : "unknown");
+    if (me->header == NULL) THROW(e, "storage head returned NULL");
 
     struct buffer h = {0};
     me->header->slice(me->header, 0, HEAD_BYTES, &h, e);
+    if (e && *e) THROW(e, "header slice failed: %s", *e ? *e : "unknown");
 
     i8 x = h.i8_get(&h, e);
     h.clear(&h);

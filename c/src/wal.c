@@ -555,7 +555,20 @@ EXCEPTION:
 
 static void wal_storage_close(struct storage *me) {
     struct wal_storage *ws = (struct wal_storage*)me;
-    
+    (void)ws;
+    // IMPORTANT:
+    // wal_wrap() caches a single wal_storage instance per file in wal_impl->storages
+    // and may return the same pointer across multiple bplustree/table opens.
+    // Therefore, a "client close" must NOT close/free the shared origin storage,
+    // otherwise subsequent wal_wrap() callers will receive a stale wal_storage
+    // with a freed origin (use-after-free -> intermittent SIGSEGV).
+    //
+    // The WAL owner (wal_close) is responsible for final cleanup.
+}
+
+static void wal_storage_close_internal(struct wal_storage *ws) {
+    if (!ws) return;
+
     // Free dirty pages hashmap
     if (ws->dirty_pages) {
         struct map_iterator it = {0};
@@ -564,13 +577,14 @@ static void wal_storage_close(struct storage *me) {
             dirty_page_free(page);
         }
         ws->dirty_pages->free(ws->dirty_pages);
+        ws->dirty_pages = NULL;
     }
-    
+
     if (ws->origin) {
         ws->origin->close(ws->origin);
         FREE(ws->origin);
+        ws->origin = NULL;
     }
-    // FREE(ws); // Do not free here, will be freed by caller
 }
 
 static i64 wal_storage_count_get(struct storage *me) {
@@ -893,8 +907,20 @@ struct storage* wal_wrap(struct wal* wal, struct storage_opts* opts, int (*refre
 
 EXCEPTION:    
     WARN("wal_wrap: exception occurred, cleaning up : %s", e && *e ? *e : "unknown");
-    if (origin)  origin->close(origin);
-    if (wrapped)  wrapped->close(wrapped);
+    if (wrapped) {
+        if (wal != &WAL_NONE) {
+            wal_storage_close_internal((struct wal_storage*)wrapped);
+            FREE(wrapped);
+        } else {
+            wrapped->close(wrapped);
+            FREE(wrapped);
+        }
+        return NULL;
+    }
+    if (origin) {
+        origin->close(origin);
+        FREE(origin);
+    }
     return NULL;
 }
 
@@ -914,7 +940,7 @@ static void wal_close(struct wal *me) {
             while (impl->storages->iterate(impl->storages, &it)) {
                 struct wal_storage *ws = (struct wal_storage*)(uintptr_t)it.val;
                 if (ws) {
-                    ws->base.close(&ws->base);
+                    wal_storage_close_internal(ws);
                     FREE(ws);
                 }
             }

@@ -86,10 +86,11 @@ static void storage_cache_free(keytype k, valtype v) {
 
 static struct buffer * storage_head(struct storage *me, i64 offset, i32 length, char **e) {
     assert(me != NULL);
-    if (!me->h) {
+    struct buffer *h = me->h;
+    if (!h) {
         THROW(e, "storage_head: header mapping is NULL (file=%s)", me->opts.file);
     }
-    struct buffer *out = buffer_slice(me->h, offset, length, e);
+    struct buffer *out = buffer_slice(h, offset, length, e);
     return out;
 
 EXCEPTION:
