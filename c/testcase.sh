@@ -111,6 +111,41 @@ if [ $# -eq 0 ]; then
 fi
 
 TESTCASE=${1:-}
+shift || true
+
+# Parse flags after TESTCASE. Keep backward compatibility with the old
+# "second-arg" style, but allow multiple flags in any order.
+MTRACE=0
+FLAG_DEBUG=0
+FLAG_NDEBUG=0
+FORWARD_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mtrace)
+            MTRACE=1
+            shift
+            ;;
+        --debug)
+            FLAG_DEBUG=1
+            shift
+            ;;
+        --ndebug)
+            FLAG_NDEBUG=1
+            shift
+            ;;
+        --)
+            shift
+            FORWARD_ARGS=("$@")
+            break
+            ;;
+        *)
+            # Unknown flag/arg: treat as executable argument (legacy)
+            FORWARD_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
 CC=gcc
 STD=c23 # c99, c11, c17, c23
 
@@ -204,17 +239,44 @@ case "$ALLOCATOR" in
     *) ;;
 esac
 
-if [[ ${2-} == "--mtrace" ]]; then
+if [[ $MTRACE -eq 1 ]]; then
     CFLAGS="$CFLAGS -DMTRACE"
 fi
 
-if [[ ${2-} == "--ndebug" ]]; then
+if [[ $FLAG_NDEBUG -eq 1 ]]; then
     CFLAGS="$CFLAGS -DNDEBUG"
 fi
 
-# Debug build (useful for lldb). Keeps assertions enabled.
-if [[ ${2-} == "--debug" ]]; then
+# Debug build (useful for lldb). By default keeps assertions enabled unless --ndebug is also set.
+if [[ $FLAG_DEBUG -eq 1 ]]; then
     CFLAGS="-O0 -g -std=$STD -DUNIT_TEST -I/usr/local/include "
+    # Re-apply optional sanitizers and other flags that were appended earlier.
+    # (SANITIZE block above runs before this and edits CFLAGS/LDFLAGS; we keep it by re-appending.)
+    if [[ $MTRACE -eq 1 ]]; then
+        CFLAGS="$CFLAGS -DMTRACE"
+    fi
+    if [[ $FLAG_NDEBUG -eq 1 ]]; then
+        CFLAGS="$CFLAGS -DNDEBUG"
+    fi
+
+    # If sanitizers are enabled, re-apply them because CFLAGS was reset above.
+    case "$SANITIZE" in
+        address)
+            CFLAGS="$CFLAGS -fsanitize=address -fno-omit-frame-pointer"
+            if [[ "$LDFLAGS" != *"-fsanitize=address"* ]]; then
+                LDFLAGS="$LDFLAGS -fsanitize=address"
+            fi
+            ;;
+        undefined)
+            CFLAGS="$CFLAGS -fsanitize=undefined -fno-omit-frame-pointer"
+            if [[ "$LDFLAGS" != *"-fsanitize=undefined"* ]]; then
+                LDFLAGS="$LDFLAGS -fsanitize=undefined"
+            fi
+            ;;
+        "")
+            ;;
+    esac
+    # Re-apply VARIANT_STRPOOL defines (added later) as usual.
 fi
 
 # Optional: enable small-string pooling used in src/variant.c
@@ -281,7 +343,7 @@ fi
 
 echo "run ..." "$TESTCASE"
 
-if [[ ${2-} == "--mtrace" ]]; then
+if [[ $MTRACE -eq 1 ]]; then
     echo "Memory leak check with mtrace()"
     "$EXE_NAME" 2> temp/mtrace.log
 
@@ -294,13 +356,10 @@ else
     #   ./testcase.sh TESTCASE_PERF_LRUCACHE           # defaults
     #   ./testcase.sh TESTCASE_PERF_LRUCACHE -- 1000000 1000000 0 1048576 1048576
     # The double-dash (--) prevents bash from treating numbers as options.
-    if [[ ${2-} == "--" ]]; then
-        shift 2
-        "$EXE_NAME" "$@"
-        # echo "Running with arguments:" "$@"
+    if [[ ${#FORWARD_ARGS[@]} -gt 0 ]]; then
+        "$EXE_NAME" "${FORWARD_ARGS[@]}"
     else
         "$EXE_NAME"
-        # echo "Running without extra arguments"
     fi
 fi
 

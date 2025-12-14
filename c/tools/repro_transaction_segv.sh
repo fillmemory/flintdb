@@ -6,22 +6,25 @@ cd "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"/..
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  ./tools/repro_transaction_segv.sh [iters] [--asan|--ubsan] [--allocator <none|jemalloc|tcmalloc>] [--strpool <0|1>]
+  ./tools/repro_transaction_segv.sh [iters] [--asan|--ubsan] [--fast] [--allocator <none|jemalloc|tcmalloc>] [--strpool <0|1>]
 
 Examples:
   ./tools/repro_transaction_segv.sh 5000
   ./tools/repro_transaction_segv.sh 2000 --asan
   ./tools/repro_transaction_segv.sh 2000 --ubsan --allocator none
+  ./tools/repro_transaction_segv.sh 20000 --fast --allocator jemalloc
   ./tools/repro_transaction_segv.sh 5000 --allocator jemalloc --strpool 1
 
 Notes:
   - ASan/UBSan builds use clang and are much slower.
   - With sanitizers, prefer --allocator none (jemalloc/tcmalloc may interfere).
+  - --fast builds with --debug --ndebug (symbols kept; TRACE/DEBUG/asserts off) to speed up loops.
 EOF
 }
 
 ITERS="500"
 SAN_MODE=""   # address|undefined
+FAST=0
 ALLOCATOR_OPT=""  # none|jemalloc|tcmalloc
 STRPOOL_OPT=""    # 0|1
 
@@ -37,6 +40,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ubsan)
       SAN_MODE="undefined"
+      shift
+      ;;
+    --fast)
+      FAST=1
       shift
       ;;
     --allocator)
@@ -82,7 +89,11 @@ if [[ -n "${SANITIZE:-}" ]]; then
 else
   echo "      ALLOCATOR=${ALLOCATOR:-} VARIANT_STRPOOL=${VARIANT_STRPOOL:-}" >&2
 fi
-./testcase.sh TESTCASE_TRANSACTION --debug >/dev/null
+BUILD_FLAGS=("--debug")
+if [[ $FAST -eq 1 ]]; then
+  BUILD_FLAGS+=("--ndebug")
+fi
+./testcase.sh TESTCASE_TRANSACTION "${BUILD_FLAGS[@]}" >/dev/null
 
 if [[ ! -x ./testcase ]]; then
   echo "ERROR: ./testcase not found after build" >&2
