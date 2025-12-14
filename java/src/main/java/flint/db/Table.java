@@ -73,6 +73,7 @@ public interface Table extends Closeable {
 	 */
 	long apply(final Row row) throws IOException;
 
+
     /**
      * Add new row or update existing row with upsert option
      * @param row
@@ -91,14 +92,6 @@ public interface Table extends Closeable {
 	 * @throws IOException if operation fails
 	 */
 	long apply(final long i, final Row row) throws IOException;
-
-    /**
-     * Batch insert or update rows from iterator
-     * @param itr
-     * @return
-     * @throws IOException
-     */
-	long batch(final Iterator<Row> itr) throws IOException;
 
 	/**
 	 * Find rows using index-based search with filters

@@ -371,12 +371,6 @@ final class TableImpl implements Table {
 		}
 	}
 
-    @Override
-    public long batch(final Iterator<Row> itr) throws IOException {
-        // for batch 
-        throw new UnsupportedOperationException("Unimplemented method 'batch'");
-    }
-
 	// @ForceInline - internal unlocked version for use within comparators
 	private final Row rowUnlocked(final long node) {
 		try {

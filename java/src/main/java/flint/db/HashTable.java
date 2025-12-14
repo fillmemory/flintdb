@@ -430,12 +430,6 @@ public final class HashTable implements Table {
 		return node;
 	}
 
-    @Override
-    public long batch(final Iterator<Row> itr) throws IOException {
-        // for batch 
-        throw new UnsupportedOperationException("Unimplemented method 'batch'");
-    }   
-
 	/**
 	 * Finds and returns a single row matching the given criteria using the specified index.
 	 * 

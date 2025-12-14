@@ -537,32 +537,74 @@ final class WALLogStorage implements AutoCloseable {
         if (channel.size() <= HEADER_SIZE) {
             return new HashMap<>(); // No records to replay
         }
-        
+
+        final String traceProp = System.getProperty("FLINTDB_WAL_RECOVERY_TRACE");
+        final boolean trace = traceProp != null && ("1".equals(traceProp)
+                || "true".equalsIgnoreCase(traceProp)
+                || "yes".equalsIgnoreCase(traceProp)
+                || "on".equalsIgnoreCase(traceProp));
+        final long startTimeNs = trace ? System.nanoTime() : 0L;
+
+        // Only scan up to the last known committed position.
+        // This prevents hang-like behavior when the file has extra padded/zeroed bytes
+        // beyond the last valid commit (e.g., preallocation, OS extension, or tail garbage).
+        final long fileEnd = channel.size();
+        final long scanEnd;
+        if (committedOffset > 0) {
+            scanEnd = Math.min(fileEnd, Math.max(HEADER_SIZE, committedOffset));
+        } else {
+            scanEnd = fileEnd;
+        }
+
         long position = Math.max(HEADER_SIZE, checkpointOffset);
+        if (position >= scanEnd) {
+            if (trace) {
+                long elapsedMs = (System.nanoTime() - startTimeNs) / 1_000_000L;
+                System.err.println("WAL recovery trace: no-scan" +
+                        " start=" + position +
+                        " scanEnd=" + scanEnd +
+                        " fileEnd=" + fileEnd +
+                        " committedOffset=" + committedOffset +
+                        " checkpointOffset=" + checkpointOffset +
+                        " elapsedMs=" + elapsedMs);
+            }
+            return new HashMap<>();
+        }
         channel.position(position);
         
         // Read and collect WAL records
         Map<Long, Boolean> transactionStatus = new HashMap<>(); // txId -> committed
         Map<Long, java.util.List<WALRecord>> allRecords = new HashMap<>(); // txId -> records
+
+        long scannedBytes = 0L;
+        long recordCount = 0L;
+        long commitCount = 0L;
+        long rollbackCount = 0L;
+        long checkpointCount = 0L;
         
-        while (position < channel.size()) {
+        while (position < scanEnd) {
             try {
                 WALRecord record = readRecord(position);
                 if (record == null) break; // End of valid records
                 
                 position += record.size;
+                scannedBytes += record.size;
+                recordCount++;
                 
                 switch (record.operation) {
                     case WAL.OP_COMMIT:
                         transactionStatus.put(record.transactionId, true);
+                        commitCount++;
                         break;
                     case WAL.OP_ROLLBACK:
                         transactionStatus.put(record.transactionId, false);
+                        rollbackCount++;
                         break;
                     case WAL.OP_CHECKPOINT:
                         // Clear old transactions before checkpoint
                         transactionStatus.clear();
                         allRecords.clear();
+                        checkpointCount++;
                         break;
                     case WAL.OP_WRITE:
                     case WAL.OP_UPDATE:
@@ -581,6 +623,7 @@ final class WALLogStorage implements AutoCloseable {
         
         // Group committed records by file identifier
         Map<Integer, java.util.List<WALRecord>> recordsToReplay = new HashMap<>();
+        long replayCandidateCount = 0L;
         for (Map.Entry<Long, java.util.List<WALRecord>> entry : allRecords.entrySet()) {
             Long txId = entry.getKey();
             // Only replay committed transactions
@@ -588,12 +631,31 @@ final class WALLogStorage implements AutoCloseable {
                 for (WALRecord record : entry.getValue()) {
                     recordsToReplay.computeIfAbsent(record.fileId, k -> new java.util.ArrayList<>())
                         .add(record);
+                    replayCandidateCount++;
                 }
             }
         }
         
         processedCount = totalCount;
         flush();
+
+        if (trace) {
+            long elapsedMs = (System.nanoTime() - startTimeNs) / 1_000_000L;
+            System.err.println("WAL recovery trace:" +
+                    " start=" + Math.max(HEADER_SIZE, checkpointOffset) +
+                    " scanEnd=" + scanEnd +
+                    " fileEnd=" + fileEnd +
+                    " committedOffset=" + committedOffset +
+                    " checkpointOffset=" + checkpointOffset +
+                    " scannedBytes=" + scannedBytes +
+                    " records=" + recordCount +
+                    " commits=" + commitCount +
+                    " rollbacks=" + rollbackCount +
+                    " checkpoints=" + checkpointCount +
+                    " replayCandidates=" + replayCandidateCount +
+                    " files=" + recordsToReplay.size() +
+                    " elapsedMs=" + elapsedMs);
+        }
         
         return recordsToReplay;
     }
