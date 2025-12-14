@@ -14,6 +14,7 @@
 
 #define INTERNAL_MARK -2L
 #define ROOT_SEEK_OFFSET 0L
+#define COUNT_MARK "CNT!"
 
 #define NODE_BYTE_ALIGN 1024
 #define STORAGE_HEAD_BYTES 16 // storage.h
@@ -147,9 +148,20 @@ static inline void bplustree_root_flush(struct bplustree *me, struct node *n, ch
     buffer_wrap(a, NODE_BYTES, &bb);
     bb.array_put(&bb, "ROOT", 4, e);
     bb.i64_put(&bb, (NULL == n) ? OFFSET_NULL : n->offset, e);
+    // Persist count as well, guarded by an explicit marker for backward compatibility.
+    bb.array_put(&bb, COUNT_MARK, 4, e);
+    bb.i64_put(&bb, me->count, e);
     bb.flip(&bb);
     me->storage->write_at(me->storage, ROOT_SEEK_OFFSET, &bb, e);
     bb.free(&bb);
+    if (!e || !*e) me->meta_dirty = 0;
+}
+
+static void bplustree_meta_flush(struct bplustree *me, char **e) {
+    if (!me) return;
+    if (me->mode == FLINTDB_RDONLY) return;
+    if (!me->meta_dirty) return;
+    bplustree_root_flush(me, me->root, e);
 }
 
 static void bplustree_close(struct bplustree *me) {
@@ -157,15 +169,18 @@ static void bplustree_close(struct bplustree *me) {
     if (!me->cache) return;
 
     if (me->mode != FLINTDB_RDONLY)
-    bplustree_root_flush(me, me->root, NULL);
+        bplustree_meta_flush(me, NULL);
 
     // if (me->root) FREE(me->root); // do not free root, it's cached
     if (me->cache) me->cache->free(me->cache); // root will be freed
     if (me->header) me->header->free(me->header);
 
     if (me->storage) {
-        me->storage->close(me->storage);
-        FREE(me->storage); // must free here, storage->close does not free itself
+        // WAL may cache and reuse wrapped storages; in that case, lifetime is managed by wal_close().
+        if (!me->storage->managed_by_wal) {
+            me->storage->close(me->storage);
+            FREE(me->storage); // storage->close does not free itself
+        }
     }
 
     me->storage = NULL;
@@ -218,15 +233,10 @@ static i64 bplustree_bytes_get(struct bplustree *me) {
 
 static void bplustree_count_set(struct bplustree *me, i64 count) {
     assert(me);
-    char *e = NULL;
-    struct buffer h = {0};
-    me->header->slice(me->header, 4, LONG_BYTES, &h, &e);
-    h.i64_put(&h, count, &e);
-    // do nothing because it's mmaped
-
-    if (e && *e) {
-        WARN("bplustree_count_set error: %s\n", e);
-    }
+    // In-memory only: avoid touching mmap header (not WAL-managed).
+    // Persist happens via WAL-managed meta block (offset 0) at commit/close.
+    me->count = count;
+    me->meta_dirty = 1;
 }
 
 static inline void bplustree_node_free(keytype k, valtype v) {
@@ -319,8 +329,26 @@ static struct node * bplustree_root_get(struct bplustree *me, char **e) {
     struct buffer *bb = me->storage->read(me->storage, ROOT_SEEK_OFFSET, NULL);
     if (!bb) THROW(e, "bplustree_root_get: failed to read root at offset %ld", ROOT_SEEK_OFFSET);
 
-    bb->i32_get(bb, NULL);
+    char tag[4] = {0};
+    memcpy(tag, bb->array_get(bb, 4, NULL), 4);
     i64 offset = bb->i64_get(bb, NULL);
+
+    // Optional count (new format): "CNT!" + i64 count
+    if (bb->remaining(bb) >= (4 + 8)) {
+        char cm[4] = {0};
+        memcpy(cm, bb->array_get(bb, 4, NULL), 4);
+        if (memcmp(cm, COUNT_MARK, 4) == 0 && bb->remaining(bb) >= 8) {
+            i64 c = bb->i64_get(bb, NULL);
+            if (c >= 0) me->count = c;
+        }
+    }
+
+    // Backward compatibility: if tag is not ROOT, treat as empty and rely on header count.
+    if (memcmp(tag, "ROOT", 4) != 0) {
+        bb->free(bb);
+        return NULL;
+    }
+
     if (OFFSET_NULL == offset) {
         bb->free(bb);
         return NULL;
@@ -340,16 +368,13 @@ static inline void bplustree_root_set(struct bplustree *me, struct node *n, char
     assert(me);
     me->root = n;
 
-    // char a[NODE_BYTES] = {0, };
-    // struct buffer bb = {0};
-    // buffer_wrap(a, NODE_BYTES, &bb);
-    // bb.array_put(&bb, "ROOT", 4, e);
-    // bb.i64_put(&bb, (NULL == n) ? OFFSET_NULL : n->offset, e);
-    // bb.flip(&bb);
-    // me->storage->write_at(me->storage, ROOT_SEEK_OFFSET, &bb, e);
-    // bb.free(&bb);
-    // 
-    // bplustree_root_flush(me, n, e);
+    // Root changed => metadata dirty.
+    me->meta_dirty = 1;
+
+    // Persist root pointer immediately so empty/new trees don't interpret
+    // a zero-filled root pointer as a valid node at offset 0.
+    if (me->mode != FLINTDB_RDONLY)
+        bplustree_root_flush(me, n, e);
 }
 
 static void bplustree_node_write(struct bplustree *me, struct node *n, char **e) {
@@ -1619,7 +1644,9 @@ int bplustree_init(
     me->compare = compare;
     me->obj = obj;
     me->count = 0;
+    me->meta_dirty = 0;
     me->close = bplustree_close;
+    me->flush_meta = bplustree_meta_flush;
     me->count_get = bplustree_count_get;
     me->bytes_get = bplustree_bytes_get;
     me->put = bplustree_put;

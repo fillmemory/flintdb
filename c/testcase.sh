@@ -17,6 +17,7 @@ cd "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # ./testcase.sh TESTCASE_CSV_MULTILINE --mtrace
 # ./testcase.sh TESTCASE_TABLE_BULK_INSERT --mtrace
 # ./testcase.sh TESTCASE_TABLE_FIND --mtrace
+# ./testcase.sh TESTCASE_TRANSACTION --mtrace
 # ./testcase.sh TESTCASE_STREAM_GZIP_READ --mtrace
 # ./testcase.sh TESTCASE_HYPERLOGLOG --mtrace
 # ./testcase.sh TESTCASE_ROARINGBITMAP --mtrace
@@ -56,6 +57,7 @@ CASES=(
 
     TESTCASE_TABLE_BULK_INSERT
     TESTCASE_TABLE_FIND
+    TESTCASE_TRANSACTION
 
     TESTCASE_HYPERLOGLOG
     TESTCASE_ROARINGBITMAP
@@ -178,6 +180,11 @@ fi
 
 if [[ ${2-} == "--ndebug" ]]; then
     CFLAGS="$CFLAGS -DNDEBUG"
+fi
+
+# Debug build (useful for lldb). Keeps assertions enabled.
+if [[ ${2-} == "--debug" ]]; then
+    CFLAGS="-O0 -g -std=$STD -DUNIT_TEST -I/usr/local/include "
 fi
 
 # Optional: enable small-string pooling used in src/variant.c

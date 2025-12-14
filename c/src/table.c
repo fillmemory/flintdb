@@ -50,6 +50,10 @@ static int meta_index_ordinal(const struct flintdb_meta *m, const char *name);
 static const struct flintdb_row * table_read(struct flintdb_table *me, i64 rowid, char **e);
 static const struct flintdb_row * table_read_unlocked(struct flintdb_table *me, i64 rowid, char **e);
 
+// sorter compare functions (used by index initialization and rollback refresh)
+static int sorter_primary_cmpr(void *o, i64 a, i64 b);
+static int sorter_index_cmpr(void *o, i64 a, i64 b);
+
 struct sorter {
     char name[MAX_COLUMN_NAME_LIMIT];
     char algorithm[32]; // "bptree"
@@ -82,6 +86,181 @@ struct flintdb_table_priv {
     struct buffer_pool *raw_pool;
     TABLE_LOCK_T lock; // table-level lock (os_unfair_lock on macOS, spinlock on Linux)
 };
+
+struct flintdb_transaction_priv {
+    struct flintdb_table *table;
+    struct flintdb_table_priv *tpriv;
+    i64 id;
+    i8 done;
+
+    // Snapshot of index counts at begin; used to restore after rollback.
+    // (B+Tree count is stored in its header mapping, not WAL-managed blocks.)
+    int count_len;
+    i64 counts[MAX_INDEX_KEYS_LIMIT];
+};
+
+static i64 tx_id(const struct flintdb_transaction *me) {
+    if (!me || !me->priv) return -1;
+    const struct flintdb_transaction_priv *p = (const struct flintdb_transaction_priv*)me->priv;
+    return p->id;
+}
+
+// Forward decls for in-transaction table ops (assumes table lock is held and WAL tx started)
+static i64 table_apply_in_tx(struct flintdb_table *me, struct flintdb_row *r, i8 upsert, char **e);
+static i64 table_apply_at_in_tx(struct flintdb_table *me, i64 rowid, struct flintdb_row *r, char **e);
+static i64 table_delete_in_tx(struct flintdb_table *me, i64 rowid, char **e);
+
+static i64 tx_apply(struct flintdb_transaction *me, struct flintdb_row *r, i8 upsert, char **e) {
+    if (!me || !me->priv) {
+        if (e) *e = "transaction is null";
+        return NOT_FOUND;
+    }
+    struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
+    if (p->done) {
+        if (e) *e = "transaction already finished";
+        return NOT_FOUND;
+    }
+    return table_apply_in_tx(p->table, r, upsert, e);
+}
+
+static i64 tx_apply_at(struct flintdb_transaction *me, i64 rowid, struct flintdb_row *r, char **e) {
+    if (!me || !me->priv) {
+        if (e) *e = "transaction is null";
+        return NOT_FOUND;
+    }
+    struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
+    if (p->done) {
+        if (e) *e = "transaction already finished";
+        return NOT_FOUND;
+    }
+    return table_apply_at_in_tx(p->table, rowid, r, e);
+}
+
+static i64 tx_delete_at(struct flintdb_transaction *me, i64 rowid, char **e) {
+    if (!me || !me->priv) {
+        if (e) *e = "transaction is null";
+        return NOT_FOUND;
+    }
+    struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
+    if (p->done) {
+        if (e) *e = "transaction already finished";
+        return NOT_FOUND;
+    }
+    return table_delete_in_tx(p->table, rowid, e);
+}
+
+static void tx_commit(struct flintdb_transaction *me, char **e) {
+    if (!me || !me->priv) {
+        if (e) *e = "transaction is null";
+        return;
+    }
+    struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
+    if (p->done) return;
+
+    // Flush index metadata (root+count) into WAL-managed storages before commit.
+    for (int i = 0; i < p->tpriv->sorters.length; i++) {
+        struct sorter *s = &p->tpriv->sorters.s[i];
+        if (s->tree.flush_meta) {
+            s->tree.flush_meta(&s->tree, e);
+            if (e && *e) break;
+        }
+    }
+    if (e && *e) {
+        // Best-effort rollback; do not deadlock the table.
+        if (p->id > 0) p->tpriv->wal->rollback(p->tpriv->wal, p->id, NULL);
+        p->done = 1;
+        TABLE_UNLOCK(&p->tpriv->lock);
+        return;
+    }
+
+    // commit WAL then unlock (match Java TransactionImpl)
+    p->tpriv->wal->commit(p->tpriv->wal, p->id, e);
+    if (e && *e) {
+        // Best-effort rollback; do not deadlock the table.
+        if (p->id > 0) p->tpriv->wal->rollback(p->tpriv->wal, p->id, NULL);
+        p->done = 1;
+        TABLE_UNLOCK(&p->tpriv->lock);
+        return;
+    }
+    p->done = 1;
+    TABLE_UNLOCK(&p->tpriv->lock);
+}
+
+static void table_refresh_after_rollback(struct flintdb_table *table) {
+    if (!table || !table->priv) return;
+    struct flintdb_table_priv *priv = (struct flintdb_table_priv*)table->priv;
+
+    // Drop row cache (may contain uncommitted rows)
+    if (priv->cache) priv->cache->clear(priv->cache);
+
+    // Re-open all indexes to reset in-memory B+Tree state (count/root/cache).
+    // This is important because WAL rollback discards staged pages, but the in-memory
+    // B+Tree structs may still reflect uncommitted inserts/deletes.
+    i32 cache_limit = priv->meta.cache;
+    if (cache_limit <= DEFAULT_TABLE_CACHE_LIMIT) cache_limit = DEFAULT_TABLE_CACHE_LIMIT;
+    if (priv->mode == FLINTDB_RDONLY) cache_limit = cache_limit / 2;
+    if (cache_limit < DEFAULT_TABLE_CACHE_MIN) cache_limit = DEFAULT_TABLE_CACHE_MIN;
+
+    for (int i = 0; i < priv->sorters.length; i++) {
+        struct sorter *s = &priv->sorters.s[i];
+
+        // Close without flushing root pointer.
+        int saved_mode = s->tree.mode;
+        s->tree.mode = FLINTDB_RDONLY;
+        s->tree.close(&s->tree);
+        s->tree.mode = saved_mode;
+
+        char ixf[PATH_MAX] = {0};
+        snprintf(ixf, sizeof(ixf), "%s.i.%s", priv->file, s->name);
+
+        char *e = NULL;
+        if (i == 0) {
+            bplustree_init(&s->tree, ixf, cache_limit * 1, priv->mode, TYPE_DEFAULT, s, &sorter_primary_cmpr, priv->wal, &e);
+        } else {
+            bplustree_init(&s->tree, ixf, cache_limit * 1, priv->mode, TYPE_DEFAULT, s, &sorter_index_cmpr, priv->wal, &e);
+        }
+        if (e) {
+            WARN("table_refresh_after_rollback: index reopen failed: %s", e);
+            // best-effort: keep going
+        }
+    }
+}
+
+static void tx_rollback(struct flintdb_transaction *me, char **e) {
+    (void)e; // rollback is best-effort; errors are ignored (same as existing table_* exception cleanup)
+    if (!me || !me->priv) return;
+    struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
+    if (p->done) return;
+    if (p->id > 0) {
+        p->tpriv->wal->rollback(p->tpriv->wal, p->id, NULL);
+    }
+
+    // Restore in-memory counts (best-effort). Persisted counts come from WAL-managed meta.
+    for (int i = 0; i < p->count_len; i++) {
+        struct sorter *s = &p->tpriv->sorters.s[i];
+        s->tree.count = p->counts[i];
+        s->tree.meta_dirty = 0;
+    }
+
+    // Reset in-memory state to match rolled-back storage.
+    table_refresh_after_rollback(p->table);
+    p->done = 1;
+    TABLE_UNLOCK(&p->tpriv->lock);
+}
+
+static void tx_close(struct flintdb_transaction *me) {
+    if (!me) return;
+    if (me->priv) {
+        struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
+        if (!p->done) {
+            // rollback() unlocks; do not unlock twice
+            tx_rollback(me, NULL);
+        }
+        FREE(me->priv);
+        me->priv = NULL;
+    }
+    FREE(me);
+}
 
 struct find_context {
     struct flintdb_table *table;
@@ -152,11 +331,10 @@ static inline void table_return_raw_buffer(struct flintdb_table_priv *priv, stru
     }
 }
 
-static i64 table_apply(struct flintdb_table *me, struct flintdb_row *r, i8 upsert, char **e) {
+static i64 table_apply_in_tx(struct flintdb_table *me, struct flintdb_row *r, i8 upsert, char **e) {
     struct flintdb_table_priv* priv = (struct flintdb_table_priv*)me->priv;
     assert(r);
     assert(priv);
-    TABLE_LOCK(&priv->lock);
     struct flintdb_meta *m = &priv->meta;
     struct formatter *fmt = &priv->formatter;
     struct storage *storage = priv->storage;
@@ -165,7 +343,6 @@ static i64 table_apply(struct flintdb_table *me, struct flintdb_row *r, i8 upser
     assert(storage);
 
     struct buffer *raw = NULL;
-    i64 transaction = 0;
     raw = table_borrow_raw_buffer(priv);
     if (!raw) THROW(e, "Out of memory");
     if (m->columns.length != r->meta->columns.length) 
@@ -178,11 +355,6 @@ static i64 table_apply(struct flintdb_table *me, struct flintdb_row *r, i8 upser
     assert(raw->remaining(raw) <= priv->row_bytes);
     if (raw->remaining(raw) > priv->row_bytes) 
         THROW(e, "DB_ERR[%d] row bytes exceeded requested: %d, max: %d", DB_ERR_ROW_BYTES_EXCEEDED, raw->remaining(raw), priv->row_bytes);
-
-    // Begin WAL transaction (will set transaction on all storages)
-    transaction = priv->wal->begin(priv->wal, e);
-    if (e && *e) THROW_S(e);
-
     struct sorter *primary = &priv->sorters.s[0];
     // DEBUG("before compare_get, row.id=%lld, primary=%p, tree=%p, r=%p", r->rowid, (void*)primary, (void*)&primary->tree, (void*)r);
     i64 rowid = r->rowid > NOT_FOUND 
@@ -210,10 +382,6 @@ static i64 table_apply(struct flintdb_table *me, struct flintdb_row *r, i8 upser
             // DEBUG("secondary sorter[%d] put end", i);
             if (e && *e) THROW_S(e); 
         }
-
-        // Commit WAL transaction
-        priv->wal->commit(priv->wal, transaction, e);
-        if (e && *e) THROW_S(e);
 
         // put cache
         // me->read(me, rowid, e);
@@ -251,44 +419,64 @@ static i64 table_apply(struct flintdb_table *me, struct flintdb_row *r, i8 upser
             // DEBUG("update secondary sorter[%d] put end", i);
             if (e && *e) THROW_S(e);
         }
-
-        // Commit WAL transaction for update
-        priv->wal->commit(priv->wal, transaction, e);
-        if (e && *e) THROW_S(e);
     }
 
     // raw buffer no longer needed after write
     if (raw) table_return_raw_buffer(priv, raw);
-    TABLE_UNLOCK(&priv->lock);
     return rowid;
 
     EXCEPTION:
     if (raw) table_return_raw_buffer(priv, raw);
+    return NOT_FOUND;
+}
+
+static i64 table_apply(struct flintdb_table *me, struct flintdb_row *r, i8 upsert, char **e) {
+    struct flintdb_table_priv* priv = (struct flintdb_table_priv*)me->priv;
+    assert(priv);
+    i64 transaction = 0;
+    TABLE_LOCK(&priv->lock);
+    // Begin WAL transaction (will set transaction on all storages)
+    transaction = priv->wal->begin(priv->wal, e);
+    if (e && *e) goto EXCEPTION;
+
+    i64 rowid = table_apply_in_tx(me, r, upsert, e);
+    if (e && *e) goto EXCEPTION;
+    if (rowid == NOT_FOUND) goto EXCEPTION;
+
+    for (int i = 0; i < priv->sorters.length; i++) {
+        struct sorter *s = &priv->sorters.s[i];
+        if (s->tree.flush_meta) {
+            s->tree.flush_meta(&s->tree, e);
+            if (e && *e) goto EXCEPTION;
+        }
+    }
+
+    priv->wal->commit(priv->wal, transaction, e);
+    if (e && *e) goto EXCEPTION;
+
+    TABLE_UNLOCK(&priv->lock);
+    return rowid;
+
+    EXCEPTION:
     if (transaction > 0) priv->wal->rollback(priv->wal, transaction, NULL);
     TABLE_UNLOCK(&priv->lock);
     return NOT_FOUND;
 }
 
-static i64 table_apply_at(struct flintdb_table *me, i64 rowid, struct flintdb_row *r, char **e) {
+static i64 table_apply_at_in_tx(struct flintdb_table *me, i64 rowid, struct flintdb_row *r, char **e) {
     // Ensure 'raw' is always defined before any THROW can jump to EXCEPTION
     struct buffer *raw = NULL;
-    i64 transaction = 0;
     
     struct flintdb_table_priv* priv = (struct flintdb_table_priv*)me->priv;
     if (rowid <= NOT_FOUND) THROW(e, "bad rowid: %lld", rowid);
     assert(r);
     assert(priv);
-    TABLE_LOCK(&priv->lock);
     struct flintdb_meta *m = &priv->meta;
     struct formatter *fmt = &priv->formatter;
     struct storage *storage = priv->storage;
     assert(fmt);
     assert(m);
     assert(storage);
-
-    // Begin WAL transaction
-    transaction = priv->wal->begin(priv->wal, e);
-    if (e && *e) THROW_S(e);
 
     raw = table_borrow_raw_buffer(priv);
     if (!raw) THROW(e, "Out of memory");
@@ -323,36 +511,55 @@ static i64 table_apply_at(struct flintdb_table *me, i64 rowid, struct flintdb_ro
         if (e && *e) THROW_S(e); 
     }
 
-    // Commit WAL transaction
-    priv->wal->commit(priv->wal, transaction, e);
-    if (e && *e) THROW_S(e);
-
     // raw buffer no longer needed after write
     if (raw) table_return_raw_buffer(priv, raw);
-    TABLE_UNLOCK(&priv->lock);
     return rowid;
 
     EXCEPTION:
     if (raw) table_return_raw_buffer(priv, raw);
+    return NOT_FOUND;
+}
+
+static i64 table_apply_at(struct flintdb_table *me, i64 rowid, struct flintdb_row *r, char **e) {
+    struct flintdb_table_priv* priv = (struct flintdb_table_priv*)me->priv;
+    assert(priv);
+    i64 transaction = 0;
+    TABLE_LOCK(&priv->lock);
+    transaction = priv->wal->begin(priv->wal, e);
+    if (e && *e) goto EXCEPTION;
+
+    i64 ok = table_apply_at_in_tx(me, rowid, r, e);
+    if (e && *e) goto EXCEPTION;
+    if (ok == NOT_FOUND) goto EXCEPTION;
+
+    for (int i = 0; i < priv->sorters.length; i++) {
+        struct sorter *s = &priv->sorters.s[i];
+        if (s->tree.flush_meta) {
+            s->tree.flush_meta(&s->tree, e);
+            if (e && *e) goto EXCEPTION;
+        }
+    }
+
+    priv->wal->commit(priv->wal, transaction, e);
+    if (e && *e) goto EXCEPTION;
+
+    TABLE_UNLOCK(&priv->lock);
+    return ok;
+
+    EXCEPTION:
     if (transaction > 0) priv->wal->rollback(priv->wal, transaction, NULL);
     TABLE_UNLOCK(&priv->lock);
     return NOT_FOUND;
 }
 
-static i64 table_delete(struct flintdb_table *me, i64 rowid, char **e) {
-    i64 transaction = 0;
+static i64 table_delete_in_tx(struct flintdb_table *me, i64 rowid, char **e) {
     struct flintdb_table_priv* priv = (struct flintdb_table_priv*)me->priv;
     if (rowid <= NOT_FOUND) THROW(e, "bad rowid: %lld", rowid);
     assert(priv);
-    TABLE_LOCK(&priv->lock);
     struct storage *storage = priv->storage;
     struct hashmap *cache = priv->cache;
     assert(storage);
     assert(cache);
-
-    // Begin WAL transaction
-    transaction = priv->wal->begin(priv->wal, e);
-    if (e && *e) THROW_S(e);
 
     struct sorter *primary = &priv->sorters.s[0];
     const struct flintdb_row *r = table_read_unlocked(me, rowid, e);
@@ -373,12 +580,37 @@ static i64 table_delete(struct flintdb_table *me, i64 rowid, char **e) {
     storage->delete(storage, rowid, e);
     if (e && *e) THROW_S(e);
 
-    // Commit WAL transaction
+    return 1; // ok
+
+    EXCEPTION:
+    return NOT_FOUND;
+}
+
+static i64 table_delete(struct flintdb_table *me, i64 rowid, char **e) {
+    struct flintdb_table_priv* priv = (struct flintdb_table_priv*)me->priv;
+    assert(priv);
+    i64 transaction = 0;
+    TABLE_LOCK(&priv->lock);
+    transaction = priv->wal->begin(priv->wal, e);
+    if (e && *e) goto EXCEPTION;
+
+    i64 ok = table_delete_in_tx(me, rowid, e);
+    if (e && *e) goto EXCEPTION;
+    if (ok == NOT_FOUND) goto EXCEPTION;
+
+    for (int i = 0; i < priv->sorters.length; i++) {
+        struct sorter *s = &priv->sorters.s[i];
+        if (s->tree.flush_meta) {
+            s->tree.flush_meta(&s->tree, e);
+            if (e && *e) goto EXCEPTION;
+        }
+    }
+
     priv->wal->commit(priv->wal, transaction, e);
-    if (e && *e) THROW_S(e);
+    if (e && *e) goto EXCEPTION;
 
     TABLE_UNLOCK(&priv->lock);
-    return 1; // ok
+    return ok;
 
     EXCEPTION:
     if (transaction > 0) priv->wal->rollback(priv->wal, transaction, NULL);
@@ -780,10 +1012,12 @@ static void table_close(struct flintdb_table *me) {
 
         DEBUG("closing storage");
         if (priv->storage) {
-            priv->storage->close(priv->storage);
-            DEBUG("freeing wrapped storage");
-            FREE(priv->storage);
-            DEBUG("wrapped storage freed");
+            if (!priv->storage->managed_by_wal) {
+                priv->storage->close(priv->storage);
+                DEBUG("freeing wrapped storage");
+                FREE(priv->storage);
+                DEBUG("wrapped storage freed");
+            }
             priv->storage = NULL;
         }
         DEBUG("storage closed");
@@ -813,6 +1047,65 @@ static void table_close(struct flintdb_table *me) {
 
     DEBUG("freeing table object");
     FREE(me);
+}
+
+
+struct flintdb_transaction * flintdb_transaction_begin(struct flintdb_table *table, char **e) {
+    if (!table || !table->priv) {
+        THROW(e, "table is null");
+    }
+
+    struct flintdb_table_priv *tpriv = (struct flintdb_table_priv*)table->priv;
+    if (!tpriv->wal) {
+        THROW(e, "WAL is not initialized");
+    }
+
+    struct flintdb_transaction *tx = (struct flintdb_transaction*)CALLOC(1, sizeof(struct flintdb_transaction));
+    if (!tx) {
+        THROW(e, "Out of memory");
+    }
+    struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)CALLOC(1, sizeof(struct flintdb_transaction_priv));
+    if (!p) {
+        FREE(tx);
+        THROW(e, "Out of memory");
+    }
+
+    // Acquire the table lock first, then start WAL tx (match Java TransactionImpl semantics)
+    TABLE_LOCK(&tpriv->lock);
+
+    // Snapshot current index counts so rollback can restore tbl->rows deterministically.
+    p->count_len = tpriv->sorters.length;
+    if (p->count_len > MAX_INDEX_KEYS_LIMIT) p->count_len = MAX_INDEX_KEYS_LIMIT;
+    for (int i = 0; i < p->count_len; i++) {
+        struct sorter *s = &tpriv->sorters.s[i];
+        p->counts[i] = (s->tree.count_get ? s->tree.count_get(&s->tree) : s->tree.count);
+    }
+
+    i64 id = tpriv->wal->begin(tpriv->wal, e);
+    if (e && *e) {
+        TABLE_UNLOCK(&tpriv->lock);
+        FREE(p);
+        FREE(tx);
+        return NULL;
+    }
+
+    p->table = table;
+    p->tpriv = tpriv;
+    p->id = id;
+    p->done = 0;
+
+    tx->id = tx_id;
+    tx->apply = tx_apply;
+    tx->apply_at = tx_apply_at;
+    tx->delete_at = tx_delete_at;
+    tx->commit = tx_commit;
+    tx->rollback = tx_rollback;
+    tx->close = tx_close;
+    tx->priv = p;
+    return tx;
+
+    EXCEPTION:
+    return NULL;
 }
 
 int flintdb_table_drop(const char *file, char **e) { // delete <table>, <table>.desc, <table>.i.*

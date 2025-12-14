@@ -415,7 +415,7 @@ void btree_make(i64 max) {
     STOPWATCH_START(watch);
     struct bplustree tree;
     memset(&tree, 0, sizeof(tree));
-    int ok = bplustree_init(&tree, path, FLINTDB_RDWR, TYPE_DEFAULT, NULL, i64_cmpr, &e);
+    int ok = bplustree_init(&tree, path, 0, FLINTDB_RDWR, TYPE_DEFAULT, NULL, i64_cmpr, NULL, &e);
     if (ok != 0) {
         fprintf(stderr, "init error: %s\n", e);
         return;
@@ -444,7 +444,7 @@ void btree_trace() {
 
     struct bplustree tree;
     memset(&tree, 0, sizeof(tree));
-    int ok = bplustree_init(&tree, path, FLINTDB_RDONLY, TYPE_DEFAULT, NULL, i64_cmpr, &e);
+    int ok = bplustree_init(&tree, path, 0, FLINTDB_RDONLY, TYPE_DEFAULT, NULL, i64_cmpr, NULL, &e);
     if (ok != 0) {
         fprintf(stderr, "init error: %s\n", e);
         return;
@@ -463,7 +463,7 @@ void btree_read() {
 
     struct bplustree tree;
     memset(&tree, 0, sizeof(tree));
-    int ok = bplustree_init(&tree, path, FLINTDB_RDONLY, TYPE_DEFAULT, NULL, i64_cmpr, &e);
+    int ok = bplustree_init(&tree, path, 0, FLINTDB_RDONLY, TYPE_DEFAULT, NULL, i64_cmpr, NULL, &e);
     if (ok != 0) {
         fprintf(stderr, "init error: %s\n", e);
         return;
@@ -501,6 +501,128 @@ int main(int argc, char **argv) {
     // btree_trace();
     printf("btree_read --------------------\n");
     btree_read();
+
+    PRINT_MEMORY_LEAK_INFO();
+    return 0;
+}
+
+#endif
+
+#ifdef TESTCASE_TRANSACTION
+// ./testcase.sh TESTCASE_TRANSACTION
+
+int main(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+
+    char *e = NULL;
+    struct flintdb_table *tbl = NULL;
+    struct flintdb_transaction *tx = NULL;
+
+    const char *tablename = "temp/tx_test.flintdb";
+    const char *walname = "temp/tx_test.flintdb.wal";
+
+    struct flintdb_meta mt = flintdb_meta_new("tx_test.flintdb", &e);
+    // NOTE: meta.wal is empty by default, which disables WAL (WAL_NONE).
+    // For this testcase, we need WAL enabled so rollback is meaningful.
+    strncpy(mt.wal, WAL_OPT_LOG, sizeof(mt.wal) - 1);
+    flintdb_meta_columns_add(&mt, "customer_id", VARIANT_INT64, 0, 0, SPEC_NULLABLE, "0", "int64 primary key", &e);
+    flintdb_meta_columns_add(&mt, "customer_name", VARIANT_STRING, 255, 0, SPEC_NULLABLE, "0", "", &e);
+
+    char keys_arr[1][MAX_COLUMN_NAME_LIMIT] = {"customer_id"};
+    flintdb_meta_indexes_add(&mt, PRIMARY_NAME, NULL, (const char (*)[MAX_COLUMN_NAME_LIMIT])keys_arr, 1, &e);
+    if (e) THROW_S(e);
+
+    flintdb_table_drop(tablename, NULL); // ignore error
+    (void)unlink(walname); // ignore error
+
+    tbl = flintdb_table_open(tablename, FLINTDB_RDWR, &mt, &e);
+    if (e) THROW_S(e);
+    if (!tbl) THROW(&e, "table_open failed");
+
+    // 1) Commit path: begin -> apply(2 rows) -> commit
+    tx = flintdb_transaction_begin(tbl, &e);
+    if (e) THROW_S(e);
+    if (!tx) THROW(&e, "transaction_begin failed");
+
+    for (int i = 1; i <= 2; i++) {
+        struct flintdb_row *r = flintdb_row_new(&mt, &e);
+        if (e) THROW_S(e);
+        r->i64_set(r, 0, i, &e);
+        if (e) THROW_S(e);
+        char name[64];
+        snprintf(name, sizeof(name), "Name-%d", i);
+        r->string_set(r, 1, name, &e);
+        if (e) THROW_S(e);
+
+        i64 rowid = tx->apply(tx, r, 1, &e);
+        if (e) THROW_S(e);
+        if (rowid < 0) THROW(&e, "tx apply failed");
+        TRACE("tx apply: customer_id=%d => rowid=%lld", i, rowid);
+        r->free(r);
+    }
+
+    tx->commit(tx, &e);
+    if (e) THROW_S(e);
+    tx->close(tx);
+    tx = NULL;
+
+    i64 rows = tbl->rows(tbl, &e);
+    if (e) THROW_S(e);
+    TRACE("rows after commit=%lld", rows);
+    assert(rows == 2);
+
+    TRACE("before one(customer_id=1)");
+
+    const char *argv1[] = {"customer_id", "1"};
+    const struct flintdb_row *r1 = tbl->one(tbl, 0, 2, argv1, &e);
+    if (e) THROW_S(e);
+    assert(r1);
+    assert(strcmp(r1->string_get(r1, 1, &e), "Name-1") == 0);
+    if (e) THROW_S(e);
+
+    TRACE("after one(customer_id=1)");
+
+    // 2) Rollback path: begin -> apply(1 row) -> rollback
+    TRACE("before begin #2");
+    tx = flintdb_transaction_begin(tbl, &e);
+    if (e) THROW_S(e);
+    if (!tx) THROW(&e, "transaction_begin failed");
+
+    {
+        struct flintdb_row *r = flintdb_row_new(&mt, &e);
+        if (e) THROW_S(e);
+        r->i64_set(r, 0, 3, &e);
+        if (e) THROW_S(e);
+        r->string_set(r, 1, "Name-3", &e);
+        if (e) THROW_S(e);
+        (void)tx->apply(tx, r, 1, &e);
+        if (e) THROW_S(e);
+        r->free(r);
+    }
+
+    tx->rollback(tx, &e);
+    if (e) THROW_S(e);
+    tx->close(tx);
+    tx = NULL;
+
+    TRACE("after rollback #2");
+
+    rows = tbl->rows(tbl, &e);
+    if (e) THROW_S(e);
+    TRACE("rows after rollback=%lld", rows);
+    assert(rows == 2);
+
+    const char *argv3[] = {"customer_id", "3"};
+    const struct flintdb_row *r3 = tbl->one(tbl, 0, 2, argv3, &e);
+    if (e) THROW_S(e);
+    assert(r3 == NULL);
+
+EXCEPTION:
+    if (e) WARN("EXC: %s", e);
+    if (tx) tx->close(tx);
+    if (tbl) tbl->close(tbl);
+    flintdb_meta_close(&mt);
 
     PRINT_MEMORY_LEAK_INFO();
     return 0;

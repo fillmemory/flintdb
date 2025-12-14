@@ -1,5 +1,7 @@
 temp
 .DS_Store
+.vscode/
+*.dSYM
 c/bin/
 c/lib/
 c/build/

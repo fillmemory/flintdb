@@ -382,6 +382,28 @@ struct flintdb_table {
 };
 
 
+// Transaction operations (WAL + table lock)
+//
+// Mirrors Java's TransactionImpl pattern:
+// - begin() acquires the table lock and starts a WAL transaction
+// - apply/apply_at/delete_at perform multiple operations inside the same tx
+// - commit()/rollback() end the WAL tx and release the table lock
+// - close() rolls back if not committed, releases lock, and frees the tx object
+struct flintdb_transaction {
+    i64 (*id)(const struct flintdb_transaction *me);
+    i64 (*apply)(struct flintdb_transaction *me, struct flintdb_row *r, i8 upsert, char **e);
+    i64 (*apply_at)(struct flintdb_transaction *me, i64 rowid, struct flintdb_row *r, char **e);
+    i64 (*delete_at)(struct flintdb_transaction *me, i64 rowid, char **e);
+    void (*commit)(struct flintdb_transaction *me, char **e);
+    void (*rollback)(struct flintdb_transaction *me, char **e);
+    void (*close)(struct flintdb_transaction *me);
+    void *priv; // private data
+};
+
+// Begin a transaction for a table (requires the table to be opened in write mode with WAL enabled)
+FLINTDB_API struct flintdb_transaction * flintdb_transaction_begin(struct flintdb_table *table, char **e);
+
+
 // Table operations
 FLINTDB_API struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mode mode, const struct flintdb_meta *meta, char **e); // if meta is NULL, read from <file>.desc
 FLINTDB_API int flintdb_table_drop(const char *file, char **e);

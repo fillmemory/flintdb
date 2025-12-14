@@ -823,6 +823,7 @@ static struct storage* wal_wrap_storage(struct storage* origin, struct wal* wal,
     ws->transaction = -1;
     ws->callback = callback;
     ws->callback_obj = callback_obj;
+    ws->base.managed_by_wal = 1;
     
     // Initialize dirty pages hashmap (offset -> dirty_page)
     ws->dirty_pages = hashmap_new(256, hashmap_int_hash, hashmap_int_cmpr);
@@ -848,7 +849,9 @@ EXCEPTION:
 }
 
 struct storage* wal_wrap(struct wal* wal, struct storage_opts* opts, int (*refresh)(const void *obj, i64 offset), const void *callback_obj, char** e) {
-    assert(wal != NULL);
+    if (wal == NULL) {
+        wal = &WAL_NONE;
+    }
     struct storage* origin = NULL;
     struct storage* wrapped = NULL;
 
@@ -909,6 +912,7 @@ static void wal_close(struct wal *me) {
                 struct wal_storage *ws = (struct wal_storage*)(uintptr_t)it.val;
                 if (ws) {
                     ws->base.close(&ws->base);
+                    FREE(ws);
                 }
             }
             impl->storages->free(impl->storages);

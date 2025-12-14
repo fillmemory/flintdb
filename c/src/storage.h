@@ -26,6 +26,11 @@ struct storage {
     i64 count;
     struct hashmap *cache;  // buffer cache for mmap/memory storage
 
+    // Ownership/lifetime
+    // 0: caller owns storage and must close/free it
+    // 1: WAL owns this wrapper; it will be closed/freed by wal_close()
+    u8 managed_by_wal;
+
     struct buffer *h; // mmaped header
     int block_bytes; // including header
     int increment; // file size increment step

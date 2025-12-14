@@ -35,10 +35,14 @@ struct bplustree {
     void *obj; // user object for compare
     int (*compare)(void *obj, i64 a, i64 b);
     i64 count;
+    // Metadata dirty flag: set when count/root changes.
+    // We flush metadata (root + count) at commit/close to avoid per-op overhead.
+    u8 meta_dirty;
     enum flintdb_open_mode mode;
     struct node *root;
 
     void (*close)(struct bplustree *me);
+    void (*flush_meta)(struct bplustree *me, char **e);
     i64  (*count_get)(struct bplustree *me);
     i64  (*bytes_get)(struct bplustree *me);
 
