@@ -134,14 +134,14 @@ For detailed code examples and tutorials, see:
 
 ```bash
 # CLI for quick inspection
-./bin/FlintDB "SELECT * FROM data.FlintDB LIMIT 10" -pretty
+./bin/flintdb "SELECT * FROM data.FlintDB LIMIT 10" -pretty
 
 # Web UI for interactive debugging
 # Java (port 3333)
 ./bin/webui
 
 # C (port 3334, requires cJSON)
-./bin/FlintDB -webui
+./bin/flintdb -webui
 ```
 
 ## Building

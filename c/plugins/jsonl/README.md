@@ -31,7 +31,7 @@ make install
 Once installed in `lib/libflintdb_jsonl.dylib`, FlintDB will automatically use this plugin for `.jsonl` and `.ndjson` files:
 
 ```bash
-./bin/FlintDB "SELECT * FROM data.jsonl LIMIT 10"
+./bin/flintdb "SELECT * FROM data.jsonl LIMIT 10"
 ```
 
 ## JSONL File Format
