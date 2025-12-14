@@ -15,7 +15,7 @@ fi
 
 # Parse command line arguments
 LIMIT=""
-WAL_OPTION="NONE"
+WAL_OPTION="OFF"
 while [[ $# -gt 0 ]]; do
 	case $1 in
 		-limit)
