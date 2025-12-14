@@ -11,7 +11,7 @@ cd $SCRIPTDIR
 
 JLIB_PATHS=(${SCRIPTDIR}/lib ${SCRIPTDIR}/build)
 JMAIN=flint.db.WebUI
-#XMXOPT="-Xms512M -Xmx16G"
+XMXOPT="-Xms512M -Xmx16G"
 JVMOPT="-Dfile.encoding=UTF-8 ${XMXOPT} -DFLINTDB_TYPE_PREDICT=0 -DFLINTDB_FILEFORMAT_GZ=tsv"
 # if [[ "${1:-}" == "--debug" ]]; then
 #   shift

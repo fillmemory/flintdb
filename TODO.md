@@ -3,3 +3,4 @@
 3. WAL currently unstable
 3. WAL dump -> Text
 4. WAL memory storage for fastest bulk
+5. WAL Bulk support

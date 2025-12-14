@@ -100,9 +100,12 @@ final class WALImpl implements WAL {
 
     @Override
     public void close() throws Exception {
-        // Sync WAL to disk before closing
+        // Make WAL header offsets durable and, in TRUNCATE mode, avoid leaving a large WAL
+        // that will be fully scanned on next open.
         try (logger) {
-            // Sync WAL to disk before closing
+            if (autoTruncate) {
+                logger.checkpoint();
+            }
             logger.sync();
         }
         storages.entrySet().forEach(entry -> {
@@ -322,11 +325,12 @@ final class WALLogStorage implements AutoCloseable {
     @Override
     public void close() throws Exception {
         try (channel) {
-            flushBatch(); // Flush any remaining batched records
+            // Make close() durable when WALLogStorage is used directly.
+            sync();
             if (batchBuffer != null) {
                 bufferPool.returnBuffer(batchBuffer);
             }
-        } // Flush any remaining batched records
+        }
     }
 
     private IoBuffer map(long position, long size) throws IOException {
@@ -341,6 +345,12 @@ final class WALLogStorage implements AutoCloseable {
         h.putLong(checkpointOffset);
         h.putInt(totalCount);
         h.putInt(processedCount);
+
+        // HEADER is memory-mapped; FileChannel.force() does not reliably flush dirty mapped pages.
+        // Force the mapped header so offsets survive process exit/crash.
+        if (HEADER.isMapped()) {
+            ((java.nio.MappedByteBuffer) HEADER.unwrap()).force();
+        }
     }
     
     private void flushBatch() throws IOException {

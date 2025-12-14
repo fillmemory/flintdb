@@ -28,12 +28,14 @@ public final class SQLExec {
     static class PooledTable {
         final String path;
         Table table;
+        int mode;
         int refCount;
         long lastUsed;
         
-        PooledTable(String path, Table table) {
+        PooledTable(String path, Table table, int mode) {
             this.path = path;
             this.table = table;
+            this.mode = mode;
             this.refCount = 1;
             this.lastUsed = System.currentTimeMillis();
         }
@@ -194,16 +196,37 @@ public final class SQLExec {
      * Open or borrow table from pool (for binary tables)
      */
     static Table borrowTable(String path) throws IOException {
+        return borrowTable(path, Table.OPEN_WRITE);
+    }
+
+    /**
+     * Open or borrow table from pool with requested mode.
+     *
+     * - READ requests may reuse an existing WRITE table.
+     * - WRITE requests will upgrade an existing READ table by reopening it.
+     */
+    static Table borrowTable(String path, int mode) throws IOException {
         synchronized (tablePool) {
             PooledTable pt = tablePool.get(path);
             if (pt != null) {
+                boolean needWrite = (Table.OPEN_WRITE & mode) > 0;
+                boolean hasWrite = (Table.OPEN_WRITE & pt.mode) > 0;
+                if (needWrite && !hasWrite) {
+                    try {
+                        pt.table.close();
+                    } catch (Exception ignore) {
+                        // ignore close errors during upgrade
+                    }
+                    pt.table = Table.open(new File(path), Table.OPEN_WRITE);
+                    pt.mode = Table.OPEN_WRITE;
+                }
                 pt.refCount++;
                 pt.lastUsed = System.currentTimeMillis();
                 return pt.table;
             }
-            
-            Table t = Table.open(new File(path), Table.OPEN_WRITE);
-            pt = new PooledTable(path, t);
+
+            Table t = Table.open(new File(path), mode);
+            pt = new PooledTable(path, t, mode);
             tablePool.put(path, pt);
             return t;
         }
@@ -883,7 +906,7 @@ public final class SQLExec {
         Table table = null;
         
         try {
-            table = borrowTable(q.table());
+            table = borrowTable(q.table(), Table.OPEN_WRITE);
             Meta meta = table.meta();
             
             // Fast path: SELECT COUNT(*) with no WHERE/GROUP/ORDER/DISTINCT

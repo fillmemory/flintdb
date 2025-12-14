@@ -135,9 +135,29 @@ static void print_keys(const char *tag, i64 *k, int len) {
 
 static struct node * bplustree_node_read(struct bplustree *me, i64 offset, char **e);
 
+/**
+ * @brief Flush the B+Tree root node pointer to storage
+ */
+static inline void bplustree_root_flush(struct bplustree *me, struct node *n, char **e) {
+    assert(me);
+    // me->root = n;
+
+    char a[NODE_BYTES] = {0, };
+    struct buffer bb = {0};
+    buffer_wrap(a, NODE_BYTES, &bb);
+    bb.array_put(&bb, "ROOT", 4, e);
+    bb.i64_put(&bb, (NULL == n) ? OFFSET_NULL : n->offset, e);
+    bb.flip(&bb);
+    me->storage->write_at(me->storage, ROOT_SEEK_OFFSET, &bb, e);
+    bb.free(&bb);
+}
+
 static void bplustree_close(struct bplustree *me) {
     assert(me);
     if (!me->cache) return;
+
+    if (me->mode != FLINTDB_RDONLY)
+    bplustree_root_flush(me, me->root, NULL);
 
     // if (me->root) FREE(me->root); // do not free root, it's cached
     if (me->cache) me->cache->free(me->cache); // root will be freed
@@ -320,14 +340,16 @@ static inline void bplustree_root_set(struct bplustree *me, struct node *n, char
     assert(me);
     me->root = n;
 
-    char a[NODE_BYTES] = {0, };
-    struct buffer bb = {0};
-    buffer_wrap(a, NODE_BYTES, &bb);
-    bb.array_put(&bb, "ROOT", 4, e);
-    bb.i64_put(&bb, (NULL == n) ? OFFSET_NULL : n->offset, e);
-    bb.flip(&bb);
-    me->storage->write_at(me->storage, ROOT_SEEK_OFFSET, &bb, e);
-    bb.free(&bb);
+    // char a[NODE_BYTES] = {0, };
+    // struct buffer bb = {0};
+    // buffer_wrap(a, NODE_BYTES, &bb);
+    // bb.array_put(&bb, "ROOT", 4, e);
+    // bb.i64_put(&bb, (NULL == n) ? OFFSET_NULL : n->offset, e);
+    // bb.flip(&bb);
+    // me->storage->write_at(me->storage, ROOT_SEEK_OFFSET, &bb, e);
+    // bb.free(&bb);
+    // 
+    // bplustree_root_flush(me, n, e);
 }
 
 static void bplustree_node_write(struct bplustree *me, struct node *n, char **e) {
@@ -1592,6 +1614,7 @@ int bplustree_init(
     assert(file);
     assert(compare);
 
+    me->mode = mode;
     me->root = NULL;
     me->compare = compare;
     me->obj = obj;

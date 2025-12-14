@@ -35,6 +35,7 @@ struct bplustree {
     void *obj; // user object for compare
     int (*compare)(void *obj, i64 a, i64 b);
     i64 count;
+    enum flintdb_open_mode mode;
     struct node *root;
 
     void (*close)(struct bplustree *me);
