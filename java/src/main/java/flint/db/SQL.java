@@ -146,6 +146,7 @@ final class SQL {
 	private final String walBatchSize;
 	private final String walCheckpointInterval;
 	private final String walCompressionThreshold;
+	private final String walPageData;
 	private final String date;
 	private final String directory;
 	private final String storage;
@@ -193,6 +194,7 @@ final class SQL {
 		this.walBatchSize = stmt.get("walBatchSize");
 		this.walCheckpointInterval = stmt.get("walCheckpointInterval");
 		this.walCompressionThreshold = stmt.get("walCompressionThreshold");
+		this.walPageData = stmt.get("walPageData");
 		this.date = stmt.get("date");
 		this.directory = stmt.get("directory");
 		this.storage = stmt.get("storage");
@@ -328,6 +330,8 @@ final class SQL {
 					meta.walCheckpointInterval(parseInt(walCheckpointInterval));
 				if (walCompressionThreshold != null && !walCompressionThreshold.isEmpty())
 					meta.walCompressionThreshold(parseInt(walCompressionThreshold));
+				if (walPageData != null && !walPageData.isEmpty())
+					meta.walPageData(parseOnOffInt(walPageData));
 			}
 		}
 		if (date != null)
@@ -442,6 +446,8 @@ final class SQL {
 				s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_COMPRESSION_THRESHOLD=").append(meta.walCompressionThreshold());
 				extras++;
 			}
+			s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("WAL_PAGE_DATA=").append(meta.walPageData());
+			extras++;
 		}
 		if (meta.compressor() != null && !"none".equalsIgnoreCase(meta.compressor())) {
 			s.append((extras > 0) ? COMMA : "").append(EXTRA_INDENT).append("COMPRESSOR=").append(meta.compressor());
@@ -837,6 +843,8 @@ final class SQL {
 					m.put("walCheckpointInterval", nv[1]);
 				} else if ("WAL_COMPRESSION_THRESHOLD".equalsIgnoreCase(nv[0])) {
 					m.put("walCompressionThreshold", nv[1]);
+				} else if ("WAL_PAGE_DATA".equalsIgnoreCase(nv[0])) {
+					m.put("walPageData", nv[1]);
 				} else if ("DATE".equalsIgnoreCase(nv[0])) {
 					m.put("date", nv[1].toUpperCase());
 				} else if ("HEADER".equalsIgnoreCase(nv[0])) { // Text File
@@ -952,6 +960,17 @@ final class SQL {
 			i = i.substring(0, i.length() - 1);
 		}
 		return Integer.parseInt(i) * m;
+	}
+
+	static int parseOnOffInt(final String s) {
+		if (s == null || s.isEmpty())
+			return 0;
+		final String a = s.trim().toUpperCase();
+		return switch (a) {
+			case "0", "OFF", "FALSE", "NO" -> 0;
+			case "1", "ON", "TRUE", "YES" -> 1;
+			default -> parseInt(a);
+		};
 	}
 
 	/**

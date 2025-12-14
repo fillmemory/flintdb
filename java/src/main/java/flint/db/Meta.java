@@ -29,6 +29,7 @@ public final class Meta {
     private int walCheckpointInterval;
     private int walBatchSize;
     private int walCompressionThreshold;
+    private int walPageData = 1; // 1=log page image for UPDATE/DELETE, 0=metadata-only
 
     private Index[] indexes = null;
     private Column[] columns = null;
@@ -422,6 +423,16 @@ public final class Meta {
     }
 
     /**
+     * Whether WAL should include page image (payload) for UPDATE/DELETE.
+     *
+     * 1: include payload (enables recovery replay of UPDATE/DELETE)
+     * 0: metadata-only (smaller WAL, but UPDATE/DELETE replay is not possible)
+     */
+    public int walPageData() {
+        return walPageData;
+    }
+
+    /**
      * Set WAL mode
      * 
      * @param mode WAL mode: OFF (disabled), TRUNCATE (auto-truncate), or LOG (keep all logs)
@@ -453,6 +464,11 @@ public final class Meta {
 
     public Meta walCompressionThreshold(final int threshold) {
         this.walCompressionThreshold = threshold;
+        return this;
+    }
+
+    public Meta walPageData(final int enabled) {
+        this.walPageData = enabled;
         return this;
     }
 

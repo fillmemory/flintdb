@@ -42,6 +42,7 @@ import java.util.zip.Deflater;
  *  * ✓ Crash recovery with WAL replay
  *  * ✓ Auto-checkpoint and truncation
  *  * ✓ Read-your-own-writes within transaction
+ *  * ✓ Optional metadata-only WAL for UPDATE/DELETE (WAL_PAGE_DATA=0)
  * 
  *  * TODO: Async WAL writing for better performance
  * </pre>
@@ -88,7 +89,13 @@ final class WALImpl implements WAL {
         this.autoTruncate = Meta.WAL_OPT_TRUNCATE.equals(m);
         this.CHECKPOINT_INTERVAL = meta.walCheckpointInterval() > 0 ? meta.walCheckpointInterval() : Long.getLong("FLINTDB_WAL_CHECKPOINT_INTERVAL", 10000L);
          // Initialize WAL log storage
-        this.logger = new WALLogStorage(file, this.autoTruncate, meta.walBatchSize(), meta.walCompressionThreshold());
+        this.logger = new WALLogStorage(
+            file,
+            this.autoTruncate,
+            meta.walBatchSize(),
+            meta.walCompressionThreshold(),
+            meta.walPageData()
+        );
     }
 
     @Override
@@ -223,6 +230,7 @@ final class WALLogStorage implements AutoCloseable {
     private final int BATCH_SIZE; // = Integer.getInteger("FLINTDB_WAL_BATCH_SIZE", 10000); // Flush after N log records
     private final int COMPRESSION_THRESHOLD; // = Integer.getInteger("FLINTDB_WAL_COMPRESSION_THRESHOLD", 8192); // Compress if data > N bytes
     private final int DIRECT_WRITE_THRESHOLD; // Direct-write if record size >= N bytes
+    private final boolean logPageData;
     private static final byte FLAG_COMPRESSED = 0x01;
     private static final byte FLAG_METADATA_ONLY = 0x02;
 
@@ -247,7 +255,7 @@ final class WALLogStorage implements AutoCloseable {
     );
 
 
-    WALLogStorage(File file, boolean autoTruncate, int walBatchSize, int walCompressionThreshold) throws IOException {
+    WALLogStorage(File file, boolean autoTruncate, int walBatchSize, int walCompressionThreshold, int walPageData) throws IOException {
         this.autoTruncate = autoTruncate;
         this.BATCH_SIZE = walBatchSize > 0 ? walBatchSize : Integer.getInteger("FLINTDB_WAL_BATCH_SIZE", 10000);
         this.COMPRESSION_THRESHOLD = walCompressionThreshold > 0 ? walCompressionThreshold : Integer.getInteger("FLINTDB_WAL_COMPRESSION_THRESHOLD", 8192);
@@ -267,6 +275,12 @@ final class WALLogStorage implements AutoCloseable {
         if (directWrite < 0) directWrite = 0;
         // Clamp to batch buffer capacity to avoid pathological settings.
         this.DIRECT_WRITE_THRESHOLD = Math.min(directWrite, batchBuffer.capacity());
+
+        // WAL page image logging (C's wal_page_data equivalent)
+        // - 1: include payload for UPDATE/DELETE (enables replay)
+        // - 0: metadata-only for UPDATE/DELETE (smaller WAL; replay can't restore updates)
+        int pageData = Integer.getInteger("FLINTDB_WAL_PAGE_DATA", walPageData);
+        this.logPageData = pageData != 0;
 
         if (channel.size() == 0) {
             this.HEADER = map(0, HEADER_SIZE);
@@ -299,6 +313,10 @@ final class WALLogStorage implements AutoCloseable {
             this.processedCount = h.getInt();
             this.currentPosition = channel.size();
         }
+    }
+
+    boolean logPageData() {
+        return logPageData;
     }
 
     @Override
@@ -817,7 +835,14 @@ final class WALStorage implements Storage {
             byte[] copy = new byte[data.remaining()];
             data.get(copy);
             IoBuffer cached = IoBuffer.wrap(copy);
-            logger.log(WAL.OP_UPDATE, transaction, identifier, index, cached, false);
+
+            if (logger.logPageData()) {
+                logger.log(WAL.OP_UPDATE, transaction, identifier, index, cached, false);
+            } else {
+                // metadata-only mode: keep dirty page for read-your-own-writes and commit,
+                // but do not write page image into WAL.
+                logger.log(WAL.OP_UPDATE, transaction, identifier, index, null, true);
+            }
             dirtyPages.put(index, cached);
         } else {
             // No transaction: direct write to origin
@@ -851,7 +876,11 @@ final class WALStorage implements Storage {
         if (transaction > 0) {
             // DELETE within transaction: don't delete from origin immediately
             // Mark as deleted in cache and log to WAL
-            logger.log(WAL.OP_DELETE, transaction, identifier, index, null);
+            if (logger.logPageData()) {
+                logger.log(WAL.OP_DELETE, transaction, identifier, index, null);
+            } else {
+                logger.log(WAL.OP_DELETE, transaction, identifier, index, null, true);
+            }
             deletedPages.put(index, true);
             dirtyPages.remove(index); // Remove from dirty cache if exists
             return true;
