@@ -246,7 +246,8 @@ int tutorial_tsv_find() {
     struct flintdb_row *r;
     while ((r = c->next(c, &e)) != NULL) {
         flintdb_print_row(r);
-        r->free(r); // The cursor returns an owned row that must be freed
+        // NOTE: cursor->next() returns a borrowed row owned by the cursor.
+        // Do NOT free it unless you first call r->retain(r).
     }
     if (e) goto exception;
     

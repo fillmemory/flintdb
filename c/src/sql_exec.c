@@ -740,20 +740,17 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
                 // Map selected columns from source to target positions
                 copy = flintdb_row_new((struct flintdb_meta *)&meta, e);
                 if (e && *e) {
-                    r->free(r);
                     THROW_S(e);
                 }
                 
                 for (int i = 0; i < q->columns.length; i++) {
                     struct flintdb_variant *v = r->get(r, i, e);
                     if (e && *e) {
-                        r->free(r);
                         copy->free(copy);
                         THROW_S(e);
                     }
                     copy->set(copy, col_mapping[i], v, e);
                     if (e && *e) {
-                        r->free(r);
                         copy->free(copy);
                         THROW_S(e);
                     }
@@ -762,7 +759,6 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
                 // Reuse row: cast into pre-allocated row
                 flintdb_row_cast_reuse(r, reuse_row, e);
                 if (e && *e) {
-                    r->free(r);
                     if (reuse_row) reuse_row->free(reuse_row);
                     THROW_S(e);
                 }
@@ -770,7 +766,6 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
             }
             
             i64 rowid = table->apply(table, copy, upsert, e);
-            r->free(r); // Release source row after use
             if (col_mapping && copy) copy->free(copy);
             if (e && *e) {
                 if (reuse_row) reuse_row->free(reuse_row);
@@ -800,20 +795,17 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
                 // Map selected columns from source to target positions
                 copy = flintdb_row_new((struct flintdb_meta *)&meta, e);
                 if (e && *e) {
-                    r->free(r);
                     THROW_S(e);
                 }
                 
                 for (int i = 0; i < q->columns.length; i++) {
                     struct flintdb_variant *v = r->get(r, i, e);
                     if (e && *e) {
-                        r->free(r);
                         copy->free(copy);
                         THROW_S(e);
                     }
                     copy->set(copy, col_mapping[i], v, e);
                     if (e && *e) {
-                        r->free(r);
                         copy->free(copy);
                         THROW_S(e);
                     }
@@ -822,7 +814,6 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
                 // Reuse row: cast into pre-allocated row
                 flintdb_row_cast_reuse(r, reuse_row, e);
                 if (e && *e) {
-                    r->free(r);
                     if (reuse_row) reuse_row->free(reuse_row);
                     THROW_S(e);
                 }
@@ -830,7 +821,6 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
             }
             
             i64 ok = gf->write(gf, copy, e);
-            r->free(r); // Release source row after use
             if (col_mapping && copy) copy->free(copy);
             if (e && *e) {
                 if (reuse_row) reuse_row->free(reuse_row);
@@ -1610,7 +1600,6 @@ static struct flintdb_row *distinct_cursor_next(struct flintdb_cursor_row *c, ch
             h = -h; // ensure non-negative
         if (priv->seen_hashes && rbitmap_contains(priv->seen_hashes, h)) {
             // duplicate, discard and continue
-            r->free(r);
             continue;
         }
         if (priv->seen_hashes)
@@ -1618,7 +1607,6 @@ static struct flintdb_row *distinct_cursor_next(struct flintdb_cursor_row *c, ch
 
         // Handle OFFSET at the DISTINCT-output level
         if (priv->limit.skip(&priv->limit)) {
-            r->free(r);
             continue;
         }
 
@@ -1705,9 +1693,6 @@ static struct flintdb_row *gf_cursor_next(struct flintdb_cursor_row *c, char **e
             return NULL;
         if (!skipr)
             return NULL; // reached EOF before offset consumed
-        if (skipr) {
-            skipr->free(skipr);
-        }
     }
     struct flintdb_row *r = priv->inner_cursor->next(priv->inner_cursor, e);
     if (e && *e)
@@ -1720,59 +1705,47 @@ static struct flintdb_row *gf_cursor_next(struct flintdb_cursor_row *c, char **e
         return r;
     }
 
-    // Build a projected row with only selected columns, in SELECT order
-    struct flintdb_meta *m = (struct flintdb_meta *)r->meta;
-    
-    // Build projection metadata from source row metadata
-    // We create a temporary metadata structure for the projected columns
-    struct flintdb_meta proj_meta_temp;
-    memset(&proj_meta_temp, 0, sizeof(proj_meta_temp));
-    proj_meta_temp.columns.length = priv->proj_count;
-    
-    for (int i = 0; i < priv->proj_count; i++) {
-        int src = priv->proj_indexes[i];
-        if (src < 0 || src >= m->columns.length) {
-            // invalid mapping; fail hard
-            r->free(r);
-            if (e) *e = "Invalid column index in projection";
-            return NULL;
+    // Build a projected row with only selected columns, in SELECT order.
+    // Cursor returns BORROWED rows; if caller retains the previous projected row,
+    // its refcount will be >1 and we must detach by allocating a fresh buffer.
+    const struct flintdb_meta *m = r->meta;
+
+    if (!priv->proj_meta) {
+        struct flintdb_meta *pm = (struct flintdb_meta *)CALLOC(1, sizeof(struct flintdb_meta));
+        if (!pm) return NULL;
+        pm->columns.length = priv->proj_count;
+        for (int i = 0; i < priv->proj_count; i++) {
+            int src = priv->proj_indexes[i];
+            if (src < 0 || src >= m->columns.length) {
+                FREE(pm);
+                if (e) *e = "Invalid column index in projection";
+                return NULL;
+            }
+            pm->columns.a[i] = m->columns.a[src];
         }
-        // Deep copy column definition to avoid dangling references
-        proj_meta_temp.columns.a[i] = m->columns.a[src];
+        priv->proj_meta = pm;
     }
-    
-    // Create a new projected row for each call
-    // Cannot reuse row because caller may retain it for later use (e.g., pretty print)
-    struct flintdb_row *proj_row = flintdb_row_new(&proj_meta_temp, e);
-    if (e && *e) {
-        r->free(r);
-        return NULL;
+
+    if (priv->proj_row && priv->proj_row->refcount > 1) {
+        // caller retained; release cursor's ref and allocate a new buffer
+        priv->proj_row->free(priv->proj_row);
+        priv->proj_row = NULL;
     }
-    if (!proj_row) {
-        r->free(r);
-        return NULL;
+    if (!priv->proj_row) {
+        priv->proj_row = flintdb_row_pool_acquire(priv->proj_meta, e);
+        if ((e && *e) || !priv->proj_row) return NULL;
     }
-    
-    // Copy projected columns from source row
+
+    struct flintdb_row *out = priv->proj_row;
     for (int i = 0; i < priv->proj_count; i++) {
         int src = priv->proj_indexes[i];
         struct flintdb_variant *v = r->get(r, src, e);
-        if (e && *e) {
-            r->free(r);
-            proj_row->free(proj_row);
-            return NULL;
-        }
-        proj_row->set(proj_row, i, v, e);
-        if (e && *e) {
-            r->free(r);
-            proj_row->free(proj_row);
-            return NULL;
-        }
+        if (e && *e) return NULL;
+        out->set(out, i, v, e);
+        if (e && *e) return NULL;
     }
-    proj_row->rowid = r->rowid;
-    r->free(r);
-    
-    return proj_row;
+    out->rowid = r->rowid;
+    return out;
 }
 
 static void gf_cursor_close(struct flintdb_cursor_row *c) {
@@ -1780,9 +1753,16 @@ static void gf_cursor_close(struct flintdb_cursor_row *c) {
         return;
     struct gf_cursor_priv *priv = (struct gf_cursor_priv *)c->p;
     if (priv) {
-        // proj_row and proj_meta are no longer stored - each row uses temporary metadata
         if (priv->inner_cursor && priv->inner_cursor->close) {
             priv->inner_cursor->close(priv->inner_cursor);
+        }
+        if (priv->proj_row) {
+            priv->proj_row->free(priv->proj_row);
+            priv->proj_row = NULL;
+        }
+        if (priv->proj_meta) {
+            FREE(priv->proj_meta);
+            priv->proj_meta = NULL;
         }
         if (priv->gf && priv->gf->close) {
             priv->gf->close(priv->gf);
@@ -2143,6 +2123,11 @@ static struct flintdb_row *sql_table_cursor_next(struct flintdb_cursor_row *c, c
 
     // If no projection is defined (SELECT *), use streaming read to avoid cache overhead
     if (priv->proj_count <= 0) {
+        if (priv->stream_row && priv->stream_row->refcount > 1) {
+            // caller retained; release cursor's ref and allocate a new buffer
+            priv->stream_row->free(priv->stream_row);
+            priv->stream_row = NULL;
+        }
         // Lazily allocate stream_row buffer once, reuse across all rows
         if (!priv->stream_row) {
             const struct flintdb_meta *m = priv->table->meta(priv->table, e);
@@ -2181,6 +2166,12 @@ static struct flintdb_row *sql_table_cursor_next(struct flintdb_cursor_row *c, c
     
     // Lazily allocate proj_row once per cursor and reuse (like stream_row)
     if (!priv->proj_row) {
+        priv->proj_row = flintdb_row_pool_acquire(priv->proj_meta, e);
+        if ((e && *e) || !priv->proj_row) return NULL;
+    }
+    if (priv->proj_row && priv->proj_row->refcount > 1) {
+        // caller retained; release cursor's ref and allocate a new buffer
+        priv->proj_row->free(priv->proj_row);
         priv->proj_row = flintdb_row_pool_acquire(priv->proj_meta, e);
         if ((e && *e) || !priv->proj_row) return NULL;
     }
@@ -2518,6 +2509,7 @@ struct flintdb_filesort_cursor_priv {
     i64 current_idx;
     i64 row_count;
     struct limit limit;
+    struct flintdb_row *reuse_row;
 };
 
 static struct flintdb_row *filesort_cursor_next(struct flintdb_cursor_row *c, char **e) {
@@ -2532,7 +2524,27 @@ static struct flintdb_row *filesort_cursor_next(struct flintdb_cursor_row *c, ch
     if (p->current_idx >= p->row_count)
         return NULL;
     struct flintdb_row *r = p->sorter->read(p->sorter, p->current_idx++, e);
-    return r ? r->copy(r, e) : NULL;
+    if (e && *e)
+        return NULL;
+    if (!r)
+        return NULL;
+
+    if (p->reuse_row && p->reuse_row->refcount > 1) {
+        // caller retained; release cursor's ref and allocate a new buffer
+        p->reuse_row->free(p->reuse_row);
+        p->reuse_row = NULL;
+    }
+    if (!p->reuse_row) {
+        p->reuse_row = flintdb_row_pool_acquire((struct flintdb_meta *)r->meta, e);
+        if ((e && *e) || !p->reuse_row)
+            return NULL;
+    }
+
+    flintdb_row_cast_reuse(r, p->reuse_row, e);
+    if (e && *e)
+        return NULL;
+    p->reuse_row->rowid = r->rowid;
+    return p->reuse_row;
 }
 
 static void filesort_cursor_close(struct flintdb_cursor_row *c) {
@@ -2540,6 +2552,10 @@ static void filesort_cursor_close(struct flintdb_cursor_row *c) {
         return;
     struct flintdb_filesort_cursor_priv *p = (struct flintdb_filesort_cursor_priv *)c->p;
     if (p) {
+        if (p->reuse_row) {
+            p->reuse_row->free(p->reuse_row);
+            p->reuse_row = NULL;
+        }
         if (p->sorter)
             p->sorter->close(p->sorter);
         FREE(p);

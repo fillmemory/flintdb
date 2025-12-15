@@ -108,6 +108,9 @@ struct flintdb_genericfile_cursor_priv {
     i64 rowidx;     // current data row index (after header)
     i8 initialized; // init guard for header handling
     enum file_data_header file_data_header;
+
+    // Cursor-owned last returned row (BORROWED by caller). Freed on next() or close().
+    struct flintdb_row *last_row;
 };
 
 void flintdb_genericfile_drop(const char *file, char **e) {
@@ -249,6 +252,10 @@ static void genericfile_cursor_close(struct flintdb_cursor_row *cursor) {
     if (cursor->p) {
         struct flintdb_genericfile_cursor_priv *cp = (struct flintdb_genericfile_cursor_priv *)cursor->p;
         if (cp) {
+            if (cp->last_row) {
+                cp->last_row->free(cp->last_row);
+                cp->last_row = NULL;
+            }
             if (cp->bio) {
                 cp->bio->close(cp->bio);
                 cp->bio = NULL;
@@ -274,6 +281,13 @@ static struct flintdb_row *genericfile_cursor_next(struct flintdb_cursor_row *cu
     struct bufio *bio = cp->bio;
     struct formatter *f = cp->formatter;
     struct flintdb_row *r = NULL;
+
+    // Release cursor's reference to the previously returned row.
+    // If caller retained it, it will remain alive; otherwise this frees it.
+    if (cp->last_row) {
+        cp->last_row->free(cp->last_row);
+        cp->last_row = NULL;
+    }
 
     // one-time initialization (header skip)
     if (!cp->initialized) {
@@ -354,6 +368,7 @@ static struct flintdb_row *genericfile_cursor_next(struct flintdb_cursor_row *cu
                 // Set rowid to current row index (before increment), then increment
                 // r->rowid = cp->rowidx;
                 cp->rowidx++;
+                cp->last_row = r;
                 return r;
             }
         }

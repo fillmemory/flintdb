@@ -101,6 +101,13 @@ struct flintdb_cursor_i64 {
 struct flintdb_cursor_row {
     void *p; // Implementation-specific state
 
+    // Ownership rule:
+    // - Returns a BORROWED row owned by the cursor.
+    // - The returned pointer is valid until the next call to next() on the same cursor,
+    //   or until cursor->close().
+    // - Caller MUST NOT call row->free(row) on the returned pointer.
+    // - If the caller needs to keep the row beyond that, call row->retain(row) to
+    //   take an additional reference, and later call row->free(row) to release it.
     struct flintdb_row * (*next)(struct flintdb_cursor_row *c, char **e);
     void (*close)(struct flintdb_cursor_row *c);
 };
