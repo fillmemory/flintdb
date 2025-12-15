@@ -54,24 +54,25 @@ if [ $AUTO_DETECT_ALLOCATOR -eq 1 ]; then
     # Detect OS and check for memory allocators accordingly
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
-        if brew list jemalloc &>/dev/null || [ -f /usr/local/lib/libjemalloc.dylib ] || [ -f /opt/homebrew/lib/libjemalloc.dylib ]; then
-            ALLOCATOR=jemalloc
-            echo "Using jemalloc as memory allocator"
-        elif brew list gperftools &>/dev/null || [ -f /usr/local/lib/libtcmalloc.dylib ] || [ -f /opt/homebrew/lib/libtcmalloc.dylib ]; then
+        # if brew list jemalloc &>/dev/null || [ -f /usr/local/lib/libjemalloc.dylib ] || [ -f /opt/homebrew/lib/libjemalloc.dylib ]; then
+        #     ALLOCATOR=jemalloc
+        #     echo "Using jemalloc as memory allocator"
+        # el
+        if brew list gperftools &>/dev/null || [ -f /usr/local/lib/libtcmalloc.dylib ] || [ -f /opt/homebrew/lib/libtcmalloc.dylib ]; then
             ALLOCATOR=tcmalloc
             echo "Using tcmalloc as memory allocator"
         else
             echo "No specialized memory allocator found, using default"
         fi
     else
-        # Linux
+        # Linux - prefer tcmalloc over jemalloc for better INSERT performance
         if command -v ldconfig &>/dev/null; then
-            if ldconfig -p | grep -q jemalloc; then
-                ALLOCATOR=jemalloc
-                echo "Using jemalloc as memory allocator"
-            elif ldconfig -p | grep -q tcmalloc; then
+            if ldconfig -p | grep -q tcmalloc; then
                 ALLOCATOR=tcmalloc
                 echo "Using tcmalloc as memory allocator"
+            # elif ldconfig -p | grep -q jemalloc; then
+            #     ALLOCATOR=jemalloc
+            #     echo "Using jemalloc as memory allocator"
             else
                 echo "No specialized memory allocator found, using default"
             fi

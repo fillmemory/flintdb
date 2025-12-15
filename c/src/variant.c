@@ -27,7 +27,7 @@ static const char VARIANT_EMPTY_STR[] = "";
 #define VARIANT_STRPOOL_CAPACITY 4096u
 #endif
 #ifndef VARIANT_STRPOOL_PRELOAD
-#define VARIANT_STRPOOL_PRELOAD 2048u
+#define VARIANT_STRPOOL_PRELOAD 16u
 #endif
 
 // Thread-local string pool with cleanup on thread exit (POSIX pthread TLS).
