@@ -212,13 +212,13 @@ static i64 time_us() {
     return (i64)tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
-static void log_access(const char *remote_addr, const char *method, const char *path, int status, i64 elapsed_us) {
+static void log_access(const char *remote_addr, const char *method, const char *path, int status, i64 elapsed_us, const char *q) {
     time_t now = time(NULL);
     struct tm tm;
     localtime_r(&now, &tm);
     char timestamp[32];
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &tm);
-    printf("%s %s\t%s %s\t%d\t%.3fms\n", timestamp, remote_addr, method, path, status, elapsed_us / 1000.0);
+    printf("%s %s\t%s %s\t%d\t%.3fms\t%s\n", timestamp, remote_addr, method, path, status, elapsed_us / 1000.0, q==NULL? "" : q);
 }
 
 static char *build_json_object(struct flintdb_sql_result*result, i64 elapsed_us, i64 *out_len) {
@@ -407,7 +407,7 @@ int webui_run(int argc, char **argv, char **e) {
             if (!is_embedded)
                 FREE(html);
             i64 elapsed_us = time_us() - start_us;
-            log_access(remote_addr, "GET", "/", 200, elapsed_us);
+            log_access(remote_addr, "GET", "/", 200, elapsed_us, NULL);
         } else { // POST
             // find content-length
             long clen = 0;
@@ -479,7 +479,7 @@ int webui_run(int argc, char **argv, char **e) {
             FREE(q);
             FREE(body);
             i64 post_elapsed_us = time_us() - start_us;
-            log_access(remote_addr, "POST", "/", 200, post_elapsed_us);
+            log_access(remote_addr, "POST", "/", 200, post_elapsed_us, q);
         }
         CLOSE_SOCKET(cfd);
     }
