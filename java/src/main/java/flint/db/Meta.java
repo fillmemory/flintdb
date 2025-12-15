@@ -6,6 +6,7 @@ package flint.db;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.Map;
 
 /**
@@ -43,7 +44,9 @@ public final class Meta {
 
     private transient Map<String, Integer> mc = null;
 
-    public static final String PRODUCT_NAME = "FlintDB"; // TODO: Read from build config
+    final transient static Map<String, String> INF = getManifestInfo();
+
+    public static final String PRODUCT_NAME = INF.getOrDefault("Implementation-Title", "DB");
     public static final String PRODUCT_NAME_LC = PRODUCT_NAME.toLowerCase();
     public static final String META_NAME_SUFFIX = ".desc";
     public static final String TABLE_NAME_SUFFIX = ".".concat(PRODUCT_NAME_LC); 
@@ -813,15 +816,15 @@ public final class Meta {
         }
     }
 
-    static boolean exists(final File file) {
-        if (file.getName().endsWith(Meta.META_NAME_SUFFIX)) {
-            return file.exists();
-        } else {
-            final File dir = file.getParentFile();
-            final File metaFile = new File(dir, name(file.getName()) + Meta.META_NAME_SUFFIX);
-            return metaFile.exists();
-        }
-    }
+    // static boolean exists(final File file) {
+    //     if (file.getName().endsWith(Meta.META_NAME_SUFFIX)) {
+    //         return file.exists();
+    //     } else {
+    //         final File dir = file.getParentFile();
+    //         final File metaFile = new File(dir, name(file.getName()) + Meta.META_NAME_SUFFIX);
+    //         return metaFile.exists();
+    //     }
+    // }
 
     /**
      * Extract base filename without .desc extensions
@@ -858,5 +861,27 @@ public final class Meta {
             a[i] = (byte) n;
         }
         return a;
+    }
+    /**
+     * Read manifest information from META-INF/MANIFEST.MF
+     * 
+     * @return Map of manifest attributes and values
+     */
+    private static Map<String, String> getManifestInfo() {
+        try {
+            final java.util.jar.Manifest mf = new java.util.jar.Manifest(
+                    Meta.class.getClassLoader().getResourceAsStream("META-INF/MANIFEST.MF"));
+            final java.util.jar.Attributes atts = mf.getMainAttributes();
+            final Map<String, String> map = new java.util.HashMap<>();
+            final Iterator<Object> it = atts.keySet().iterator();
+            while (it.hasNext()) {
+                final Object key = it.next();
+                final Object value = atts.get(key);
+                map.put(key.toString(), value.toString());
+            }
+            return map;
+        } catch (Exception ex) {
+            return Collections.emptyMap();
+        }
     }
 }

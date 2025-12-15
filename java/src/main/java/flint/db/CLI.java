@@ -11,7 +11,7 @@ import java.io.PrintStream;
 import java.util.Iterator;
 
 public final class CLI {
-    private static final String VERSION = "0.0.1";
+    private static final String VERSION = Meta.INF.getOrDefault("Implementation-Version", "0.0.1");
     private static final int MAX_PRETTY_ROWS = 10000;
     
     static boolean LOG = false;
