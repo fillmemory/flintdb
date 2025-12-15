@@ -19,7 +19,7 @@ struct flintdb_sql {
     #ifndef NDEBUG
     char origin[SQL_STRING_LIMIT];
     #endif
-    char statement[SQL_STRING_LIMIT];
+    char statement[SQL_OBJECT_STRING_LIMIT]; // e.g., SELECT, INSERT, UPDATE, DELETE, SHOW, DESC, META, BEGIN, COMMIT, ROLLBACK, CREATE, DROP, ALTER, ...
 
     // table can be an absolute file path; use PATH_MAX to avoid truncation
     char table[PATH_MAX];

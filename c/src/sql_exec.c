@@ -373,6 +373,10 @@ struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flint
     if (e && *e)
         THROW_S(e);
 
+    DEBUG("Executing SQL\n statement: %s \n table: %s \n object: %s \n from: %s \n where: %s \n limit: %s", 
+        q->statement, q->table, q->object, q->from, q->where, q->limit
+    );
+
     // SHOW TABLES does not operate on a single table file; skip format detection
     if (strncasecmp(q->statement, "SHOW", 4) == 0 && strncasecmp(q->object, "TABLES", 6) == 0) {
         struct flintdb_sql_result*sr = sql_exec_show_tables(q, e);
