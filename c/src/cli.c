@@ -167,7 +167,7 @@ static void usage(const char *progname) {
     printf(" \t-help     \tshow this help\n\n");
     printf(" examples:\n");
     printf("\t%s \"SELECT * FROM temp/tpch_lineitem"TABLE_NAME_SUFFIX" USE INDEX(PRIMARY DESC) WHERE l_orderkey > 1 LIMIT 0, 10\" -rownum -pretty\n", CMD);
-    printf("\t%s \"SELECT * FROM temåp/tpch_lineitem.tsv.gz WHERE l_orderkey > 1 LIMIT 0, 10\"\n", CMD);
+    printf("\t%s \"SELECT * FROM temp/tpch_lineitem.tsv.gz WHERE l_orderkey > 1 LIMIT 0, 10\"\n", CMD);
     printf("\t%s \"SELECT * FROM temp/file"TABLE_NAME_SUFFIX" INTO temp/output.tsv.gz\"\n", CMD);
     printf("\t%s \"SELECT * FROM temp/file"TABLE_NAME_SUFFIX" INTO temp/output.csv.gz\"\n", CMD);
     printf("\t%s \"INSERT INTO temp/file"TABLE_NAME_SUFFIX" FROM temp/input.tsv.gz\"\n", CMD);
