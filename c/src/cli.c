@@ -162,7 +162,7 @@ static void usage(const char *progname) {
     printf(" \t-rownum   \tshow row number when printing rows\n");
     printf(" \t-sql <SQL>\tspecify SQL statement\n");
     printf(" \t-f <file> \texecute SQL from file\n");
-    printf(" \t-webui    \tstart embedded HTTP Web UI (port 3333 or -port=)\n");
+    printf(" \t-webui    \tstart embedded HTTP Web UI (port 3334 or -port=)\n");
     printf(" \t-version \tshow version information\n");
     printf(" \t-help     \tshow this help\n\n");
     printf(" examples:\n");
