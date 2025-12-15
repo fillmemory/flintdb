@@ -388,6 +388,13 @@ struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flint
         THROW(e, "Unable to detect file format for table: %s", q->table);
 
     i64 affected = 0;
+    if (transaction && !strempty(q->table) && fmt == FORMAT_BIN) { // only validate for table-based operations
+        struct flintdb_table *table = sql_exec_table_borrow(q->table, e);
+        if (!table) THROW_S(e);
+        if (transaction->validate((struct flintdb_transaction *)transaction, table, e) != 1) 
+            THROW(e, "Transaction is not valid for table: %s", q->table);
+    }
+
     if (strncasecmp(q->statement, "SELECT", 6) == 0 && strempty(q->into)) {
         if (FORMAT_BIN == fmt)
             return sql_exec_select(q, (struct flintdb_transaction *)transaction, e);
@@ -3440,8 +3447,6 @@ static struct flintdb_sql_result * sql_exec_begin_transaction(struct flintdb_sql
 
     table = sql_exec_table_borrow(q->table, e);
     if (!table) THROW_S(e);
-
-    // TODO: must pass => (transaction->priv->table == table)
 
     result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
     if (!result) THROW(e, "Out of memory");
