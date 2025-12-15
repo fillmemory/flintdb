@@ -2475,8 +2475,11 @@ static int bin_decode(struct formatter *me, struct buffer *in, struct flintdb_ro
             }
             switch (ctype) {
             case VARIANT_STRING: {
-                // Fast path: avoid copy; reference input buffer slice
-                flintdb_variant_string_ref_set(&r->array[i], (p ? p : ""), n);
+                // Copy into variant-owned buffer to ensure NUL-termination.
+                // The BIN payload is a raw byte slice (not NUL-terminated) and the input buffer
+                // is reused; referencing it would make string_get/strlen-based paths read past
+                // the field and print stray whitespace/newlines.
+                flintdb_variant_string_set(&r->array[i], (p ? p : ""), n);
                 break;
             }
             case VARIANT_DECIMAL: {

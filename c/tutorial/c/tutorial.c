@@ -663,7 +663,6 @@ int tutorial_flintdb_sql_exec() {
     struct flintdb_row *r;
     while ((r = result->row_cursor->next(result->row_cursor, &e)) != NULL) {
         flintdb_print_row(r);
-        r->free(r);
     }
     if (e) goto exception;
 
