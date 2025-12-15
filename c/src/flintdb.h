@@ -169,7 +169,7 @@ struct flintdb_variant {
             i8 owned; // 0: not owned, 1: owned (free on destroy)
             u32 length;
             char *data; // not null-terminated
-        } b;
+        } b; // bytes/string/uuid/ipv6
         time_t t;
     } value;
 };
