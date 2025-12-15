@@ -284,7 +284,7 @@ public final class CLI {
     }
 
     private static void usage(String progname) {
-        String CMD = progname != null ? progname : "./bin/flintdb";
+        String CMD = progname != null ? progname : "./bin/".concat(Meta.PRODUCT_NAME_LC);
         PrintStream out = System.out;
 
         StringBuilder sb = new StringBuilder();
