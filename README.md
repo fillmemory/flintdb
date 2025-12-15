@@ -146,18 +146,18 @@ For detailed code examples and tutorials, see:
 
 ## Building
 
-### Java
+### Java (gradle)
 ```bash
 cd java
 ./build.sh
-# Output: build-gradle/FlintDB-{version}.jar
+# Output: build/flintdb-{version}.jar
 ```
 
-### C
+### C (make)
 ```bash
 cd c
 ./build.sh
-# Output: bin/FlintDB
+# Output: bin/flintdb
 ```
 
 ## Use Cases
