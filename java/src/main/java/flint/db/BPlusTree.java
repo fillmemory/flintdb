@@ -795,6 +795,7 @@ final class BPlusTree implements Tree {
 		writeMetaBlock(root);
 	}
 
+	@Override
 	public int height() throws IOException {
 		return height(root());
 	}
