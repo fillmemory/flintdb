@@ -82,7 +82,7 @@ public final class WebUI {
 				final IO.StopWatch watch = new IO.StopWatch();
 
 				if ("GET".equals(exchange.getRequestMethod())) {
-					LOG(exchange.getRemoteAddress().getAddress().getHostAddress() + " " + "   "  + "	" + exchange.getRequestURI());
+					LOG(exchange.getRemoteAddress().getAddress().getHostAddress() + " -\t-\t" + exchange.getRequestURI());
 					// Handle GET requests - serve HTML interface
 					exchange.getResponseHeaders().add("Content-Type", "text/html;charset=UTF-8");
 	
@@ -93,7 +93,7 @@ public final class WebUI {
 
 					exchange.sendResponseHeaders(200, html.length());
 					IO.pipe(instream, out);
-					LOG(exchange.getRemoteAddress().getAddress().getHostAddress() + " " + " 200"  + "	" + watch.elapsed() + "ms");
+					LOG(exchange.getRemoteAddress().getAddress().getHostAddress() + " 200\t" + watch.elapsed() + "ms" + "\t" + exchange.getRequestURI());
 				} else {
 					// Handle POST requests - execute SQL queries and return JSON
 					exchange.getResponseHeaders().add("Content-Type", "application/json;charset=UTF-8");
@@ -104,7 +104,7 @@ public final class WebUI {
 						final var input = g.fromJson(ir, INPUT.class);
 						final String q = input.q;
 	
-						LOG(exchange.getRemoteAddress().getAddress().getHostAddress() + " " + "   "  + "	" + q);
+						LOG(exchange.getRemoteAddress().getAddress().getHostAddress() + " -\t-\t" + q);
 						// Execute SQL query and capture output
 						final ByteArrayOutputStream stream = new ByteArrayOutputStream();
 						execute(new PrintStream(stream), new String[] { q });
@@ -114,7 +114,7 @@ public final class WebUI {
 	
 						out.write(bb);
 
-						LOG(exchange.getRemoteAddress().getAddress().getHostAddress() + " " + " 200"  + "	" + q + " " + watch.elapsed() + "ms");
+						LOG(exchange.getRemoteAddress().getAddress().getHostAddress() + " 200\t" + watch.elapsed() + "ms" + "\t" + q);
 					} catch (Throwable ex) {
 						// ex.printStackTrace();
 						
@@ -122,7 +122,7 @@ public final class WebUI {
 						generateJsonResponse(ex, new PrintStream(stream));
 						final byte[] bb = stream.toByteArray();
 						exchange.sendResponseHeaders(503, bb.length);
-						LOG(exchange.getRemoteAddress().getAddress().getHostAddress() + " " + " 503"  + "	" + exchange.getRequestURI() + " " + watch.elapsed() + "ms");
+						LOG(exchange.getRemoteAddress().getAddress().getHostAddress() + " 503\t" + watch.elapsed() + "ms" + "\t" + exchange.getRequestURI() + "\t"+ ex.getMessage());
 						out.write(bb);
 					}
 				}

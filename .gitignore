@@ -15,6 +15,7 @@ c/testcase
 java/bin/main/
 java/bin/test/
 java/lib/optional/
+java/lib/.tmp-lib-resolve/
 java/build/
 java/.gradle/
 java/.idea/
