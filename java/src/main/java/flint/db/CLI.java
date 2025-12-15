@@ -1,6 +1,6 @@
 /**
- * FlintDB Command Line Interface (Java Implementation)
- * Based on cli.c - provides command-line access to FlintDB using SQLExec
+ * DB Command Line Interface (Java Implementation)
+ * Based on cli.c - provides command-line access to DB using SQLExec
  * 
  */
 package flint.db;
@@ -59,7 +59,7 @@ public final class CLI {
                 usage(args.length > 0 ? args[0] : null);
                 return 0;
             } else if ("-version".equals(s)) {
-                out.println("FlintDB version " + VERSION);
+                out.println(Meta.PRODUCT_NAME + " version " + VERSION);
                 return 0;
             } else if ("-pretty".equals(s)) {
                 pretty = true;
@@ -287,47 +287,51 @@ public final class CLI {
         String CMD = progname != null ? progname : "./bin/flintdb";
         PrintStream out = System.out;
 
-        out.println("Usage: \"" + CMD + "\" [options]\n");
-        out.println(" options:");
-        out.println(" \t<SQL>     \tSELECT|INSERT|DELETE|UPDATE|DESC|META|SHOW");
-        out.println(" \t-pretty   \tpretty print when sql is SELECT");
-        out.println(" \t-status   \tprint the executed status");
-        out.println(" \t-log      \tenable detailed logging");
-        out.println(" \t-nohead   \tignore header when printing rows");
-        out.println(" \t-rownum   \tshow row number when printing rows");
-        out.println(" \t-sql <SQL>\tspecify SQL statement");
-        out.println(" \t-f <file> \texecute SQL from file");
-        out.println(" \t-version  \tshow version information");
-        out.println(" \t-help     \tshow this help\n");
-        out.println(" examples:");
-        out.println("\t# File operations");
-        out.println("\t" + CMD + " \"SELECT * FROM temp/tpch_lineitem.flintdb USE INDEX(PRIMARY DESC) WHERE l_orderkey > 1 LIMIT 0, 10\" -rownum -pretty");
-        out.println("\t" + CMD + " \"SELECT * FROM temp/tpch_lineitem.tsv.gz WHERE l_orderkey > 1 LIMIT 0, 10\"");
-        out.println("\t" + CMD + " \"SELECT * FROM temp/file.flintdb INTO temp/output.tsv.gz\"");
-        out.println("\t" + CMD + " \"SELECT col1, col2 FROM temp/input.tsv WHERE col1 > 10 INTO temp/filtered.flintdb\"");
-        out.println("\t" + CMD + " \"INSERT INTO temp/file.flintdb FROM temp/input.tsv.gz\"");
-        out.println("\t" + CMD + " \"REPLACE INTO temp/file.flintdb FROM temp/input.tsv.gz\"");
-        out.println("\t" + CMD + " \"UPDATE temp/file.flintdb SET B = 'abc', C = 2 WHERE A = 1\"");
-        out.println("\t" + CMD + " \"DELETE FROM temp/file.flintdb WHERE A = 1\"");
-        out.println();
-        out.println("\t# JDBC operations (direct URI)");
-        out.println("\t" + CMD + " \"SELECT * FROM jdbc:mysql://localhost:3306/mydb?table=users LIMIT 10\" -pretty");
-        out.println("\t" + CMD + " \"SELECT * FROM jdbc:h2:mem:test?table=customers WHERE age > 18\"");
-        out.println("\t" + CMD + " \"SELECT * FROM jdbc:mysql://localhost:3306/mydb?table=orders INTO output.tsv\"");
-        out.println("\t" + CMD + " \"INSERT INTO output.tsv FROM jdbc:postgresql://localhost/db?table=logs\"");
-        out.println();
-        out.println("\t# JDBC operations (using aliases from jdbc.properties)");
-        out.println("\t" + CMD + " \"SELECT * FROM @mydb:users LIMIT 10\" -pretty");
-        out.println("\t" + CMD + " \"SELECT * FROM mydb.customers WHERE age > 18\"");
-        out.println("\t" + CMD + " \"SELECT name, email FROM @prod:users WHERE status='active' INTO active_users.csv\"");
-        out.println("\t" + CMD + " \"INSERT INTO output.tsv FROM @prod:orders\"");
-        out.println("\t" + CMD + " \"INSERT INTO data.flintdb FROM testdb.products\"");
-        out.println();
-        out.println("\t# Metadata operations");
-        out.println("\t" + CMD + " \"SHOW TABLES WHERE temp\"");
-        out.println("\t" + CMD + " \"DESC temp/file.flintdb\"");
-        out.println("\t" + CMD + " \"META temp/file.flintdb\"");
-        out.println();
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("Usage: \"").append(CMD).append("\" [options]\n").append("\n");
+        sb.append(" options:").append("\n");
+        sb.append(" \t<SQL>     \tSELECT|INSERT|DELETE|UPDATE|DESC|META|SHOW").append("\n");
+        sb.append(" \t-pretty   \tpretty print when sql is SELECT").append("\n");
+        sb.append(" \t-status   \tprint the executed status").append("\n");
+        sb.append(" \t-log      \tenable detailed logging").append("\n");
+        sb.append(" \t-nohead   \tignore header when printing rows").append("\n");
+        sb.append(" \t-rownum   \tshow row number when printing rows").append("\n");
+        sb.append(" \t-sql <SQL>\tspecify SQL statement").append("\n");
+        sb.append(" \t-f <file> \texecute SQL from file").append("\n");
+        sb.append(" \t-version  \tshow version information").append("\n");
+        sb.append(" \t-help     \tshow this help\n").append("\n");
+        sb.append(" examples:").append("\n");
+        sb.append("\t# File operations").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM temp/tpch_lineitem").append(Meta.TABLE_NAME_SUFFIX).append(" USE INDEX(PRIMARY DESC) WHERE l_orderkey > 1 LIMIT 0, 10\" -rownum -pretty").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM temp/tpch_lineitem.tsv.gz WHERE l_orderkey > 1 LIMIT 0, 10\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM temp/file").append(Meta.TABLE_NAME_SUFFIX).append(" INTO temp/output.tsv.gz\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT col1, col2 FROM temp/input.tsv WHERE col1 > 10 INTO temp/filtered").append(Meta.TABLE_NAME_SUFFIX).append("\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"INSERT INTO temp/file").append(Meta.TABLE_NAME_SUFFIX).append(" FROM temp/input.tsv.gz\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"REPLACE INTO temp/file").append(Meta.TABLE_NAME_SUFFIX).append(" FROM temp/input.tsv.gz\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"UPDATE temp/file").append(Meta.TABLE_NAME_SUFFIX).append(" SET B = 'abc', C = 2 WHERE A = 1\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"DELETE FROM temp/file").append(Meta.TABLE_NAME_SUFFIX).append(" WHERE A = 1\"").append("\n");
+        sb.append("").append("\n");
+        sb.append("\t# JDBC operations (direct URI)").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM jdbc:mysql://localhost:3306/mydb?table=users LIMIT 10\" -pretty").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM jdbc:h2:mem:test?table=customers WHERE age > 18\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM jdbc:mysql://localhost:3306/mydb?table=orders INTO output.tsv\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"INSERT INTO output.tsv FROM jdbc:postgresql://localhost/db?table=logs\"").append("\n");
+        sb.append("").append("\n");
+        sb.append("\t# JDBC operations (using aliases from jdbc.properties)").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM @mydb:users LIMIT 10\" -pretty").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM mydb.customers WHERE age > 18\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT name, email FROM @prod:users WHERE status='active' INTO active_users.csv\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"INSERT INTO output.tsv FROM @prod:orders\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"INSERT INTO data").append(Meta.TABLE_NAME_SUFFIX).append(" FROM testdb.products\"").append("\n");
+        sb.append("").append("\n");
+        sb.append("\t# Metadata operations").append("\n");
+        sb.append("\t").append(CMD).append(" \"SHOW TABLES WHERE temp\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"DESC temp/file").append(Meta.TABLE_NAME_SUFFIX).append("\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"META temp/file").append(Meta.TABLE_NAME_SUFFIX).append("\"").append("\n");
+        sb.append("").append("\n");
+
+        out.print(sb.toString());
     }
 
     private static int utf8CharWidth(String s, int pos) {

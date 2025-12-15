@@ -762,7 +762,7 @@ public final class Aggregate implements AutoCloseable {
 			temp.mkdirs();
 			// file.deleteOnExit();
 
-			final int BTREE_INCREMENT_SIZE = Integer.parseInt(System.getProperty("flint.db.aggregate.increment.size", String.valueOf(1 * 1024 * 1024)));
+			final int BTREE_INCREMENT_SIZE = Integer.parseInt(System.getProperty(Meta.PRODUCT_NAME_LC + ".aggregate.increment.size", String.valueOf(1 * 1024 * 1024)));
 
 			this.h = new HashFile(file, 1024 * 1024, true, BTREE_INCREMENT_SIZE, new HashFile.HashFunction() {
 				@Override

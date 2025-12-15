@@ -43,8 +43,10 @@ public final class Meta {
 
     private transient Map<String, Integer> mc = null;
 
+    public static final String PRODUCT_NAME = "FlintDB"; 
+    public static final String PRODUCT_NAME_LC = PRODUCT_NAME.toLowerCase();
     public static final String META_NAME_SUFFIX = ".desc";
-    public static final String TABLE_NAME_SUFFIX = ".flintdb"; 
+    public static final String TABLE_NAME_SUFFIX = ".".concat(PRODUCT_NAME_LC); 
 
     public static final String WAL_OPT_OFF = "OFF";
     public static final String WAL_OPT_TRUNCATE = "TRUNCATE";

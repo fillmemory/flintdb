@@ -67,7 +67,7 @@ public final class JdbcConfig {
      */
     private static File findConfigFile() {
         // 1. System property
-        String configPath = System.getProperty("flintdb.jdbc.config");
+        String configPath = System.getProperty(Meta.PRODUCT_NAME_LC + ".jdbc.config");
         if (configPath != null && !configPath.isEmpty()) {
             File f = new File(configPath);
             if (f.exists()) return f;

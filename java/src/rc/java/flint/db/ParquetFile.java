@@ -357,7 +357,7 @@ public final class ParquetFile implements GenericFile {
             }
             fields.add(new Field(name, nullable(fSchema), null, (Object) null));
         }
-        final Schema rec = Schema.createRecord(safeName(Meta.name(file.getName())), null, "flint.db", false);
+        final Schema rec = Schema.createRecord(safeName(Meta.name(file.getName())), null, getClass().getPackageName(), false);
         rec.setFields(fields);
         return rec;
     }
@@ -367,7 +367,7 @@ public final class ParquetFile implements GenericFile {
         for (final Column c : meta.columns()) {
             fields.add(new Field(c.name(), nullable(avroType(c)), null, (Object) null));
         }
-        final Schema rec = Schema.createRecord(safeName(meta.name()), null, "flint.db", false);
+        final Schema rec = Schema.createRecord(safeName(meta.name()), null, getClass().getPackageName(), false);
         rec.setFields(fields);
         return rec;
     }

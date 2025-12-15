@@ -1307,7 +1307,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(struct flintdb_sql *q, c
                     flintdb_meta_close(&m);
                     continue;
                 }
-                strncpy(fmt_str, "flint", sizeof(fmt_str) - 1);
+                strncpy(fmt_str, "table", sizeof(fmt_str) - 1);
                 // Acquire rows/bytes via table API
                 char *terr = NULL;
                 struct flintdb_table *t = flintdb_table_open(full, FLINTDB_RDONLY, NULL, &terr);

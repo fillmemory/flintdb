@@ -88,7 +88,7 @@ public final class SQLExec {
                     throw new DatabaseException(ErrorCode.INVALID_OPERATION, "Table path is a directory, not a file: " + table);
             }
 
-            if (fmt.equals("flintdb"))
+            if (fmt.equals(Meta.PRODUCT_NAME_LC))
                 return select(q);
             else if (fmt.equals("jdbc"))
                 return selectJDBC(q);
@@ -97,7 +97,7 @@ public final class SQLExec {
         } else if ("SELECT".equals(statement) && q.into() != null) {
             affected = selectInto(q);
         } else if (("INSERT".equals(statement) || "REPLACE".equals(statement)) && q.from() == null) {
-            if (!fmt.equals("flintdb") && !fmt.equals("jdbc"))
+            if (!fmt.equals(Meta.PRODUCT_NAME_LC) && !fmt.equals("jdbc"))
                 throw new DatabaseException(ErrorCode.INVALID_OPERATION, "INSERT operation not supported for read-only file formats: " + table);
 
             if (fmt.equals("jdbc"))
@@ -108,7 +108,7 @@ public final class SQLExec {
             affected = insertFrom(q);
 
         } else if ("UPDATE".equals(statement)) {
-            if (!fmt.equals("flintdb") && !fmt.equals("jdbc"))
+            if (!fmt.equals(Meta.PRODUCT_NAME_LC) && !fmt.equals("jdbc"))
                 throw new DatabaseException(ErrorCode.INVALID_OPERATION, "UPDATE operation not supported for read-only file formats: " + table);
             
             if (fmt.equals("jdbc"))
@@ -117,7 +117,7 @@ public final class SQLExec {
                 affected = update(q);
             
         } else if ("DELETE".equals(statement)) {
-            if (!fmt.equals("flintdb") && !fmt.equals("jdbc"))
+            if (!fmt.equals(Meta.PRODUCT_NAME_LC) && !fmt.equals("jdbc"))
                 throw new DatabaseException(ErrorCode.INVALID_OPERATION, "DELETE operation not supported for read-only file formats: " + table);
             
             if (fmt.equals("jdbc"))
@@ -134,7 +134,7 @@ public final class SQLExec {
         } else if ("DROP".equals(statement)) {
             try {
                 File file = new File(table);
-                if (fmt.equals("flintdb")) {
+                if (fmt.equals(Meta.PRODUCT_NAME_LC)) {
                     Table.drop(file);
                 } else {
                     GenericFile.drop(file);
@@ -173,7 +173,7 @@ public final class SQLExec {
         if (n.endsWith(".union"))
             return "union";
         if (n.endsWith(Meta.TABLE_NAME_SUFFIX))
-            return "flintdb";
+            return "table";
 
         String fmt = System.getProperty("FLINTDB_FILEFORMAT_GZ", "").toLowerCase();
         if (("csv".equals(fmt) || "tsv".equals(fmt) || "jsonl".equals(fmt)) && (n.endsWith(".gz") || n.endsWith(".zip")))
@@ -383,7 +383,7 @@ public final class SQLExec {
             String source = JdbcConfig.resolve(q.table());
             String sourceFmt = format(source);
             
-            if ("flintdb".equals(sourceFmt)) {
+            if (Meta.PRODUCT_NAME_LC.equals(sourceFmt)) {
                 srcResult = select(selectQuery);
             } else if ("jdbc".equals(sourceFmt)) {
                 srcResult = selectJDBC(selectQuery);
@@ -406,7 +406,7 @@ public final class SQLExec {
                 }
                 emptyMeta.columns(columns);
                 
-                if ("flintdb".equals(targetFmt)) {
+                if (Meta.PRODUCT_NAME_LC.equals(targetFmt)) {
                     // Create .desc file and empty binary table
                     emptyMeta.indexes(new Index[] {
                         new Table.PrimaryKey(new String[] { columns[0].name() })
@@ -422,7 +422,7 @@ public final class SQLExec {
             Meta sourceMeta = firstRow.meta();
             
             // Create target with source metadata
-            if ("flintdb".equals(targetFmt)) {
+            if (Meta.PRODUCT_NAME_LC.equals(targetFmt)) {
                 // Create .desc file first
                 Meta targetMeta = new Meta(targetFile.getName());
                 targetMeta.columns(sourceMeta.columns());
@@ -596,7 +596,7 @@ public final class SQLExec {
         }
         
         String targetFmt = format(targetFile);
-        if (targetFile.exists() && !"flintdb".equals(targetFmt)) {
+        if (targetFile.exists() && !Meta.PRODUCT_NAME_LC.equals(targetFmt)) {
             throw new DatabaseException(ErrorCode.INVALID_OPERATION, "INSERT ... FROM operation not supported for read-only file formats: " + target);
         }
         
@@ -614,7 +614,7 @@ public final class SQLExec {
         }
         
         // Binary tables require at least one index (primary key)
-        if ("flintdb".equals(targetFmt) && (targetMeta.indexes() == null || targetMeta.indexes().length == 0)) {
+        if (Meta.PRODUCT_NAME_LC.equals(targetFmt) && (targetMeta.indexes() == null || targetMeta.indexes().length == 0)) {
             throw new DatabaseException(ErrorCode.INVALID_OPERATION, "INSERT ... FROM requires target table to have at least one index: " + target);
         }
         
@@ -670,7 +670,7 @@ public final class SQLExec {
             // No need to check column count mismatch - it's already matched by the SELECT projection
             
             // Open target for writing
-            if ("flintdb".equals(targetFmt)) {
+            if (Meta.PRODUCT_NAME_LC.equals(targetFmt)) {
                 table = borrowTable(target);
                 
                 // Insert rows from source
@@ -1712,7 +1712,7 @@ public final class SQLExec {
                 throw new DatabaseException(ErrorCode.INVALID_OPERATION, "Table file not found: " + q.table());
 
             Meta meta;
-            if ("flintdb".equals(fmt)) {
+            if (Meta.PRODUCT_NAME_LC.equals(fmt)) {
                 try (Table table = Table.open(file, Table.OPEN_READ)) {
                     meta = table.meta();
                 }
@@ -1779,7 +1779,7 @@ public final class SQLExec {
                 throw new DatabaseException(ErrorCode.INVALID_OPERATION, "Table file not found: " + q.table());
 
             Meta meta;
-            if ("flintdb".equals(fmt)) {
+            if (Meta.PRODUCT_NAME_LC.equals(fmt)) {
                 try (Table table = Table.open(file, Table.OPEN_READ)) {
                     meta = table.meta();
                 }
@@ -1873,7 +1873,7 @@ public final class SQLExec {
             if (fmt == null) continue;
             
             // Skip if not a valid table
-            if (fmt.equals("flintdb")) {
+            if (fmt.equals(Meta.PRODUCT_NAME_LC)) {
                 File descFile = new File(file.getParentFile(), name + Meta.META_NAME_SUFFIX);
                 if (!descFile.exists()) continue;
             }
@@ -1884,7 +1884,7 @@ public final class SQLExec {
             
             // Get row count if possible
             try {
-                if (fmt.equals("flintdb")) {
+                if (fmt.equals(Meta.PRODUCT_NAME_LC)) {
                     long rowCount = Table.rows(file);
                     row.set(2, String.valueOf(rowCount));
                 } else {
@@ -2372,7 +2372,7 @@ public final class SQLExec {
             throw new DatabaseException(ErrorCode.INVALID_OPERATION, "Table already exists: " + q.table());
 
         String fmt = format(path); // Validate format
-        if (!"flintdb".equals(fmt))
+        if (!Meta.PRODUCT_NAME_LC.equals(fmt))
             throw new DatabaseException(ErrorCode.INVALID_OPERATION, "CREATE TABLE only supported for flintdb format");
 
         try (Table table = Table.open(path, q.meta())) {
