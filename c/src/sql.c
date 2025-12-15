@@ -1185,6 +1185,20 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
         return;
     }
 
+    if (equals_ic(a[0], "BEGIN")) { // BEGIN TRANSACTION <table> => table must be specified
+        if (n > 2 && equals_ic(a[1], "TRANSACTION"))
+            s_copy(q->table, sizeof(q->table), a[2]);
+        return;
+    }
+
+    if (equals_ic(a[0], "COMMIT")) {
+        return;
+    }
+
+    if (equals_ic(a[0], "ROLLBACK")) {
+        return;
+    }
+
     if (equals_ic(a[0], "DESC") || equals_ic(a[0], "META")) {
         if (n > 1)
             s_copy(q->table, sizeof(q->table), a[1]);

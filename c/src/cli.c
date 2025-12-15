@@ -178,6 +178,7 @@ static void usage(const char *progname) {
     printf("\t%s \"SHOW TABLES WHERE temp OPTION -R\"\n", CMD);
     printf("\t%s \"DESC temp/file"TABLE_NAME_SUFFIX"\"\n", CMD);
     printf("\t%s \"META temp/file"TABLE_NAME_SUFFIX"\"\n", CMD);
+    printf("\t%s \"BEGIN TRANSACTION "TABLE_NAME_SUFFIX"\"\n", CMD);
     printf("\n");
     printf("Development build: not all features are implemented yet.\n");
     printf("\n");
@@ -194,8 +195,10 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
     int head = 1;
     int rownum = 0;
     /* Declare result early to avoid uninitialized warning on THROW goto */
-    struct flintdb_sql_result*result = NULL;
+    struct flintdb_sql_result *result = NULL;
     struct bufio *bufout = NULL; // Buffered output wrapper
+    struct flintdb_sql_iterator *iter = NULL;
+    struct flintdb_transaction *transaction = NULL;
     i64 affected = 0;
 
     char buf[256]; // General purpose buffer
@@ -261,8 +264,6 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
             THROW_S(e);
     }
 
-    // Create SQL iterator - from string or file
-    struct flintdb_sql_iterator *iter;
     if (sql_file) {
         iter = sql_iterator_new_from_file(sql_file, e);
     } else {
@@ -288,7 +289,8 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
 
         // Execute SQL
         STOPWATCH_START(watch);
-        result = flintdb_sql_exec(stmt, NULL, e);
+        result = flintdb_sql_exec(stmt, transaction, e);
+        transaction = result->transaction; // keep transaction for next statement if any
         time_dur(time_elapsed(&watch), time_buf, sizeof(time_buf));
 
         FREE(stmt); // Free statement after execution
@@ -430,8 +432,6 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
         stmt_idx++;
     } // end while loop
 
-    sql_iterator_free(iter);
-
     if (has_error) {
         affected = -1;
     } else {
@@ -440,19 +440,27 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
 
     // LOG("Total affected rows: %lld", (long long)total_affected);
 DONE:
+    if (transaction) 
+        transaction->close(transaction);
+    if (iter)
+        sql_iterator_free(iter);
     if (result)
         result->close(result);
-    if (bufout) {
+    if (bufout) 
         bufout->close(bufout); // flush and close
-    }
+
     return affected;
 
 EXCEPTION:
+    if (transaction) 
+        transaction->close(transaction);
+    if (iter)
+        sql_iterator_free(iter);
     if (result)
         result->close(result);
-    if (bufout) {
+    if (bufout) 
         bufout->close(bufout); // flush and close
-    }
+    
     return -1;
 }
 

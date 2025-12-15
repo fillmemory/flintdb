@@ -248,6 +248,23 @@ static void tx_rollback(struct flintdb_transaction *me, char **e) {
     TABLE_UNLOCK(&p->tpriv->lock);
 }
 
+static i8 tx_validate(struct flintdb_transaction *me, struct flintdb_table *t, char **e) {
+    if (!me || !me->priv) {
+        if (e) *e = "transaction is null";
+        return 0;
+    }
+    struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
+    if (p->done) {
+        if (e) *e = "transaction already finished";
+        return 0;
+    }
+    if (p->table != t) {
+        if (e) *e = "transaction does not belong to the specified table";
+        return 0;
+    }
+    return 1;
+}
+
 static void tx_close(struct flintdb_transaction *me) {
     if (!me) return;
     if (me->priv) {
@@ -1051,19 +1068,13 @@ static void table_close(struct flintdb_table *me) {
 
 
 struct flintdb_transaction * flintdb_transaction_begin(struct flintdb_table *table, char **e) {
-    if (!table || !table->priv) {
-        THROW(e, "table is null");
-    }
+    if (!table || !table->priv) THROW(e, "table is null"); 
 
     struct flintdb_table_priv *tpriv = (struct flintdb_table_priv*)table->priv;
-    if (!tpriv->wal) {
-        THROW(e, "WAL is not initialized");
-    }
+    if (!tpriv->wal) THROW(e, "WAL is not initialized");
 
     struct flintdb_transaction *tx = (struct flintdb_transaction*)CALLOC(1, sizeof(struct flintdb_transaction));
-    if (!tx) {
-        THROW(e, "Out of memory");
-    }
+    if (!tx) THROW(e, "Out of memory");
     struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)CALLOC(1, sizeof(struct flintdb_transaction_priv));
     if (!p) {
         FREE(tx);
@@ -1101,6 +1112,7 @@ struct flintdb_transaction * flintdb_transaction_begin(struct flintdb_table *tab
     tx->commit = tx_commit;
     tx->rollback = tx_rollback;
     tx->close = tx_close;
+    tx->validate = tx_validate;
     tx->priv = p;
     return tx;
 

@@ -94,13 +94,16 @@ void sql_exec_cleanup() {
  */
 
 // Forward declarations for functions referenced by sql_exec
-static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_begin_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static struct flintdb_sql_result * sql_exec_commit_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static struct flintdb_sql_result * sql_exec_rollback_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
 static struct flintdb_sql_result * sql_exec_gf_select(struct flintdb_sql *q, char **e);
-static int sql_exec_insert(struct flintdb_sql *q, char **e);
-static int sql_exec_update(struct flintdb_sql *q, char **e);
-static int sql_exec_delete(struct flintdb_sql *q, char **e);
-static int sql_exec_insert_from(struct flintdb_sql *q, char **e);
-static int sql_exec_select_into(struct flintdb_sql *q, char **e);
+static int sql_exec_insert(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static int sql_exec_update(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static int sql_exec_delete(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static int sql_exec_select_into(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
 static int sql_exec_create(struct flintdb_sql *q, char **e);
 static int sql_exec_drop(struct flintdb_sql *q, char **e);
 static int sql_exec_alter(struct flintdb_sql *q, char **e);
@@ -333,11 +336,6 @@ static void sql_result_close(struct flintdb_sql_result*me) {
     if (me->row_cursor && me->row_cursor->close) {
         me->row_cursor->close(me->row_cursor);
     }
-
-    // if (me->meta) {
-    //     meta_free(me->meta);
-    // }
-
     if (me->column_names) {
         for (int i = 0; i < me->column_count; i++) {
             if (me->column_names[i]) {
@@ -346,7 +344,6 @@ static void sql_result_close(struct flintdb_sql_result*me) {
         }
         FREE(me->column_names);
     }
-
     FREE(me);
 }
 
@@ -366,7 +363,7 @@ static inline void sql_exec_indexable_where(const struct flintdb_meta *meta, str
 }
 
 // SQL execution entry point
-struct flintdb_sql_result * flintdb_sql_exec(const char *sql, void *reserved, char **e) {
+struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flintdb_transaction *transaction, char **e) {
     struct flintdb_sql *q = NULL;
 
     if (sql == NULL || strlen(sql) == 0)
@@ -393,24 +390,24 @@ struct flintdb_sql_result * flintdb_sql_exec(const char *sql, void *reserved, ch
     i64 affected = 0;
     if (strncasecmp(q->statement, "SELECT", 6) == 0 && strempty(q->into)) {
         if (FORMAT_BIN == fmt)
-            return sql_exec_select(q, e);
+            return sql_exec_select(q, (struct flintdb_transaction *)transaction, e);
         return sql_exec_gf_select(q, e);
     } else if (strncasecmp(q->statement, "SELECT", 6) == 0 && !strempty(q->into)) {
-        affected = sql_exec_select_into(q, e);
+        affected = sql_exec_select_into(q, (struct flintdb_transaction *)transaction, e);
     } else if ((strncasecmp(q->statement, "INSERT", 6) == 0 || strncasecmp(q->statement, "REPLACE", 7) == 0) && strempty(q->from)) {
         if (FORMAT_BIN != fmt)
             THROW(e, "INSERT operation not supported for read-only file formats, %s", q->table);
-        affected = sql_exec_insert(q, e);
+        affected = sql_exec_insert(q, (struct flintdb_transaction *)transaction, e);
     } else if ((strncasecmp(q->statement, "INSERT", 6) == 0 || strncasecmp(q->statement, "REPLACE", 7) == 0) && !strempty(q->from)) {
-        affected = sql_exec_insert_from(q, e);
+        affected = sql_exec_insert_from(q, (struct flintdb_transaction *)transaction, e);
     } else if (strncasecmp(q->statement, "UPDATE", 6) == 0) {
         if (FORMAT_BIN != fmt)
             THROW(e, "UPDATE operation not supported for read-only file formats, %s", q->table);
-        affected = sql_exec_update(q, e);
+        affected = sql_exec_update(q, (struct flintdb_transaction *)transaction, e);
     } else if (strncasecmp(q->statement, "DELETE", 6) == 0) {
         if (FORMAT_BIN != fmt)
             THROW(e, "DELETE operation not supported for read-only file formats, %s", q->table);
-        affected = sql_exec_delete(q, e);
+        affected = sql_exec_delete(q, (struct flintdb_transaction *)transaction, e);
     } else if (strncasecmp(q->statement, "CREATE", 6) == 0) {
         affected = sql_exec_create(q, e);
     } else if (strncasecmp(q->statement, "ALTER", 5) == 0) {
@@ -423,6 +420,12 @@ struct flintdb_sql_result * flintdb_sql_exec(const char *sql, void *reserved, ch
         return sql_exec_describe(q, e);
     } else if (strncasecmp(q->statement, "META", 4) == 0) {
         return sql_exec_meta(q, e);
+    } else if (strncasecmp(q->statement, "BEGIN", 17) == 0) {
+        return sql_exec_begin_transaction(q, (struct flintdb_transaction *)transaction, e);
+    } else if (strncasecmp(q->statement, "COMMIT", 6) == 0) {
+        return sql_exec_commit_transaction(q, (struct flintdb_transaction *)transaction, e);
+    } else if (strncasecmp(q->statement, "ROLLBACK", 8) == 0) {
+        return sql_exec_rollback_transaction(q, (struct flintdb_transaction *)transaction, e);
     } else {
         THROW(e, "Unsupported SQL statement: %s", q->statement);
     }
@@ -440,7 +443,7 @@ EXCEPTION:
     return NULL;
 }
 
-static int sql_exec_insert(struct flintdb_sql *q, char **e) {
+static int sql_exec_insert(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_table *table = NULL;
     struct flintdb_row *r = NULL;
     i8 upsert = strncasecmp(q->statement, "REPLACE", 7) == 0 ? 1 : 0; // 0=insert only, 1=insert or update
@@ -514,7 +517,7 @@ EXCEPTION:
     return -1;
 }
 
-static int sql_exec_update(struct flintdb_sql *q, char **e) {
+static int sql_exec_update(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_table *table = NULL;
     struct flintdb_cursor_i64 *cursor = NULL;
     struct flintdb_row *r = NULL;
@@ -587,7 +590,7 @@ EXCEPTION:
     return -1;
 }
 
-static int sql_exec_delete(struct flintdb_sql *q, char **e) {
+static int sql_exec_delete(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_table *table = NULL;
     struct flintdb_cursor_i64 *cursor = NULL;
     int affected = 0;
@@ -626,7 +629,7 @@ EXCEPTION:
     return -1;
 }
 
-static int sql_exec_insert_from(struct flintdb_sql *q, char **e) {
+static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     int affected = 0;
     struct flintdb_meta meta = { .priv = NULL, };
     struct flintdb_table *table = NULL;
@@ -849,7 +852,7 @@ EXCEPTION:
     return -1;
 }
 
-static int sql_exec_select_into(struct flintdb_sql *q, char **e) {
+static int sql_exec_select_into(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     // TODO: Implement SELECT ... INTO functionality
     THROW(e, "SELECT ... INTO not yet implemented, use INSERT ... FROM instead");
 EXCEPTION:
@@ -2322,7 +2325,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_cursor_i64 *cr = NULL;
     struct flintdb_cursor_row *c = NULL;
@@ -3424,5 +3427,66 @@ EXCEPTION:
         sorter->close(sorter);
     if (cr)
         cr->close(cr);
+    return NULL;
+}
+
+
+static struct flintdb_sql_result * sql_exec_begin_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+    struct flintdb_table *table = NULL;
+    struct flintdb_sql_result *result = NULL;
+
+    if (t) t->close(t); // close existing transaction if any
+    if (strempty(q->table)) THROW(e, "Table name required for BEGIN TRANSACTION");
+
+    table = sql_exec_table_borrow(q->table, e);
+    if (!table) THROW_S(e);
+
+    // TODO: must pass => (transaction->priv->table == table)
+
+    result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
+    if (!result) THROW(e, "Out of memory");
+
+    result->affected = 1; // indicate success
+    result->close = sql_result_close;
+    result->transaction = flintdb_transaction_begin(table, e);
+    if (e && *e) THROW_S(e);
+    
+    return result;
+EXCEPTION:
+    if (result) FREE(result);
+    return NULL;
+}
+
+static struct flintdb_sql_result * sql_exec_commit_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+    struct flintdb_sql_result *result = NULL;
+
+    result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
+    if (!result)  THROW(e, "Out of memory");
+
+    t->commit(t, e);
+    t->close(t);
+    result->affected = (e && *e) ? 0 : 1; // indicate success or failure
+    result->close = sql_result_close;
+    return result;
+
+EXCEPTION:
+    if (result) FREE(result);
+    return NULL;
+}
+
+static struct flintdb_sql_result * sql_exec_rollback_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+    struct flintdb_sql_result *result = NULL;
+
+    result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
+    if (!result) THROW(e, "Out of memory");
+
+    t->rollback(t, e);
+    t->close(t);
+    result->affected = (e && *e) ? 0 : 1; // indicate success or failure
+    result->close = sql_result_close;
+    return result;
+
+EXCEPTION:
+    if (result) FREE(result);
     return NULL;
 }

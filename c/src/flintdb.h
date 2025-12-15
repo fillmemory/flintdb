@@ -389,6 +389,8 @@ struct flintdb_table {
 // - apply/apply_at/delete_at perform multiple operations inside the same tx
 // - commit()/rollback() end the WAL tx and release the table lock
 // - close() rolls back if not committed, releases lock, and frees the tx object
+// - validate() checks if the transaction can be applied to the given table (schema compatibility)
+//
 struct flintdb_transaction {
     i64 (*id)(const struct flintdb_transaction *me);
     i64 (*apply)(struct flintdb_transaction *me, struct flintdb_row *r, i8 upsert, char **e);
@@ -396,6 +398,7 @@ struct flintdb_transaction {
     i64 (*delete_at)(struct flintdb_transaction *me, i64 rowid, char **e);
     void (*commit)(struct flintdb_transaction *me, char **e);
     void (*rollback)(struct flintdb_transaction *me, char **e);
+    i8 (*validate)(struct flintdb_transaction *me, struct flintdb_table *t, char **e);
     void (*close)(struct flintdb_transaction *me);
     void *priv; // private data
 };
@@ -515,7 +518,7 @@ FLINTDB_API struct flintdb_aggregate_groupkey * flintdb_groupkey_from_row(struct
 
 // SQL execution result structure
 
-struct flintdb_sql_result{
+struct flintdb_sql_result {
     i64 affected;
 
     // struct flintdb_meta *meta;    
@@ -523,10 +526,12 @@ struct flintdb_sql_result{
     int column_count;     
     struct flintdb_cursor_row *row_cursor;
 
-    void (*close)(struct flintdb_sql_result*me);
+    struct flintdb_transaction *transaction; // if non-NULL, the transaction must be closed by the caller after use
+
+    void (*close)(struct flintdb_sql_result *me);
 };
 
-FLINTDB_API struct flintdb_sql_result* flintdb_sql_exec(const char *sql, void *reserved, char **e);
+FLINTDB_API struct flintdb_sql_result* flintdb_sql_exec(const char *sql, const struct flintdb_transaction *transaction, char **e);
 
 // SQL parsing structure and operations
 struct flintdb_sql; // forward declaration
