@@ -1,8 +1,5 @@
 /**
- * FlintDB Command Line Interface (C Implementation)
- * Provides command-line access to FlintDB functionality including SQL operations,
- * data export/import, and table management.
- *
+ * Command Line Interface for FlintDB
  */
 
 // Include standard headers first (before any project headers)
@@ -21,6 +18,10 @@
 
 #ifndef VERSION
 #define VERSION "0.0.1"
+#endif
+
+#ifndef PRODUCT_NAME
+#define PRODUCT_NAME "FlintDB"
 #endif
 
 #ifndef BUILD_TIME
@@ -107,7 +108,7 @@ static void pretty_table_print(struct pretty_table *table, struct bufio *bufout,
 extern int webui_run(int argc, char **argv, char **e); // in webui.c
 
 /**
- * Main entry point for the FlintDB CLI application
+ * Main entry point for the CLI application
  */
 int main(int argc, char *argv[]) {
     char *e = NULL;
@@ -150,7 +151,7 @@ int main(int argc, char *argv[]) {
  * Display usage information
  */
 static void usage(const char *progname) {
-    const char *CMD = progname ? progname : "./bin/flintdb";
+    const char *CMD = progname ? progname : "./bin/db";
     printf("Usage: \"%s\" [options]\n\n", CMD);
     printf(" options:\n");
     printf(" \t<SQL>     \tSELECT|INSERT|DELETE|UPDATE|DESC|META|SHOW\n");
@@ -165,18 +166,18 @@ static void usage(const char *progname) {
     printf(" \t-version \tshow version information\n");
     printf(" \t-help     \tshow this help\n\n");
     printf(" examples:\n");
-    printf("\t%s \"SELECT * FROM temp/tpch_lineitem.flintdb USE INDEX(PRIMARY DESC) WHERE l_orderkey > 1 LIMIT 0, 10\" -rownum -pretty\n", CMD);
+    printf("\t%s \"SELECT * FROM temp/tpch_lineitem"TABLE_NAME_SUFFIX" USE INDEX(PRIMARY DESC) WHERE l_orderkey > 1 LIMIT 0, 10\" -rownum -pretty\n", CMD);
     printf("\t%s \"SELECT * FROM temåp/tpch_lineitem.tsv.gz WHERE l_orderkey > 1 LIMIT 0, 10\"\n", CMD);
-    printf("\t%s \"SELECT * FROM temp/file.flintdb INTO temp/output.tsv.gz\"\n", CMD);
-    printf("\t%s \"SELECT * FROM temp/file.flintdb INTO temp/output.csv.gz\"\n", CMD);
-    printf("\t%s \"INSERT INTO temp/file.flintdb FROM temp/input.tsv.gz\"\n", CMD);
-    printf("\t%s \"REPLACE INTO temp/file.flintdb FROM temp/input.tsv.gz\"\n", CMD);
-    printf("\t%s \"UPDATE temp/file.flintdb SET B = 'abc', C = 2 WHERE A = 1\"\n", CMD);
-    printf("\t%s \"DELETE FROM temp/file.flintdb WHERE A = 1\"\n", CMD);
+    printf("\t%s \"SELECT * FROM temp/file"TABLE_NAME_SUFFIX" INTO temp/output.tsv.gz\"\n", CMD);
+    printf("\t%s \"SELECT * FROM temp/file"TABLE_NAME_SUFFIX" INTO temp/output.csv.gz\"\n", CMD);
+    printf("\t%s \"INSERT INTO temp/file"TABLE_NAME_SUFFIX" FROM temp/input.tsv.gz\"\n", CMD);
+    printf("\t%s \"REPLACE INTO temp/file"TABLE_NAME_SUFFIX" FROM temp/input.tsv.gz\"\n", CMD);
+    printf("\t%s \"UPDATE temp/file"TABLE_NAME_SUFFIX" SET B = 'abc', C = 2 WHERE A = 1\"\n", CMD);
+    printf("\t%s \"DELETE FROM temp/file"TABLE_NAME_SUFFIX" WHERE A = 1\"\n", CMD);
     printf("\t%s \"SHOW TABLES WHERE temp\"\n", CMD);
     printf("\t%s \"SHOW TABLES WHERE temp OPTION -R\"\n", CMD);
-    printf("\t%s \"DESC temp/file.flintdb\"\n", CMD);
-    printf("\t%s \"META temp/file.flintdb\"\n", CMD);
+    printf("\t%s \"DESC temp/file"TABLE_NAME_SUFFIX"\"\n", CMD);
+    printf("\t%s \"META temp/file"TABLE_NAME_SUFFIX"\"\n", CMD);
     printf("\n");
     printf("Development build: not all features are implemented yet.\n");
     printf("\n");
@@ -208,7 +209,7 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
             usage(argv[0]);
             return 0;
         } else if (strcmp(s, "-version") == 0) {
-            printf("FlintDB version %s (build: %s)\n", VERSION, BUILD_TIME);
+            printf("%s version %s (build: %s)\n", PRODUCT_NAME, VERSION, BUILD_TIME);
             return 0;
         } else if (strcmp(s, "-pretty") == 0) {
             pretty = 1;

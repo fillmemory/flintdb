@@ -322,7 +322,7 @@
 							$icon.innerHTML = "📄"; // 텍스트 파일 아이콘
 							$icon.className += " text-format";
 							$icon.title = "Text Format (" + tableFormat + ")";
-						} else if (isFlintFormat) {
+						} else if (isTableFormat) {
 							$icon.innerHTML = "🗂️"; // 바이너리 데이터베이스 아이콘  
 							$icon.className += " flint-format";
 							$icon.title = "Lite Format (" + tableFormat + ")";
@@ -411,7 +411,7 @@
 		);
 		var isTableFormat = tableFormat && tableFormat.includes("table");
 		
-		if (isTextFormat || isFlintFormat) {
+		if (isTextFormat || isTableFormat) {
 			// DESC 메뉴 항목
 			var $descItem = document.createElement("div");
 			$descItem.className = "menu-item";
@@ -425,7 +425,7 @@
 			$menu.appendChild($descItem);
 		}
 		
-		if (isTextFormat || isFlintFormat) {
+		if (isTextFormat || isTableFormat) {
 			// META 메뉴 항목
 			var $metaItem = document.createElement("div");
 			$metaItem.className = "menu-item";

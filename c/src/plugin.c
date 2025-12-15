@@ -91,12 +91,12 @@ struct plugin_handle *plugin_load(const char *plugin_path, char **e) {
     
     // Find plugin_interface symbol
     struct plugin_interface *(*get_interface)(void) = 
-        (struct plugin_interface *(*)(void))dlsym(handle->dl_handle, "FLINTDB_PLUGIN_interface");
+        (struct plugin_interface *(*)(void))dlsym(handle->dl_handle, "FlintDB_plugin_interface");
     
     if (!get_interface) {
         dlclose(handle->dl_handle);
         FREE(handle);
-        THROW(e, "Plugin '%s' does not export 'FLINTDB_PLUGIN_interface' symbol", plugin_path);
+        THROW(e, "Plugin '%s' does not export 'FlintDB_plugin_interface' symbol", plugin_path);
     }
     
     handle->iface = get_interface();

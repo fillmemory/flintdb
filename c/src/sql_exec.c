@@ -267,7 +267,7 @@ static void pool_close_shim(struct flintdb_table *me) {
     TABLE_POOL_UNLOCK(&g_table_pool.lock);
 }
 
-// Open a flintdb table using pool (FLINTDB_RDWR). Returned table->close returns to pool.
+// Open a table using pool (RDWR). Returned table->close returns to pool.
 static struct flintdb_table * sql_exec_table_borrow(const char *file, char **e) {
     table_pool_init();
     if (!file || !*file) {
@@ -315,7 +315,7 @@ EXCEPTION:
     return NULL;
 }
 #else
-// Open a flintdb table without pooling (FLINTDB_RDWR).
+// Open a table without pooling (FLINTDB_RDWR).
 static struct flintdb_table * sql_exec_table_borrow(const char *file, char **e) {
     struct flintdb_table *t = flintdb_table_open(file, FLINTDB_RDWR, NULL, e);
     if (e && *e)

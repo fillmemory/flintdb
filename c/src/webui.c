@@ -1,9 +1,6 @@
 /**
- * webui.c - Minimal HTTP interface for FlintDB
+ * webui.c - Minimal HTTP interface
  * Inspired by java/src/webui/.../WebUI.java
- * 
- * Usage:
- * nohup ./bin/flintdb webui -port=3334 > webui.log 2>&1 &
  * 
  * Features:
  *  - GET /      -> serve webui.html (fallback to embedded HTML)

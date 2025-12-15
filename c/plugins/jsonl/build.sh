@@ -32,9 +32,9 @@ make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
 # Copy plugin to lib directory
 mkdir -p ../../lib
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    cp libFlintDB_*.dylib ../../lib/ 2>/dev/null || true
+    cp libflintdb_*.dylib ../../lib/ 2>/dev/null || true
 else
-    cp libFlintDB_*.so ../../lib/ 2>/dev/null || true
+    cp libflintdb_*.so ../../lib/ 2>/dev/null || true
 fi
 
 make clean
@@ -44,9 +44,9 @@ echo "Build successful!"
 echo ""
 echo "Plugin location:"
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    echo "  $(pwd)/../../lib/libFlintDB_jsonl.dylib"
+    echo "  $(pwd)/../../lib/libflintdb_jsonl.dylib"
 else
-    echo "  $(pwd)/../../lib/libFlintDB_jsonl.so"
+    echo "  $(pwd)/../../lib/libflintdb_jsonl.so"
 fi
 echo ""
-echo "The plugin will be automatically loaded by FlintDB when accessing .parquet files"
+echo "The plugin will be automatically loaded by flintdb when accessing .jsonl files"

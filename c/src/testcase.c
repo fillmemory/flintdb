@@ -366,7 +366,7 @@ int main(int argc, char **argv) {
     int max = 2 * 1024 * 1024;
     // int max = 1_000_000; --- IGNORE ---
     for (int i = 0; i < max; i++) {
-        sprintf(str, "Hello, FlintDB! %03d", i + 1);
+        sprintf(str, "Hello, %s! %03d", PRODUCT_NAME, i + 1);
         buffer_wrap(str, strlen(str), &bb);
         s.write(&s, &bb, &e);
     }
@@ -519,10 +519,10 @@ int main(int argc, char **argv) {
     struct flintdb_table *tbl = NULL;
     struct flintdb_transaction *tx = NULL;
 
-    const char *tablename = "temp/tx_test.flintdb";
-    const char *walname = "temp/tx_test.flintdb.wal";
-
-    struct flintdb_meta mt = flintdb_meta_new("tx_test.flintdb", &e);
+    const char *tablename = "temp/tx_test"TABLE_NAME_SUFFIX;
+    const char *walname = "temp/tx_test"TABLE_NAME_SUFFIX".wal";
+    
+    struct flintdb_meta mt = flintdb_meta_new("tx_test"TABLE_NAME_SUFFIX, &e);
     // NOTE: meta.wal is empty by default, which disables WAL (WAL_NONE).
     // For this testcase, we need WAL enabled so rollback is meaningful.
     strncpy(mt.wal, WAL_OPT_LOG, sizeof(mt.wal) - 1);
@@ -1179,7 +1179,7 @@ int main(int argc, char **argv) {
 
 int main(int argc, char **argv) {
     char *e = NULL;
-    struct flintdb_meta mt = flintdb_meta_new("customer.flintdb", &e);
+    struct flintdb_meta mt = flintdb_meta_new("customer"TABLE_NAME_SUFFIX, &e);
     flintdb_meta_columns_add(&mt, "customer_id", VARIANT_INT64, 0, 0, SPEC_NULLABLE, "0", "int64 primary key", &e);
     flintdb_meta_columns_add(&mt, "customer_name", VARIANT_STRING, 255, 0, SPEC_NULLABLE, "0", "", &e);
     if (e || *e)
@@ -1212,9 +1212,9 @@ EXCEPTION:
 
 int main(int argc, char **argv) {
     char *e = NULL;
-    const char *tablename = "temp/customer.flintdb";
+    const char *tablename = "temp/customer"TABLE_NAME_SUFFIX;
 
-    struct flintdb_meta mt = flintdb_meta_new("customer.flintdb", &e);
+    struct flintdb_meta mt = flintdb_meta_new("customer"TABLE_NAME_SUFFIX, &e);
     flintdb_meta_columns_add(&mt, "customer_id", VARIANT_INT64, 0, 0, SPEC_NULLABLE, "0", "int64 primary key", &e);
     flintdb_meta_columns_add(&mt, "customer_name", VARIANT_STRING, 255, 0, SPEC_NULLABLE, "0", "", &e);
 
@@ -1518,9 +1518,9 @@ int main(int argc, char **argv) {
     char *e = NULL;
     struct flintdb_table *tbl = NULL;
 
-    const char *tablename = "temp/customer.flintdb";
+    const char *tablename = "temp/customer"TABLE_NAME_SUFFIX;
 
-    struct flintdb_meta mt = flintdb_meta_new("customer.flintdb", &e);
+    struct flintdb_meta mt = flintdb_meta_new("customer"TABLE_NAME_SUFFIX, &e);
     flintdb_meta_columns_add(&mt, "customer_id", VARIANT_INT64, 0, 0, SPEC_NULLABLE, "0", "int64 primary key", &e);
     flintdb_meta_columns_add(&mt, "customer_name", VARIANT_STRING, 255, 0, SPEC_NULLABLE, "0", "", &e);
 
@@ -1604,7 +1604,7 @@ EXCEPTION:
 // ./testcase.sh TESTCASE_TABLE_FIND
 int main(int argc, char **argv) {
     char *e = NULL;
-    const char *tablename = "temp/customer.flintdb";
+    const char *tablename = "temp/customer"TABLE_NAME_SUFFIX;
     struct flintdb_table *tbl = flintdb_table_open(tablename, FLINTDB_RDONLY, NULL, &e);
     if (e)
         THROW_S(e);
@@ -3694,7 +3694,6 @@ int main(int argc, char **argv) {
 
 #ifdef TESTCASE_FLINTDB_TPCH_LINEITEM_WRITE
 // ./testcase.sh TESTCASE_FLINTDB_TPCH_LINEITEM_WRITE
-// 검증: ../java/bin/flintdb "SELECT l_orderkey, l_partkey, l_suppkey, l_linenumber FROM ../c/temp/c/tpch_lineitem.flintdb LIMIT 3" -pretty
 
 int main(int argc, char **argv) {
     char *e = NULL;
@@ -3737,9 +3736,9 @@ int main(int argc, char **argv) {
         THROW_S(e);
     flintdb_sql_free(q);
 
-    flintdb_table_drop("../c/temp/c/tpch_lineitem.flintdb", &e);
+    flintdb_table_drop("../c/temp/c/tpch_lineitem"TABLE_NAME_SUFFIX, &e);
 
-    t = flintdb_table_open("../c/temp/c/tpch_lineitem.flintdb", FLINTDB_RDWR, &meta, &e);
+    t = flintdb_table_open("../c/temp/c/tpch_lineitem"TABLE_NAME_SUFFIX, FLINTDB_RDWR, &meta, &e);
     if (e || !t)
         THROW(&e, "table_open failed: %s", e ? e : "unknown error");
 
@@ -3836,7 +3835,7 @@ int main(int argc, char **argv) {
 
     struct flintdb_table *t = NULL;
 
-    t = flintdb_table_open("../c/temp/c/tpch_lineitem.flintdb", FLINTDB_RDONLY, NULL, &e);
+    t = flintdb_table_open("../c/temp/c/tpch_lineitem"TABLE_NAME_SUFFIX, FLINTDB_RDONLY, NULL, &e);
     if (e || !t)
         THROW(&e, "table_open failed: %s", e ? e : "unknown error");
 

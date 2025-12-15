@@ -13,7 +13,7 @@ CROSS_COMPILE ?= none
 
 ifeq ($(CROSS_COMPILE),mingw)
     CC = x86_64-w64-mingw32-gcc
-    TARGET = libFlintDB_jsonl.dll
+    TARGET = libflintdb_jsonl.dll
     LDFLAGS_EXTRA = -static-libgcc
     # For MinGW, you need to build or install cJSON for Windows
     # This is complex, so we'll error out for now
@@ -30,23 +30,23 @@ CJSON_INCLUDE = -I$(CJSON_HOME)/include -I../../src
 CJSON_LIBS = -L$(CJSON_HOME)/lib -lcjson
 
 # Link against main FlintDB library and zlib
-FlintDB_LIB = -L../../lib -lFlintDB
+FlintDB_LIB = -L../../lib -lflintdb
 ZLIB_LIB = -lz
 
 # macOS specific
 UNAME_S := $(shell uname -s)
 ifeq ($(CROSS_COMPILE),mingw)
     # MinGW cross-compilation
-    TARGET = libFlintDB_jsonl.dll
+    TARGET = libflintdb_jsonl.dll
     LDFLAGS += -static-libgcc
 else ifeq ($(UNAME_S),Darwin)
-    TARGET = libFlintDB_jsonl.dylib
-    LDFLAGS += -dynamiclib -install_name @rpath/libFlintDB_jsonl.dylib
+    TARGET = libflintdb_jsonl.dylib
+    LDFLAGS += -dynamiclib -install_name @rpath/libflintdb_jsonl.dylib
 	# rpath for dependencies: cJSON and the core FlintDB next to this plugin
 	LDFLAGS += -Wl,-rpath,$(CJSON_HOME)/lib -Wl,-rpath,@loader_path
 else
-    TARGET = libFlintDB_jsonl.so
-	# Use $ORIGIN so the plugin can find libFlintDB.so in the same directory
+    TARGET = libflintdb_jsonl.so
+	# Use $ORIGIN so the plugin can find libflintdb.so in the same directory
 	LDFLAGS += -Wl,-rpath=$(CJSON_HOME)/lib -Wl,-rpath,'$$ORIGIN'
 endif
 
