@@ -142,15 +142,18 @@ final class BPlusTree implements Tree {
 		cache.close();
 	}
 
+    @Override
 	public long bytes() throws IOException {
 		return storage != null ? storage.bytes() : 0;
 	}
 
+    @Override
 	public long count() throws IOException {
 		ensureMetaLoaded();
 		return count;
 	}
 
+    @Override
 	public Storage storage() {
 		return this.storage;
 	}
@@ -255,6 +258,7 @@ final class BPlusTree implements Tree {
 		 * @return
 		 * @throws IOException
 		 */
+        @SuppressWarnings("unused")
 		long max() throws IOException {
 			assert OFFSET_NULL != offset : "OFFSET_NULL";
 			final Leaf n = (Leaf) reader.get(offset);
@@ -873,6 +877,7 @@ final class BPlusTree implements Tree {
 	}
 
 	@Deprecated
+    @SuppressWarnings("unused")
 	static void PRINT_IF0(final long key, final long debug, final String fmt, final Object... argv) {
 		if (key != debug && debug != -1L)
 			return;
@@ -883,6 +888,7 @@ final class BPlusTree implements Tree {
 			System.out.println("LOG [" + key + "] : " + s);
 	}
 
+    @SuppressWarnings("unused")
 	static void STACKTRACE_IF(final long key, final long debug, final String fmt, final Object... argv) {
 		if (key != debug && debug != -1L)
 			return;
@@ -1096,6 +1102,7 @@ final class BPlusTree implements Tree {
 		}
 	}
 
+    @Override
 	public void put(final long key) throws IOException {
 		final Node root = root();
 		if (null == root) {
@@ -1110,6 +1117,7 @@ final class BPlusTree implements Tree {
 		}
 	}
 
+    @Override
 	public boolean delete(final long key) throws IOException {
 		final Node root = root();
 		if (root == null)
@@ -1531,7 +1539,7 @@ final class BPlusTree implements Tree {
 		}
 	}
 
-	private void updateKeys(final Context context, final long upkey, final long key) throws IOException {
+	private void updateKeys(final Context context, @SuppressWarnings("unused") final long upkey, final long key) throws IOException {
 		// long up = upkey;
 		for (Context ctx = context; ctx != null; ctx = ctx.p) {
 			final Internal n = ctx.n;
@@ -1660,6 +1668,7 @@ final class BPlusTree implements Tree {
 		return root == null ? null : get(key, root);
 	}
 
+    @Override
 	public Long get(final Comparable<Long> key) throws IOException {
 		final Node root = root();
 		return root == null ? null : get(key, root);
@@ -1701,6 +1710,7 @@ final class BPlusTree implements Tree {
 	 * @param sort       Filter.ASCENDING / Filter.DESCENDING
 	 * @param comparable Comparable key to search for
      */
+    @Override
 	public Cursor<Long> find(final int sort, final Comparable<Long> comparable) throws Exception {
 		final Node root = root();
         if (root == null)
@@ -1802,7 +1812,7 @@ final class BPlusTree implements Tree {
 	private static int last(final long[] a, final Comparable<Long> key) {
 		int low = 0;
 		int high = a.length - 1;
-		int cmp = 0;
+		int cmp;
 		int match = high;
 		while (low <= high) {
 			int mid = (low + high) >>> 1; // (low + high) / 2
