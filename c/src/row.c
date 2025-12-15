@@ -2479,7 +2479,7 @@ static int bin_decode(struct formatter *me, struct buffer *in, struct flintdb_ro
                 // The BIN payload is a raw byte slice (not NUL-terminated) and the input buffer
                 // is reused; referencing it would make string_get/strlen-based paths read past
                 // the field and print stray whitespace/newlines.
-                flintdb_variant_string_set(&r->array[i], (p ? p : ""), n);
+                flintdb_variant_string_set(&r->array[i], (p ? p : ""), n); // TODO: must improve efficiency
                 break;
             }
             case VARIANT_DECIMAL: {
