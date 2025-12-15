@@ -95,6 +95,6 @@ struct string_pool {
     void (*free)(struct string_pool *pool);
 };
 
-struct string_pool * string_pool_create(u32 capacity, u32 str_size);
+struct string_pool * string_pool_create(u32 capacity, u32 str_size, u32 preload);
 
 #endif // FLINTDB_BUFFER_H

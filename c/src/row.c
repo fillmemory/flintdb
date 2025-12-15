@@ -3333,7 +3333,8 @@ int formatter_init(enum fileformat format, struct flintdb_meta *meta, struct for
         // Choose capacity roughly columns*2 (+ extra) and per-string size 64KB by default
         u32 pool_cap = want + 16; // a bit of headroom
         u32 str_size = 64 * 1024; // 64KB default per string
-        priv->pool = string_pool_create(pool_cap, str_size);
+        u32 preload = (pool_cap > 4) ? (pool_cap / 2) : pool_cap; // preload half for performance
+        priv->pool = string_pool_create(pool_cap, str_size, preload);
         if (!priv->pool) {
             FREE(priv->temp_is_pool);
             FREE(priv->temp_fields);
@@ -3393,7 +3394,8 @@ int formatter_init(enum fileformat format, struct flintdb_meta *meta, struct for
 
         u32 pool_cap2 = want2 + 16;
         u32 str_size2 = 64 * 1024; // 64KB default per string
-        priv2->pool = string_pool_create(pool_cap2, str_size2);
+        u32 preload2 = (pool_cap2 > 4) ? (pool_cap2 / 2) : pool_cap2; // preload half for performance
+        priv2->pool = string_pool_create(pool_cap2, str_size2, preload2);
         if (!priv2->pool) {
             FREE(priv2->temp_is_pool);
             FREE(priv2->temp_fields);

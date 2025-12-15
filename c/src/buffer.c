@@ -541,28 +541,24 @@ struct buffer_pool_safe *buffer_pool_safe_create(u32 capacity, u32 align, u32 pr
     return safe;
 }
 
+HOT_PATH
 char *string_pool_borrow(struct string_pool *pool) {
-    if (!pool)
+    if (UNLIKELY(!pool))
         return NULL;
-    if (pool->top > 0) {
-        char *s = pool->items[--pool->top];
-        if (s)
-            s[0] = '\0';
-        return s;
+    if (LIKELY(pool->top > 0)) {
+        return pool->items[--pool->top];
     }
-    // Lazy allocate when pool is empty
+    // Lazy allocate when pool is empty (rare with preload)
     u32 sz = (pool->str_size == 0) ? 1 : pool->str_size;
     char *s = (char *)MALLOC(sz);
-    if (s)
-        s[0] = '\0';
     return s;
 }
 
+HOT_PATH
 void string_pool_return(struct string_pool *pool, char *s) {
-    if (!pool || !s)
+    if (UNLIKELY(!pool || !s))
         return;
-    if (pool->top < pool->capacity) {
-        s[0] = '\0';
+    if (LIKELY(pool->top < pool->capacity)) {
         pool->items[pool->top++] = s;
     } else {
         FREE(s);
@@ -581,7 +577,7 @@ void string_pool_free(struct string_pool *pool) {
     FREE(pool);
 }
 
-struct string_pool *string_pool_create(u32 capacity, u32 str_size) {
+struct string_pool *string_pool_create(u32 capacity, u32 str_size, u32 preload) {
     struct string_pool *pool = CALLOC(1, sizeof(struct string_pool));
     if (!pool)
         return NULL;
@@ -589,6 +585,19 @@ struct string_pool *string_pool_create(u32 capacity, u32 str_size) {
     pool->top = 0;
     pool->str_size = (str_size == 0) ? 1 : str_size;
     pool->items = CALLOC((size_t)capacity, sizeof(char *));
+    if (!pool->items) {
+        FREE(pool);
+        return NULL;
+    }
+
+    // Preload strings to avoid lazy allocation overhead
+    u32 count = (preload > capacity) ? capacity : preload;
+    for (u32 i = 0; i < count; i++) {
+        char *s = (char *)MALLOC(pool->str_size);
+        if (LIKELY(s)) {
+            pool->items[pool->top++] = s;
+        }
+    }
 
     pool->borrow = &string_pool_borrow;
     pool->return_string = &string_pool_return;

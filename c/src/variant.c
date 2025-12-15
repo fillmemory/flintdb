@@ -21,10 +21,13 @@ static const char VARIANT_EMPTY_STR[] = "";
 #ifdef VARIANT_USE_STRPOOL
 // Tunables: sized for common short strings like column values, UUID text, etc.
 #ifndef VARIANT_STRPOOL_STR_SIZE
-#define VARIANT_STRPOOL_STR_SIZE 1024u
+#define VARIANT_STRPOOL_STR_SIZE 256u
 #endif
 #ifndef VARIANT_STRPOOL_CAPACITY
-#define VARIANT_STRPOOL_CAPACITY 1024u
+#define VARIANT_STRPOOL_CAPACITY 4096u
+#endif
+#ifndef VARIANT_STRPOOL_PRELOAD
+#define VARIANT_STRPOOL_PRELOAD 2048u
 #endif
 
 // Thread-local string pool with cleanup on thread exit (POSIX pthread TLS).
@@ -40,19 +43,43 @@ static void variant__strpool_make_key(void) {
 	(void)pthread_key_create(&VARIANT_STRPOOL_KEY, variant__strpool_destroy);
 	DEBUG("Variant string pool created");
 }
+// Thread-local cached pool pointer to avoid repeated pthread_getspecific calls
+static _Thread_local struct string_pool *VARIANT_STRPOOL_CACHED = NULL;
+
 static inline struct string_pool * variant__pool(void) {
+	if (LIKELY(VARIANT_STRPOOL_CACHED != NULL)) {
+		return VARIANT_STRPOOL_CACHED;
+	}
 	(void)pthread_once(&VARIANT_STRPOOL_KEY_ONCE, variant__strpool_make_key);
 	struct string_pool *pool = (struct string_pool*)pthread_getspecific(VARIANT_STRPOOL_KEY);
 	if (!pool) {
-		pool = string_pool_create(VARIANT_STRPOOL_CAPACITY, VARIANT_STRPOOL_STR_SIZE);
+		pool = string_pool_create(VARIANT_STRPOOL_CAPACITY, VARIANT_STRPOOL_STR_SIZE, VARIANT_STRPOOL_PRELOAD);
 		(void)pthread_setspecific(VARIANT_STRPOOL_KEY, pool);
 	}
+	VARIANT_STRPOOL_CACHED = pool;
 	return pool;
 }
 
 // ownership marker: 0 = ref, 1 = malloc, 2 = pool
 #define OWNED_HEAP 1
 #define OWNED_POOL 2
+
+// Inline pool borrow for hot path performance
+static inline char *variant__pool_borrow_inline(struct string_pool *pool) {
+	if (LIKELY(pool->top > 0)) {
+		return pool->items[--pool->top];
+	}
+	return (char *)MALLOC(pool->str_size);
+}
+
+// Inline pool return for hot path performance
+static inline void variant__pool_return_inline(struct string_pool *pool, char *s) {
+	if (LIKELY(pool->top < pool->capacity)) {
+		pool->items[pool->top++] = s;
+	} else {
+		FREE(s);
+	}
+}
 
 static inline char *variant__alloc_for(u32 needed, i8 *owned_out) {
 	if (needed == 0) {
@@ -64,7 +91,7 @@ static inline char *variant__alloc_for(u32 needed, i8 *owned_out) {
 	if (bytes <= VARIANT_STRPOOL_STR_SIZE) {
 		struct string_pool *pool = variant__pool();
 		if (pool) {
-			char *p = pool->borrow(pool);
+			char *p = variant__pool_borrow_inline(pool);
 			if (p) {
 				if (owned_out) *owned_out = OWNED_POOL;
 				return p;
@@ -81,7 +108,7 @@ static inline void variant__free_owned(char *p, i8 owned) {
 	if (!p) return;
 	if (owned == OWNED_POOL) {
 		struct string_pool *pool = variant__pool();
-		if (pool) pool->return_string(pool, p);
+		if (pool) variant__pool_return_inline(pool, p);
 		else FREE(p); // very unlikely; fallback
 	} else if (owned) {
 		FREE(p);
@@ -189,62 +216,89 @@ int flintdb_variant_f64_set(struct flintdb_variant *v, f64 val) {
 	return 0;
 }
 
+HOT_PATH
 int flintdb_variant_string_set(struct flintdb_variant *v, const char *str, u32 length) {
-	if (!v) return -1;
-	// Free only if currently holding an owned buffer (STRING/BYTES/UUID/IPV6)
-	// Then, try to reuse buffer via REALLOC when possible (reduces malloc/free churn)
-	int can_reuse = (v->type == VARIANT_STRING && v->value.b.owned && v->value.b.data != NULL);
+	if (UNLIKELY(!v)) return -1;
+	
 #ifdef VARIANT_USE_STRPOOL
-	// If previous buffer was from pool and new size still fits the pool block,
-	// we can keep it without realloc.
-	if (can_reuse && v->value.b.owned == OWNED_POOL) {
-		if (length + 1u <= VARIANT_STRPOOL_STR_SIZE) {
-			v->type = VARIANT_STRING;
+	// Ultra-fast path: reuse existing pool buffer (most common case)
+	if (LIKELY(v->type == VARIANT_STRING && v->value.b.owned == OWNED_POOL)) {
+		v->value.b.length = length;
+		if (LIKELY(length)) simd_memcpy(v->value.b.data, str, length);
+		v->value.b.data[length] = '\0';
+		return 0;
+	}
+#endif
+	
+	// Empty string
+	if (UNLIKELY(length == 0)) {
+		variant_release_if_owned(v);
+		v->type = VARIANT_STRING;
+		v->value.b.length = 0;
+		v->value.b.data = (char *)VARIANT_EMPTY_STR;
+		v->value.b.owned = 0;
+		return 0;
+	}
+	
+#ifdef VARIANT_USE_STRPOOL
+	// Heap reuse for large strings
+	if (v->type == VARIANT_STRING && v->value.b.owned == OWNED_HEAP && v->value.b.data) {
+		char *buf = (char *)REALLOC(v->value.b.data, (size_t)length + 1);
+		if (LIKELY(buf)) {
 			v->value.b.length = length;
-			if (str && length) simd_memcpy(v->value.b.data, str, length);
-			v->value.b.data[length] = '\0';
+			v->value.b.data = buf;
+			simd_memcpy(buf, str, length);
+			buf[length] = '\0';
 			return 0;
 		}
-		// else: need a larger buffer; release pool memory and proceed to allocate
-		variant_release_if_owned(v);
-		can_reuse = 0;
 	}
-#endif
-	if (!can_reuse) variant_release_if_owned(v);
+	
+	// Allocate new buffer
+	variant_release_if_owned(v);
+	
+	char *buf;
+	i8 owned;
+	if (LIKELY(length <= VARIANT_STRPOOL_STR_SIZE)) {
+		struct string_pool *pool = variant__pool();
+		buf = variant__pool_borrow_inline(pool);
+		owned = OWNED_POOL;
+	} else {
+		buf = (char *)MALLOC((size_t)length + 1);
+		owned = OWNED_HEAP;
+	}
+	
+	if (UNLIKELY(!buf)) return -1;
+	
 	v->type = VARIANT_STRING;
 	v->value.b.length = length;
-    if (length == 0) {
-        // Reference shared empty string; non-owning.
-        v->value.b.data = (char *)VARIANT_EMPTY_STR;
-        v->value.b.owned = 0;
-        return 0;
-    }
-	char *buf = NULL;
-#ifdef VARIANT_USE_STRPOOL
-	if (can_reuse && v->value.b.owned == OWNED_HEAP) {
-		buf = (char *)REALLOC(v->value.b.data, (size_t)length + 1);
-	}
-	if (!buf) {
-		i8 owned = 0;
-		buf = variant__alloc_for(length, &owned);
-		if (!buf) return -1;
-		v->value.b.owned = owned;
-	} else {
-		v->value.b.owned = OWNED_HEAP;
-	}
-#else
-	if (can_reuse) {
-		buf = (char *)REALLOC(v->value.b.data, (size_t)length + 1);
-	}
-	if (!buf) {
-		buf = (char *)MALLOC((size_t)length + 1);
-		if (!buf) return -1;
-	}
-	v->value.b.owned = 1;
-#endif
-	if (str && length) simd_memcpy(buf, str, length);
-	buf[length] = '\0';
 	v->value.b.data = buf;
+	v->value.b.owned = owned;
+	simd_memcpy(buf, str, length);
+	buf[length] = '\0';
+#else
+	// Non-pool path
+	if (v->type == VARIANT_STRING && v->value.b.owned && v->value.b.data) {
+		char *buf = (char *)REALLOC(v->value.b.data, (size_t)length + 1);
+		if (LIKELY(buf)) {
+			v->value.b.length = length;
+			v->value.b.data = buf;
+			simd_memcpy(buf, str, length);
+			buf[length] = '\0';
+			return 0;
+		}
+	}
+	
+	variant_release_if_owned(v);
+	char *buf = (char *)MALLOC((size_t)length + 1);
+	if (UNLIKELY(!buf)) return -1;
+	
+	v->type = VARIANT_STRING;
+	v->value.b.length = length;
+	v->value.b.data = buf;
+	v->value.b.owned = 1;
+	simd_memcpy(buf, str, length);
+	buf[length] = '\0';
+#endif
 	return 0;
 }
 
