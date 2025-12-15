@@ -10,6 +10,7 @@ c/tutorial/zig/.zig-cache/
 c/tutorial/zig/zig-out/
 c/tutorial/go/bin/
 c/tutorial/go/pkg/
+c/tutorial/go/tutorial
 c/testcase
 java/bin/main/
 java/bin/test/
