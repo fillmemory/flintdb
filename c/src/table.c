@@ -249,20 +249,15 @@ static void tx_rollback(struct flintdb_transaction *me, char **e) {
 }
 
 static i8 tx_validate(struct flintdb_transaction *me, struct flintdb_table *t, char **e) {
-    if (!me || !me->priv) {
-        if (e) *e = "transaction is null";
-        return 0;
-    }
+    if (!me || !me->priv) THROW(e, "transaction is null");
+
     struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
-    if (p->done) {
-        if (e) *e = "transaction already finished";
-        return 0;
-    }
-    if (p->table != t) {
-        if (e) *e = "transaction does not belong to the specified table";
-        return 0;
-    }
+    if (p->done) THROW(e, "transaction already finished");
+    if (p->table != t) THROW(e, "transaction does not belong to the specified table");
     return 1;
+
+EXCEPTION:
+    return 0;
 }
 
 static void tx_close(struct flintdb_transaction *me) {

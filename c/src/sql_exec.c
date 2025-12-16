@@ -514,7 +514,14 @@ static int sql_exec_insert(struct flintdb_sql *q, struct flintdb_transaction *t,
         }
     }
 
-    i64 rowid = table->apply(table, r, upsert, e);
+    i64 rowid;
+    if (t) {
+        if (t->validate(t, table, e) != 1) THROW_S(e);
+        rowid = t->apply(t, r, upsert, e);
+        if (e && *e) THROW_S(e);
+    } else {
+        rowid = table->apply(table, r, upsert, e);
+    }
     if (e && *e) THROW_S(e);
     if (rowid < 0) THROW(e, "Failed to insert row");
 
@@ -582,8 +589,14 @@ static int sql_exec_update(struct flintdb_sql *q, struct flintdb_transaction *t,
                 THROW_S(e);
         }
 
-        table->apply_at(table, i, r, e);
-        if (e && *e) THROW_S(e);
+        if (t) {
+            if (t->validate(t, table, e) != 1) THROW_S(e);
+            t->apply_at(t, i, r, e);
+            if (e && *e) THROW_S(e);
+        } else {
+            table->apply_at(table, i, r, e);
+            if (e && *e) THROW_S(e);
+        }
         r->free(r);
         r = NULL;
         affected++;
@@ -625,7 +638,15 @@ static int sql_exec_delete(struct flintdb_sql *q, struct flintdb_transaction *t,
 
     for (i64 i; (i = cursor->next(cursor, e)) > -1;) {
         if (e && *e) THROW_S(e);
-        table->delete_at(table, i, e);
+
+        if (t) {
+            if (t->validate(t, table, e) != 1) THROW_S(e);
+            t->delete_at(t, i, e);
+            if (e && *e) THROW_S(e);
+        } else {
+            table->delete_at(table, i, e);
+        }
+
         if (e && *e) THROW_S(e);
         affected++;
     }
@@ -646,6 +667,7 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
     struct flintdb_table *table = NULL;
     struct flintdb_genericfile *gf = NULL;
     struct flintdb_sql_result*src_result = NULL;
+    struct flintdb_transaction *tx = t;
     int *col_mapping = NULL; // array to map source column indices to target column indices
     i8 upsert = strncasecmp(q->statement, "REPLACE", 7) == 0 ? 1 : 0; // 0=insert only, 1=insert or update
 
@@ -727,10 +749,12 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
     if (fmt == FORMAT_BIN) {
         table = sql_exec_table_borrow(target, e);
         if (e && *e) THROW_S(e);
-
         // Pre-allocate a reusable row for better performance
         struct flintdb_row *reuse_row = col_mapping ? NULL : flintdb_row_new((struct flintdb_meta *)&meta, e);
         if (!col_mapping && (e && *e)) THROW_S(e);
+
+        if (!tx)
+        tx = flintdb_transaction_begin(table, e);
 
         for(struct flintdb_row *r; (r = src_result->row_cursor->next(src_result->row_cursor, e)) != NULL;) {
             if (e && *e) THROW_S(e);
@@ -765,7 +789,14 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
                 copy = reuse_row;
             }
             
-            i64 rowid = table->apply(table, copy, upsert, e);
+            i64 rowid;
+            if (tx) {
+                if (tx->validate(tx, table, e) != 1) THROW_S(e);
+                rowid = tx->apply(tx, copy, upsert, e);
+            } else {
+                rowid = table->apply(table, copy, upsert, e);
+            }
+
             if (col_mapping && copy) copy->free(copy);
             if (e && *e) {
                 if (reuse_row) reuse_row->free(reuse_row);
@@ -837,14 +868,19 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
     }
 
 // Cleanup and return
-    
+    if (tx && t == NULL) {
+        tx->commit(tx, e);
+        if (e && *e) THROW_S(e);
+    }
     if (col_mapping) FREE(col_mapping);
     if (src_result) src_result->close(src_result);
     if (gf) gf->close(gf);
     if (table) table->close(table);    
     flintdb_meta_close(&meta);
     return affected;
+
 EXCEPTION:
+    if (tx && t == NULL) tx->close(tx); // auto-rollback
     if (col_mapping) FREE(col_mapping);
     if (src_result) src_result->close(src_result);
     if (gf) gf->close(gf);
