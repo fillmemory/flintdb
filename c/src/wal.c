@@ -367,11 +367,6 @@ struct dirty_page {
     char data[];                // Flexible array for page bytes
 };
 
-static void dirty_page_buffer_free(struct buffer *me) {
-    (void)me;
-    // No-op: dirty pages are owned/freed by WAL storage.
-}
-
 static void dirty_page_free(struct dirty_page *page) {
     if (!page) return;
     FREE(page);
