@@ -58,6 +58,8 @@
 #  define FLINTDB_END_DECLS
 #endif
 
+#define FLINTDB_BORROWED
+
 
 FLINTDB_BEGIN_DECLS
 
@@ -108,7 +110,7 @@ struct flintdb_cursor_row {
     // - Caller MUST NOT call row->free(row) on the returned pointer.
     // - If the caller needs to keep the row beyond that, call row->retain(row) to
     //   take an additional reference, and later call row->free(row) to release it.
-    struct flintdb_row * (*next)(struct flintdb_cursor_row *c, char **e);
+    FLINTDB_BORROWED struct flintdb_row * (*next)(struct flintdb_cursor_row *c, char **e);
     void (*close)(struct flintdb_cursor_row *c);
 };
 
@@ -381,8 +383,8 @@ struct flintdb_table {
     i64 (*delete_at)(struct flintdb_table *me, i64 rowid, char **e); // delete at rowid
     // struct flintdb_cursor_i64 * (*find)(const struct flintdb_table *me, i8 index, enum order order, struct limit limit, const struct filters *filters, char **e);
     struct flintdb_cursor_i64 * (*find)(const struct flintdb_table *me, const char *where, char **e);
-    const struct flintdb_row * (*one)(const struct flintdb_table *me, i8 index, u16 argc, const char **argv, char **e); // find one row by primary key or unique index, don't free the returned row
-    const struct flintdb_row * (*read)(struct flintdb_table *me, i64 rowid, char **e); // don't free the returned row, it's managed by the lru cache
+    FLINTDB_BORROWED const struct flintdb_row * (*one)(const struct flintdb_table *me, i8 index, u16 argc, const char **argv, char **e); // find one row by primary key or unique index, don't free the returned row
+    FLINTDB_BORROWED const struct flintdb_row * (*read)(struct flintdb_table *me, i64 rowid, char **e); // don't free the returned row, it's managed by the lru cache
     int (*read_stream)(struct flintdb_table *me, i64 rowid, struct flintdb_row *dest, char **e); // streaming read: decode into caller-owned buffer, skip cache
 
     void (*close)(struct flintdb_table *me);
