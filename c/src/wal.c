@@ -30,6 +30,12 @@
 #include <liburing.h>
 #endif
 
+// Define HANDLE for non-Windows platforms for consistent function signatures
+#ifndef _WIN32
+typedef void* HANDLE;
+#define INVALID_HANDLE_VALUE ((HANDLE)-1)
+#endif
+
 /**
  * ================================================================================
  * FlintDB Write-Ahead Log (WAL) Implementation
@@ -158,6 +164,9 @@ struct wal_impl {
     int io_uring_enabled;      // Flag to indicate if io_uring is successfully initialized
     int pending_ops;           // Number of pending I/O operations
 #endif
+#ifdef _WIN32
+    HANDLE fh;                 // Cached Windows HANDLE for fast I/O (avoids repeated _get_osfhandle calls)
+#endif
 };
 
 // Platform-specific I/O initialization and cleanup
@@ -271,7 +280,8 @@ static ssize_t wal_write_all(int fd, const void *buf, size_t len) {
 #endif
 
 // Forward declarations
-static ssize_t wal_pwrite_all(int fd, const void *buf, size_t len, off_t offset);
+static ssize_t wal_pwrite_all_fd(int fd, HANDLE fh, const void *buf, size_t len, off_t offset);
+static ssize_t wal_pread_all_fd(int fd, HANDLE fh, void *buf, size_t len, off_t offset);
 #ifndef _WIN32
 static ssize_t wal_pwritev_all(int fd, const struct iovec *iov, int iovcnt, off_t offset);
 #endif
@@ -355,21 +365,17 @@ static ssize_t wal_pwritev_macos_dispatch(struct wal_impl *impl, const struct io
 }
 #endif
 
-static ssize_t wal_pread_all(int fd, void *buf, size_t len, off_t offset) {
+static ssize_t wal_pread_all_fd(int fd, HANDLE fh, void *buf, size_t len, off_t offset) {
     char *p = (char*)buf;
     size_t remaining = len;
     off_t off = offset;
     while (remaining > 0) {
         ssize_t n;
 #if defined(_WIN32)
-    #ifdef EMULATE_PREAD_PWRITE_WIN32
-        n = (ssize_t)pread(fd, p, (u64)remaining, (u64)off);
-    #else
-        HANDLE fh = (HANDLE)(_get_osfhandle(fd));
         if (fh == INVALID_HANDLE_VALUE) return -1;
         n = (ssize_t)pread_win32(fh, p, (u64)remaining, (u64)off);
-    #endif
 #else
+        (void)fh; // unused on non-Windows
         n = pread(fd, p, remaining, off);
 #endif
         if (n < 0) {
@@ -384,24 +390,17 @@ static ssize_t wal_pread_all(int fd, void *buf, size_t len, off_t offset) {
     return (ssize_t)(len - remaining);
 }
 
-static ssize_t wal_pwrite_all(int fd, const void *buf, size_t len, off_t offset) {
+static ssize_t wal_pwrite_all_fd(int fd, HANDLE fh, const void *buf, size_t len, off_t offset) {
     const char *p = (const char*)buf;
     size_t remaining = len;
     off_t off = offset;
     while (remaining > 0) {
         ssize_t n;
 #if defined(_WIN32)
-    // Windows: prefer pwrite compatibility layer (OVERLAPPED-based) to avoid changing file offset.
-    // If EMULATE_PREAD_PWRITE_WIN32 is enabled, pwrite() is available.
-    // Otherwise fall back to pwrite_win32() using the underlying HANDLE.
-    #ifdef EMULATE_PREAD_PWRITE_WIN32
-        n = (ssize_t)pwrite(fd, p, (u64)remaining, (u64)off);
-    #else
-        HANDLE fh = (HANDLE)(_get_osfhandle(fd));
         if (fh == INVALID_HANDLE_VALUE) return -1;
         n = (ssize_t)pwrite_win32(fh, p, (u64)remaining, (u64)off);
-    #endif
 #else
+        (void)fh; // unused on non-Windows
         n = pwrite(fd, p, remaining, off);
 #endif
         if (n < 0) {
@@ -423,7 +422,7 @@ static ssize_t wal_pwritev_all(int fd, const struct iovec *iov, int iovcnt, off_
     off_t off = offset;
     for (int i = 0; i < iovcnt; i++) {
         if (iov[i].iov_len == 0) continue;
-        if (wal_pwrite_all(fd, iov[i].iov_base, iov[i].iov_len, off) < 0) return -1;
+        if (wal_pwrite_all_fd(fd, (HANDLE)0, iov[i].iov_base, iov[i].iov_len, off) < 0) return -1;
         off += (off_t)iov[i].iov_len;
     }
     return 1;
@@ -768,7 +767,11 @@ static i64 wal_recover(struct wal *me, char **e) {
     while (position < scan_end) {
         // Read record header (operation + transaction_id + checksum + fileId + offset + flags + dataSize)
         char header_buf[32];
-        ssize_t bytes_read = wal_pread_all(impl->fd, header_buf, sizeof(header_buf), position);
+#ifdef _WIN32
+        ssize_t bytes_read = wal_pread_all_fd(impl->fd, impl->fh, header_buf, sizeof(header_buf), position);
+#else
+        ssize_t bytes_read = wal_pread_all_fd(impl->fd, (HANDLE)0, header_buf, sizeof(header_buf), position);
+#endif
         if (bytes_read < 26) break; // Minimum header size
         
         u8 operation = *(u8*)(header_buf + 0);
@@ -800,7 +803,11 @@ static i64 wal_recover(struct wal *me, char **e) {
     
     while (position < scan_end) {
         char header_buf[32];
-        ssize_t bytes_read = wal_pread_all(impl->fd, header_buf, sizeof(header_buf), position);
+#ifdef _WIN32
+        ssize_t bytes_read = wal_pread_all_fd(impl->fd, impl->fh, header_buf, sizeof(header_buf), position);
+#else
+        ssize_t bytes_read = wal_pread_all_fd(impl->fd, (HANDLE)0, header_buf, sizeof(header_buf), position);
+#endif
         if (bytes_read < 26) break;
         
         u8 operation = *(u8*)(header_buf + 0);
@@ -875,7 +882,11 @@ static void wal_flush_header(struct wal_impl *impl) {
     *(i32*)(header + 44) = impl->processed_count;
     
     // Best-effort; header flush happens on checkpoint/close.
-    wal_pwrite_all(impl->fd, header, HEADER_SIZE, 0);
+#ifdef _WIN32
+    wal_pwrite_all_fd(impl->fd, impl->fh, header, HEADER_SIZE, 0);
+#else
+    wal_pwrite_all_fd(impl->fd, (HANDLE)0, header, HEADER_SIZE, 0);
+#endif
 }
 
 static void wal_flush_batch(struct wal_impl *impl, int do_sync) {
@@ -893,7 +904,11 @@ static void wal_flush_batch(struct wal_impl *impl, int do_sync) {
 #elif defined(__APPLE__)
     written = wal_pwrite_macos_dispatch(impl, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
 #else
-    written = wal_pwrite_all(impl->fd, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
+    #ifdef _WIN32
+    written = wal_pwrite_all_fd(impl->fd, impl->fh, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
+    #else
+    written = wal_pwrite_all_fd(impl->fd, (HANDLE)0, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
+    #endif
 #endif
     if (written > 0) impl->current_position += written;
 
@@ -979,16 +994,16 @@ static void wal_log(struct wal_impl *impl, u8 operation, i64 transaction_id, i32
         wal_pwritev_all(impl->fd, iov, iovcnt, (off_t)impl->current_position);
 #endif
 #else
-        // Windows: offset-based writes (wal_pwrite_all may internally lseek).
+        // Windows: offset-based writes using cached HANDLE
         off_t off = (off_t)impl->current_position;
-        wal_pwrite_all(impl->fd, header, sizeof(header), off);
+        wal_pwrite_all_fd(impl->fd, impl->fh, header, sizeof(header), off);
         off += (off_t)sizeof(header);
         if ((flags & FLAG_COMPRESSED) != 0) {
-            wal_pwrite_all(impl->fd, &compressed_size, sizeof(i32), off);
+            wal_pwrite_all_fd(impl->fd, impl->fh, &compressed_size, sizeof(i32), off);
             off += (off_t)sizeof(i32);
-            wal_pwrite_all(impl->fd, compressed_data, (size_t)compressed_size, off);
+            wal_pwrite_all_fd(impl->fd, impl->fh, compressed_data, (size_t)compressed_size, off);
         } else if ((flags & FLAG_METADATA_ONLY) == 0 && page_data && final_size > 0) {
-            wal_pwrite_all(impl->fd, page_data, (size_t)final_size, off);
+            wal_pwrite_all_fd(impl->fd, impl->fh, page_data, (size_t)final_size, off);
         }
 #endif
 
@@ -1662,6 +1677,16 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
         FREE(impl->batch_buffer);
         THROW(e, "Failed to open WAL file: %s", strerror(errno));
     }
+
+#ifdef _WIN32
+    // Cache Windows HANDLE for fast I/O (avoids repeated _get_osfhandle calls)
+    impl->fh = (HANDLE)(_get_osfhandle(impl->fd));
+    if (impl->fh == INVALID_HANDLE_VALUE) {
+        close(impl->fd);
+        FREE(impl->batch_buffer);
+        THROW(e, "Failed to get Windows HANDLE for WAL file");
+    }
+#endif
     
     // Platform-specific I/O initialization and optimization hints
 #ifdef __linux__
