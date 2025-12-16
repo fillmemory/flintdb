@@ -23,13 +23,19 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
-// Use C11 stdatomic for cross-platform spinlock
-// Works on macOS, Linux, and Windows MinGW
-#define TABLE_LOCK_T atomic_int
-#define TABLE_LOCK_INIT(lock) atomic_store_explicit(lock, 0, memory_order_relaxed)
-#define TABLE_LOCK(lock) do { int expected = 0; while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1, memory_order_acquire, memory_order_relaxed)) { expected = 0; } } while(0)
-#define TABLE_UNLOCK(lock) atomic_store_explicit(lock, 0, memory_order_release)
-#define TABLE_LOCK_DESTROY(lock) ((void)0)
+// Use pthread recursive mutex for table-level locking
+// Recursive mutex allows same thread to acquire lock multiple times (needed for transaction + operations)
+#define TABLE_LOCK_T pthread_mutex_t
+#define TABLE_LOCK_INIT(lock) do { \
+    pthread_mutexattr_t attr; \
+    pthread_mutexattr_init(&attr); \
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE); \
+    pthread_mutex_init(lock, &attr); \
+    pthread_mutexattr_destroy(&attr); \
+} while(0)
+#define TABLE_LOCK(lock) pthread_mutex_lock(lock)
+#define TABLE_UNLOCK(lock) pthread_mutex_unlock(lock)
+#define TABLE_LOCK_DESTROY(lock) pthread_mutex_destroy(lock)
 
 
 #define SIGNATURE "ITBL" // TODO: => "LOTS" (LOcal Table Storage)

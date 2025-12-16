@@ -397,6 +397,18 @@ struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flint
         return sr;
     }
 
+    // COMMIT/ROLLBACK do not require table format detection (they operate on transaction objects)
+    if (strncasecmp(q->statement, "COMMIT", 6) == 0) {
+        struct flintdb_sql_result*sr = sql_exec_commit_transaction(q, (struct flintdb_transaction *)transaction, e);
+        flintdb_sql_free(q);
+        return sr;
+    }
+    if (strncasecmp(q->statement, "ROLLBACK", 8) == 0) {
+        struct flintdb_sql_result*sr = sql_exec_rollback_transaction(q, (struct flintdb_transaction *)transaction, e);
+        flintdb_sql_free(q);
+        return sr;
+    }
+
     enum fileformat fmt = detect_file_format(q->table);
     if (FORMAT_UNKNOWN == fmt)
         THROW(e, "Unable to detect file format for table: %s", q->table);
@@ -443,10 +455,6 @@ struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flint
         return sql_exec_meta(q, e);
     } else if (strncasecmp(q->statement, "BEGIN", 17) == 0) {
         return sql_exec_begin_transaction(q, (struct flintdb_transaction *)transaction, e);
-    } else if (strncasecmp(q->statement, "COMMIT", 6) == 0) {
-        return sql_exec_commit_transaction(q, (struct flintdb_transaction *)transaction, e);
-    } else if (strncasecmp(q->statement, "ROLLBACK", 8) == 0) {
-        return sql_exec_rollback_transaction(q, (struct flintdb_transaction *)transaction, e);
     } else {
         THROW(e, "Unsupported SQL statement: %s", q->statement);
     }
@@ -455,6 +463,7 @@ struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flint
 
     struct flintdb_sql_result*result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
     result->affected = affected;
+    result->transaction = (struct flintdb_transaction *)transaction; // Preserve transaction for next statement
     result->close = sql_result_close;
     return result;
 
@@ -3553,6 +3562,8 @@ EXCEPTION:
 static struct flintdb_sql_result * sql_exec_commit_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_sql_result *result = NULL;
 
+    if (!t) THROW(e, "No active transaction to commit");
+
     result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
     if (!result)  THROW(e, "Out of memory");
 
@@ -3569,6 +3580,8 @@ EXCEPTION:
 
 static struct flintdb_sql_result * sql_exec_rollback_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_sql_result *result = NULL;
+
+    if (!t) THROW(e, "No active transaction to rollback");
 
     result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
     if (!result) THROW(e, "Out of memory");
