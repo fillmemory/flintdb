@@ -755,6 +755,8 @@ static i64 wal_recover(struct wal *me, char **e) {
     if (scan_start >= scan_end) {
         return 0; // Nothing to replay
     }
+
+    WARN("WAL Recovery: Scanning from offset %lld to %lld", scan_start, scan_end);
     
     // Track transaction states
     tx_committed = hashmap_new(256, hashmap_int_hash, hashmap_int_cmpr);
