@@ -63,6 +63,16 @@ public final class SQLExec {
         }
 
         String statement = q.statement().toUpperCase();
+        
+        // Handle transaction commands (BEGIN TRANSACTION, COMMIT, ROLLBACK)
+        if ("BEGIN".equals(statement)) {
+            return beginTransaction(q);
+        } else if ("COMMIT".equals(statement)) {
+            return commitTransaction(q);
+        } else if ("ROLLBACK".equals(statement)) {
+            return rollbackTransaction(q);
+        }
+        
         String table = q.table();
         if (table == null || table.isEmpty()) {
             throw new DatabaseException(ErrorCode.INVALID_OPERATION,"Table name is required");
@@ -172,8 +182,8 @@ public final class SQLExec {
             return "jsonl";
         if (n.endsWith(".union"))
             return "union";
-        if (n.endsWith(Meta.TABLE_NAME_SUFFIX))
-            return "table";
+        if (n.endsWith(Meta.TABLE_NAME_SUFFIX) || n.endsWith(".flintdb"))
+            return Meta.PRODUCT_NAME_LC;
 
         String fmt = System.getProperty("FLINTDB_FILEFORMAT_GZ", "").toLowerCase();
         if (("csv".equals(fmt) || "tsv".equals(fmt) || "jsonl".equals(fmt)) && (n.endsWith(".gz") || n.endsWith(".zip")))
@@ -673,6 +683,15 @@ public final class SQLExec {
             if (Meta.PRODUCT_NAME_LC.equals(targetFmt)) {
                 table = borrowTable(target);
                 
+                // Commit transaction periodically for large bulk inserts to enable WAL checkpointing
+                // This prevents WAL file from growing too large and improves performance
+                // Can be configured via FLINTDB_BULK_INSERT_COMMIT_INTERVAL environment variable
+                final int BULK_INSERT_COMMIT_INTERVAL = Integer.parseInt(
+                    System.getenv().getOrDefault("FLINTDB_BULK_INSERT_COMMIT_INTERVAL", "10000")
+                );
+                Transaction tx = table.begin();
+                int rowsInCurrentTx = 0;
+                
                 // Insert rows from source
                 final Column[] targetCols = targetMeta.columns();
                 final Object[] array = new Object[targetCols.length]; // reusable array
@@ -696,11 +715,24 @@ public final class SQLExec {
                         }
                     }
                     
-                    final long rowid = table.apply(new RowImpl(targetMeta, array), upsert);
+                    final long rowid = table.apply(new RowImpl(targetMeta, array), upsert, tx);
                     if (rowid < 0) {
                         throw new DatabaseException(ErrorCode.INTERNAL_ERROR, "Failed to insert row into target table: " + target);
                     }
                     affected++;
+                    rowsInCurrentTx++;
+                    
+                    // Periodically commit and restart transaction for bulk inserts
+                    if (rowsInCurrentTx >= BULK_INSERT_COMMIT_INTERVAL) {
+                        tx.commit();
+                        tx = table.begin();
+                        rowsInCurrentTx = 0;
+                    }
+                }
+                
+                // Commit remaining rows
+                if (tx != null) {
+                    tx.commit();
                 }
             } else {
                 // Generic file target - create it with target meta columns
@@ -2345,6 +2377,95 @@ public final class SQLExec {
         } catch (NumberFormatException e) {
             // For non-numeric strings, use hashCode for comparison
             return value.toString().hashCode();
+        }
+    }
+
+    // Transaction management - thread-local storage for active transactions
+    private static final ThreadLocal<Map<String, Transaction>> activeTransactions = 
+        ThreadLocal.withInitial(() -> new java.util.HashMap<>());
+    
+    /**
+     * BEGIN TRANSACTION <table>
+     * Start a new transaction for the specified table
+     */
+    static SQLResult beginTransaction(SQL q) throws DatabaseException {
+        String tablePath = q.table();
+        if (tablePath == null || tablePath.isEmpty()) {
+            throw new DatabaseException(ErrorCode.INVALID_OPERATION, "Table name required for BEGIN TRANSACTION");
+        }
+        
+        tablePath = JdbcConfig.resolve(tablePath);
+        
+        try {
+            Table table = borrowTable(tablePath);
+            Transaction tx = table.begin();
+            
+            // Store transaction in thread-local map
+            activeTransactions.get().put(tablePath, tx);
+            
+            returnTable(tablePath);
+            
+            return new SQLResult(1);
+        } catch (IOException e) {
+            throw new DatabaseException(ErrorCode.INTERNAL_ERROR, "Failed to begin transaction: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * COMMIT [<table>]
+     * Commit the active transaction for the specified table (or all if no table specified)
+     */
+    static SQLResult commitTransaction(SQL q) throws DatabaseException {
+        String tablePath = q.table();
+        
+        try {
+            if (tablePath != null && !tablePath.isEmpty()) {
+                // Commit specific table transaction
+                tablePath = JdbcConfig.resolve(tablePath);
+                Transaction tx = activeTransactions.get().remove(tablePath);
+                if (tx != null) {
+                    tx.commit();
+                }
+            } else {
+                // Commit all active transactions
+                for (Transaction tx : activeTransactions.get().values()) {
+                    tx.commit();
+                }
+                activeTransactions.get().clear();
+            }
+            
+            return new SQLResult(1);
+        } catch (Exception e) {
+            throw new DatabaseException(ErrorCode.INTERNAL_ERROR, "Failed to commit transaction: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * ROLLBACK [<table>]
+     * Rollback the active transaction for the specified table (or all if no table specified)
+     */
+    static SQLResult rollbackTransaction(SQL q) throws DatabaseException {
+        String tablePath = q.table();
+        
+        try {
+            if (tablePath != null && !tablePath.isEmpty()) {
+                // Rollback specific table transaction
+                tablePath = JdbcConfig.resolve(tablePath);
+                Transaction tx = activeTransactions.get().remove(tablePath);
+                if (tx != null) {
+                    tx.rollback();
+                }
+            } else {
+                // Rollback all active transactions
+                for (Transaction tx : activeTransactions.get().values()) {
+                    tx.rollback();
+                }
+                activeTransactions.get().clear();
+            }
+            
+            return new SQLResult(1);
+        } catch (Exception e) {
+            throw new DatabaseException(ErrorCode.INTERNAL_ERROR, "Failed to rollback transaction: " + e.getMessage(), e);
         }
     }
 

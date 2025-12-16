@@ -774,6 +774,31 @@ final class SQL {
 			return m;
 		}
 
+		if ("BEGIN".equalsIgnoreCase(a[0]) && a.length >= 3 && "TRANSACTION".equalsIgnoreCase(a[1])) {
+			final Map<String, String> m = new java.util.LinkedHashMap<>();
+			m.put("stmt", a[0]);
+			m.put("table", a[2]);
+			return m;
+		}
+
+		if ("COMMIT".equalsIgnoreCase(a[0])) {
+			final Map<String, String> m = new java.util.LinkedHashMap<>();
+			m.put("stmt", a[0]);
+			if (a.length >= 2) {
+				m.put("table", a[1]); // optional
+			}
+			return m;
+		}
+
+		if ("ROLLBACK".equalsIgnoreCase(a[0])) {
+			final Map<String, String> m = new java.util.LinkedHashMap<>();
+			m.put("stmt", a[0]);
+			if (a.length >= 2) {
+				m.put("table", a[1]); // optional
+			}
+			return m;
+		}
+
 		if ("SHOW".equalsIgnoreCase(a[0])) {
 			final Map<String, String> m = new java.util.LinkedHashMap<>();
 			m.put("stmt", a[0]);
