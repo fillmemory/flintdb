@@ -46,7 +46,7 @@ else
 	CFLAGS_BASE = -Wall -Wextra -I./c -I/usr/local/include -O3 -march=native -flto=auto -std=$(STD) -Wformat=0 -Wno-unused-parameter -Wno-strict-aliasing -D_GNU_SOURCE
 	LDFLAGS_BASE = -lc -lm -lpthread -lz -L/usr/local/lib -flto
 	
-	# Check for liburing on Linux (optional for io_uring support)
+	# Check for liburing on Linux (optional for async io_uring support)
 	UNAME_S := $(shell uname -s)
 	ifeq ($(UNAME_S),Linux)
 		LIBURING_EXISTS := $(shell pkg-config --exists liburing 2>/dev/null && echo yes || echo no)
@@ -54,8 +54,8 @@ else
 			CFLAGS_BASE += $(shell pkg-config --cflags liburing) -DHAVE_LIBURING
 			LDFLAGS_BASE += $(shell pkg-config --libs liburing)
 		else
-			$(warning liburing not found - WAL will use standard I/O instead of io_uring)
-			$(warning Install with: sudo apt-get install liburing-dev  or  sudo dnf install liburing-devel)
+			$(warning liburing not found - WAL will use standard synchronous I/O)
+			$(warning For async I/O performance, install: sudo apt-get install liburing-dev  or  sudo dnf install liburing-devel)
 		endif
 	endif
 endif

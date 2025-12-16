@@ -30,6 +30,8 @@
 #include <liburing.h>
 #endif
 
+
+
 #define HEADER_SIZE 4096  // Match filesystem block size for atomic writes
 #define DEFAULT_BATCH_SIZE 10000
 #define DEFAULT_BATCH_BUFFER_SIZE (4 * 1024 * 1024) // 4MB batch buffer
@@ -87,38 +89,84 @@ struct wal_impl {
 #if defined(__linux__) && defined(HAVE_LIBURING)
     struct io_uring ring;      // io_uring instance for Linux
     int io_uring_enabled;      // Flag to indicate if io_uring is successfully initialized
+    int pending_ops;           // Number of pending I/O operations
 #endif
 };
 
 // Platform-specific I/O initialization and cleanup
 #if defined(__linux__) && defined(HAVE_LIBURING)
 static int wal_io_init_linux(struct wal_impl *impl) {
-    // Initialize io_uring with queue depth of 256
-    int ret = io_uring_queue_init(256, &impl->ring, 0);
+    // Try smaller queue depths if memory lock limit is restricted
+    // Start with 64 which requires less locked memory
+    int queue_depth = 64;
+    int ret = io_uring_queue_init(queue_depth, &impl->ring, 0);
+    
+    // If that fails, try even smaller
+    if (ret == -EPERM || ret == -ENOMEM) {
+        queue_depth = 32;
+        ret = io_uring_queue_init(queue_depth, &impl->ring, 0);
+    }
+    
     if (ret < 0) {
-        WARN("Failed to initialize io_uring: %s, falling back to standard I/O", strerror(-ret));
+        WARN("Failed to initialize io_uring (queue_depth=%d): %s, falling back to standard I/O", 
+             queue_depth, strerror(-ret));
         impl->io_uring_enabled = 0;
+        impl->pending_ops = 0;
         return -1;
     }
     impl->io_uring_enabled = 1;
+    impl->pending_ops = 0;
     return 0;
 }
 
 static void wal_io_cleanup_linux(struct wal_impl *impl) {
     if (impl->io_uring_enabled) {
+        // Wait for any pending operations before cleanup
+        while (impl->pending_ops > 0) {
+            struct io_uring_cqe *cqe;
+            if (io_uring_wait_cqe(&impl->ring, &cqe) == 0) {
+                io_uring_cqe_seen(&impl->ring, cqe);
+                impl->pending_ops--;
+            } else {
+                break;
+            }
+        }
         io_uring_queue_exit(&impl->ring);
         impl->io_uring_enabled = 0;
     }
 }
+
+// Wait for all pending io_uring operations to complete
+static void wal_io_wait_pending(struct wal_impl *impl) {
+    if (!impl->io_uring_enabled || impl->pending_ops == 0) return;
+    
+    while (impl->pending_ops > 0) {
+        struct io_uring_cqe *cqe;
+        int ret = io_uring_wait_cqe(&impl->ring, &cqe);
+        if (ret < 0) {
+            WARN("io_uring_wait_cqe failed: %s", strerror(-ret));
+            break;
+        }
+        
+        if (cqe->res < 0) {
+            WARN("I/O operation failed: %s", strerror(-cqe->res));
+        }
+        
+        io_uring_cqe_seen(&impl->ring, cqe);
+        impl->pending_ops--;
+    }
+}
 #elif defined(__linux__)
 static int wal_io_init_linux(struct wal_impl *impl) {
-    // liburing not available, no initialization needed
     (void)impl;
     return 0;
 }
 
 static void wal_io_cleanup_linux(struct wal_impl *impl) {
-    // No cleanup needed without liburing
+    (void)impl;
+}
+
+static void wal_io_wait_pending(struct wal_impl *impl) {
     (void)impl;
 }
 #endif
@@ -163,63 +211,56 @@ static ssize_t wal_pwritev_all(int fd, const struct iovec *iov, int iovcnt, off_
 
 // Platform-optimized write functions
 #if defined(__linux__) && defined(HAVE_LIBURING)
+// Async io_uring write: prepare SQE only, submit later in batch
 static ssize_t wal_pwrite_linux_io_uring(struct wal_impl *impl, const void *buf, size_t len, off_t offset) {
     if (!impl->io_uring_enabled) {
-        // Fallback to standard pwrite
         return pwrite(impl->fd, buf, len, offset);
     }
     
     struct io_uring_sqe *sqe = io_uring_get_sqe(&impl->ring);
     if (!sqe) {
-        // Queue is full, submit and retry
-        io_uring_submit(&impl->ring);
+        // Queue full, submit what we have and wait
+        int ret = io_uring_submit(&impl->ring);
+        if (ret > 0) impl->pending_ops += ret;
+        wal_io_wait_pending(impl);
         sqe = io_uring_get_sqe(&impl->ring);
         if (!sqe) return -1;
     }
     
     io_uring_prep_write(sqe, impl->fd, buf, len, offset);
-    sqe->user_data = (uintptr_t)buf;
+    sqe->user_data = 0;
     
-    int ret = io_uring_submit(&impl->ring);
-    if (ret < 0) return ret;
+    // DON'T submit here - let it accumulate for batch submit
+    // pending_ops will be incremented when we actually submit
     
-    struct io_uring_cqe *cqe;
-    ret = io_uring_wait_cqe(&impl->ring, &cqe);
-    if (ret < 0) return ret;
-    
-    ssize_t result = cqe->res;
-    io_uring_cqe_seen(&impl->ring, cqe);
-    
-    return result;
+    return len;  // Return expected length
 }
 
 static ssize_t wal_pwritev_linux_io_uring(struct wal_impl *impl, const struct iovec *iov, int iovcnt, off_t offset) {
     if (!impl->io_uring_enabled) {
-        // Fallback to standard pwritev
         return wal_pwritev_all(impl->fd, iov, iovcnt, offset);
     }
     
     struct io_uring_sqe *sqe = io_uring_get_sqe(&impl->ring);
     if (!sqe) {
-        io_uring_submit(&impl->ring);
+        int ret = io_uring_submit(&impl->ring);
+        if (ret > 0) impl->pending_ops += ret;
+        wal_io_wait_pending(impl);
         sqe = io_uring_get_sqe(&impl->ring);
         if (!sqe) return -1;
     }
     
     io_uring_prep_writev(sqe, impl->fd, iov, iovcnt, offset);
-    sqe->user_data = (uintptr_t)iov;
+    sqe->user_data = 0;
     
-    int ret = io_uring_submit(&impl->ring);
-    if (ret < 0) return ret;
+    // DON'T submit here - accumulate for batch
     
-    struct io_uring_cqe *cqe;
-    ret = io_uring_wait_cqe(&impl->ring, &cqe);
-    if (ret < 0) return ret;
-    
-    ssize_t result = cqe->res;
-    io_uring_cqe_seen(&impl->ring, cqe);
-    
-    return result;
+    // Calculate total length for return
+    size_t total = 0;
+    for (int i = 0; i < iovcnt; i++) {
+        total += iov[i].iov_len;
+    }
+    return total;
 }
 #elif defined(__linux__)
 // Fallback for Linux without liburing
@@ -388,6 +429,11 @@ static void wal_do_sync(struct wal_impl *impl) {
     if (!impl || impl->fd <= 0) return;
     if (impl->sync_mode == WAL_SYNC_OFF) return;
 
+    // Wait for all pending async I/O operations before sync
+#ifdef __linux__
+    wal_io_wait_pending(impl);
+#endif
+
     // Platform default behavior (backward compatible)
     i32 mode = impl->sync_mode;
     if (mode == WAL_SYNC_DEFAULT) {
@@ -515,6 +561,11 @@ static void wal_flush_batch(struct wal_impl *impl, int do_sync) {
     ssize_t written;
 #ifdef __linux__
     written = wal_pwrite_linux_io_uring(impl, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
+    // Now submit all accumulated SQEs in one syscall
+    if (impl->io_uring_enabled) {
+        int ret = io_uring_submit(&impl->ring);
+        if (ret > 0) impl->pending_ops += ret;
+    }
 #elif defined(__APPLE__)
     written = wal_pwrite_macos_dispatch(impl, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
 #else
@@ -593,6 +644,11 @@ static void wal_log(struct wal_impl *impl, u8 operation, i64 transaction_id, i32
         // Platform-optimized direct write
 #ifdef __linux__
         wal_pwritev_linux_io_uring(impl, iov, iovcnt, (off_t)impl->current_position);
+        // Submit accumulated SQEs for direct writes too
+        if (impl->io_uring_enabled) {
+            int ret = io_uring_submit(&impl->ring);
+            if (ret > 0) impl->pending_ops += ret;
+        }
 #elif defined(__APPLE__)
         wal_pwritev_macos_dispatch(impl, iov, iovcnt, (off_t)impl->current_position);
 #else
@@ -1184,11 +1240,9 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
     
     // Platform-specific I/O initialization and optimization hints
 #ifdef __linux__
-    // Linux: Use io_uring for async I/O performance
-    // Note: O_DIRECT is not used because it requires strict alignment that
-    // is difficult to maintain with variable-sized WAL records
+    // Linux: Initialize io_uring for async I/O performance
     wal_io_init_linux(impl);
-    // Advise kernel about sequential write pattern
+    // Advise kernel about sequential write pattern for better I/O scheduling
     posix_fadvise(impl->fd, 0, 0, POSIX_FADV_SEQUENTIAL);
 #endif
 #ifdef __APPLE__
