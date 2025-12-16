@@ -13,19 +13,19 @@ import java.util.Iterator;
 public final class CLI {
     private static final String VERSION = Meta.INF.getOrDefault("Implementation-Version", "0.0.1");
     private static final int MAX_PRETTY_ROWS = 10000;
-    
+
     static boolean LOG = false;
 
     // // Shutdown hook for graceful cleanup
     // static {
-    //     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-    //         // System.err.println("\nReceived shutdown signal, cleaning up...");
-    //         try {
-    //             SQLExec.cleanup();
-    //         } catch (Exception e) {
-    //             System.err.println("Error during cleanup: " + e.getMessage());
-    //         }
-    //     }));
+    // Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+    // // System.err.println("\nReceived shutdown signal, cleaning up...");
+    // try {
+    // SQLExec.cleanup();
+    // } catch (Exception e) {
+    // System.err.println("Error during cleanup: " + e.getMessage());
+    // }
+    // }));
     // }
 
     public static void main(String[] args) {
@@ -104,21 +104,19 @@ public final class CLI {
         }
 
         // Create SQL iterator - from string or file
-        SQLIterator sqlIterator = sqlFile != null ? 
-            SQLIterator.fromFile(sqlFile) : 
-            SQLIterator.fromString(sql);
-        
+        SQLIterator sqlIterator = sqlFile != null ? SQLIterator.fromFile(sqlFile) : SQLIterator.fromString(sql);
+
         Iterator<String> statements = sqlIterator.iterator();
         long totalAffected = 0;
         int statementCount = 0;
         boolean hasError = false;
-        Transaction transaction = null;  // Keep transaction across statements
+        Transaction transaction = null; // Keep transaction across statements
 
         try {
             while (statements.hasNext()) {
                 String stmt = statements.next();
                 statementCount++;
-                
+
                 if (statementCount > 1 && status) {
                     out.println(); // blank line between statements
                 }
@@ -134,28 +132,26 @@ public final class CLI {
                         // COMMIT or ROLLBACK was called, transaction is now closed
                         transaction = null;
                     }
-                if (result == null) {
-                    throw new IllegalStateException("Failed to execute SQL");
-                }
-
-                long affected;
-                
-                if (result.getCursor() != null) {
-                    String[] columns = result.getColumns();
-                    if (columns == null || columns.length == 0) {
-                        out.println("Warning: No column information in result");
-                        affected = 0;
-                    } else {
-                        affected = printResults(out, result, pretty, status, head, rownum, watch);
-                    }
-                } else {
-                    long elapsed = watch.elapsed();
-                    affected = result.getAffected();
                     
-                    if (status) {
-                        out.println(formatNumber(affected) + " rows affected, " + IO.StopWatch.humanReadableTime(elapsed));
+                    long affected;
+
+                    if (result.getCursor() != null) {
+                        String[] columns = result.getColumns();
+                        if (columns == null || columns.length == 0) {
+                            out.println("Warning: No column information in result");
+                            affected = 0;
+                        } else {
+                            affected = printResults(out, result, pretty, status, head, rownum, watch);
+                        }
+                    } else {
+                        long elapsed = watch.elapsed();
+                        affected = result.getAffected();
+
+                        if (status) {
+                            out.println(formatNumber(affected) + " rows affected, "
+                                    + IO.StopWatch.humanReadableTime(elapsed));
+                        }
                     }
-                }
 
                     totalAffected += affected;
 
@@ -170,7 +166,8 @@ public final class CLI {
                     if (result != null && result.getCursor() != null) {
                         try {
                             result.close();
-                        } catch (Exception ignored) {}
+                        } catch (Exception ignored) {
+                        }
                     }
                 }
             }
@@ -179,7 +176,8 @@ public final class CLI {
             if (transaction != null) {
                 try {
                     transaction.close();
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             }
         }
 
@@ -191,7 +189,7 @@ public final class CLI {
     }
 
     private static long printResults(PrintStream out, SQLResult result, boolean pretty, boolean status,
-                                      boolean head, boolean rownum, IO.StopWatch watch) throws Exception {
+            boolean head, boolean rownum, IO.StopWatch watch) throws Exception {
         String[] columns = result.getColumns();
         Cursor<Row> cursor = result.getCursor();
         PrettyTable table = null;
@@ -201,16 +199,17 @@ public final class CLI {
             table.addRow(columns, columns.length);
         } else {
             // Adaptive buffering: start small for quick feedback, grow for performance
-            int[] bufferSizes = {256, 512, 1024, 2048, 8192};
+            int[] bufferSizes = { 256, 512, 1024, 2048, 8192 };
             int bufferIndex = 0;
             int currentBufferSize = bufferSizes[bufferIndex];
-            
+
             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(out), currentBufferSize);
-            
+
             try {
                 if (head) {
                     for (int i = 0; i < columns.length; i++) {
-                        if (i > 0) writer.write("\t");
+                        if (i > 0)
+                            writer.write("\t");
                         writer.write(columns[i] != null ? columns[i] : "");
                     }
                     writer.write("\n");
@@ -229,7 +228,8 @@ public final class CLI {
                     }
 
                     for (int i = 0; i < columns.length; i++) {
-                        if (i > 0) writer.write("\t");
+                        if (i > 0)
+                            writer.write("\t");
                         Object v = r.get(i);
                         if (v != null) {
                             writer.write(v.toString());
@@ -238,7 +238,7 @@ public final class CLI {
                         }
                     }
                     writer.write("\n");
-                    
+
                     // Adaptive buffer growth and flushing strategy
                     if (rowCount <= 10) {
                         // First 10 rows: flush immediately for quick feedback
@@ -278,7 +278,7 @@ public final class CLI {
                 }
 
                 return rowCount;
-                
+
             } finally {
                 writer.flush();
             }
@@ -328,45 +328,69 @@ public final class CLI {
         sb.append(" \t-help     \tshow this help\n").append("\n");
         sb.append(" examples:").append("\n");
         sb.append("\t# File operations").append("\n");
-        sb.append("\t").append(CMD).append(" \"SELECT * FROM temp/tpch_lineitem").append(Meta.TABLE_NAME_SUFFIX).append(" USE INDEX(PRIMARY DESC) WHERE l_orderkey > 1 LIMIT 0, 10\" -rownum -pretty").append("\n");
-        sb.append("\t").append(CMD).append(" \"SELECT * FROM temp/tpch_lineitem.tsv.gz WHERE l_orderkey > 1 LIMIT 0, 10\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"SELECT * FROM temp/file").append(Meta.TABLE_NAME_SUFFIX).append(" INTO temp/output.tsv.gz\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"SELECT col1, col2 FROM temp/input.tsv WHERE col1 > 10 INTO temp/filtered").append(Meta.TABLE_NAME_SUFFIX).append("\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"INSERT INTO temp/file").append(Meta.TABLE_NAME_SUFFIX).append(" FROM temp/input.tsv.gz\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"REPLACE INTO temp/file").append(Meta.TABLE_NAME_SUFFIX).append(" FROM temp/input.tsv.gz\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"UPDATE temp/file").append(Meta.TABLE_NAME_SUFFIX).append(" SET B = 'abc', C = 2 WHERE A = 1\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"DELETE FROM temp/file").append(Meta.TABLE_NAME_SUFFIX).append(" WHERE A = 1\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM temp/tpch_lineitem").append(Meta.TABLE_NAME_SUFFIX)
+                .append(" USE INDEX(PRIMARY DESC) WHERE l_orderkey > 1 LIMIT 0, 10\" -rownum -pretty").append("\n");
+        sb.append("\t").append(CMD)
+                .append(" \"SELECT * FROM temp/tpch_lineitem.tsv.gz WHERE l_orderkey > 1 LIMIT 0, 10\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM temp/file").append(Meta.TABLE_NAME_SUFFIX)
+                .append(" INTO temp/output.tsv.gz\"").append("\n");
+        sb.append("\t").append(CMD)
+                .append(" \"SELECT col1, col2 FROM temp/input.tsv WHERE col1 > 10 INTO temp/filtered")
+                .append(Meta.TABLE_NAME_SUFFIX).append("\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"INSERT INTO temp/file").append(Meta.TABLE_NAME_SUFFIX)
+                .append(" FROM temp/input.tsv.gz\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"REPLACE INTO temp/file").append(Meta.TABLE_NAME_SUFFIX)
+                .append(" FROM temp/input.tsv.gz\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"UPDATE temp/file").append(Meta.TABLE_NAME_SUFFIX)
+                .append(" SET B = 'abc', C = 2 WHERE A = 1\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"DELETE FROM temp/file").append(Meta.TABLE_NAME_SUFFIX)
+                .append(" WHERE A = 1\"").append("\n");
         sb.append("").append("\n");
         sb.append("\t# JDBC operations (direct URI)").append("\n");
-        sb.append("\t").append(CMD).append(" \"SELECT * FROM jdbc:mysql://localhost:3306/mydb?table=users LIMIT 10\" -pretty").append("\n");
-        sb.append("\t").append(CMD).append(" \"SELECT * FROM jdbc:h2:mem:test?table=customers WHERE age > 18\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"SELECT * FROM jdbc:mysql://localhost:3306/mydb?table=orders INTO output.tsv\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"INSERT INTO output.tsv FROM jdbc:postgresql://localhost/db?table=logs\"").append("\n");
+        sb.append("\t").append(CMD)
+                .append(" \"SELECT * FROM jdbc:mysql://localhost:3306/mydb?table=users LIMIT 10\" -pretty")
+                .append("\n");
+        sb.append("\t").append(CMD).append(" \"SELECT * FROM jdbc:h2:mem:test?table=customers WHERE age > 18\"")
+                .append("\n");
+        sb.append("\t").append(CMD)
+                .append(" \"SELECT * FROM jdbc:mysql://localhost:3306/mydb?table=orders INTO output.tsv\"")
+                .append("\n");
+        sb.append("\t").append(CMD).append(" \"INSERT INTO output.tsv FROM jdbc:postgresql://localhost/db?table=logs\"")
+                .append("\n");
         sb.append("").append("\n");
         sb.append("\t# JDBC operations (using aliases from jdbc.properties)").append("\n");
         sb.append("\t").append(CMD).append(" \"SELECT * FROM @mydb:users LIMIT 10\" -pretty").append("\n");
         sb.append("\t").append(CMD).append(" \"SELECT * FROM mydb.customers WHERE age > 18\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"SELECT name, email FROM @prod:users WHERE status='active' INTO active_users.csv\"").append("\n");
+        sb.append("\t").append(CMD)
+                .append(" \"SELECT name, email FROM @prod:users WHERE status='active' INTO active_users.csv\"")
+                .append("\n");
         sb.append("\t").append(CMD).append(" \"INSERT INTO output.tsv FROM @prod:orders\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"INSERT INTO data").append(Meta.TABLE_NAME_SUFFIX).append(" FROM testdb.products\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"INSERT INTO data").append(Meta.TABLE_NAME_SUFFIX)
+                .append(" FROM testdb.products\"").append("\n");
         sb.append("").append("\n");
         sb.append("\t# Metadata operations").append("\n");
         sb.append("\t").append(CMD).append(" \"SHOW TABLES WHERE temp\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"DESC temp/file").append(Meta.TABLE_NAME_SUFFIX).append("\"").append("\n");
-        sb.append("\t").append(CMD).append(" \"META temp/file").append(Meta.TABLE_NAME_SUFFIX).append("\"").append("\n");
+        sb.append("\t").append(CMD).append(" \"DESC temp/file").append(Meta.TABLE_NAME_SUFFIX).append("\"")
+                .append("\n");
+        sb.append("\t").append(CMD).append(" \"META temp/file").append(Meta.TABLE_NAME_SUFFIX).append("\"")
+                .append("\n");
         sb.append("").append("\n");
 
         out.print(sb.toString());
     }
 
     private static int utf8CharWidth(String s, int pos) {
-        if (pos >= s.length()) return 0;
-        
+        if (pos >= s.length())
+            return 0;
+
         char c = s.charAt(pos);
         if (c >= 0x80) {
-            if (c >= 0x4E00 && c <= 0x9FFF) return 2;
-            if (c >= 0x3000 && c <= 0x30FF) return 2;
-            if (c >= 0xAC00 && c <= 0xD7AF) return 2;
+            if (c >= 0x4E00 && c <= 0x9FFF)
+                return 2;
+            if (c >= 0x3000 && c <= 0x30FF)
+                return 2;
+            if (c >= 0xAC00 && c <= 0xD7AF)
+                return 2;
             return 2;
         }
         return 1;
@@ -402,7 +426,8 @@ public final class CLI {
 
             if (rowCount >= capacity) {
                 int newCapacity = capacity * 2;
-                if (newCapacity > MAX_PRETTY_ROWS) newCapacity = MAX_PRETTY_ROWS;
+                if (newCapacity > MAX_PRETTY_ROWS)
+                    newCapacity = MAX_PRETTY_ROWS;
                 String[][] newRows = new String[newCapacity][];
                 System.arraycopy(rows, 0, newRows, 0, rowCount);
                 rows = newRows;
@@ -429,7 +454,8 @@ public final class CLI {
         }
 
         void print(PrintStream out) {
-            if (rowCount == 0) return;
+            if (rowCount == 0)
+                return;
 
             printBorder(out);
 
@@ -449,7 +475,8 @@ public final class CLI {
 
         private void printBorder(PrintStream out) {
             for (int i = 0; i < colCount; i++) {
-                if (i > 0) out.print("+");
+                if (i > 0)
+                    out.print("+");
                 for (int j = 0; j < colWidths[i]; j++) {
                     out.print("-");
                 }
@@ -461,7 +488,8 @@ public final class CLI {
             String[] row = rows[rowIdx];
 
             for (int i = 0; i < colCount; i++) {
-                if (i > 0) out.print("|");
+                if (i > 0)
+                    out.print("|");
 
                 String cell = row[i] != null ? row[i] : "\\N";
                 int displayWidth = stringDisplayWidth(cell);
@@ -484,53 +512,56 @@ public final class CLI {
         } else if (num < 1000000000) {
             return String.format("%d,%03d,%03d", num / 1000000, (num / 1000) % 1000, num % 1000);
         } else {
-            return String.format("%d,%03d,%03d,%03d", num / 1000000000, (num / 1000000) % 1000, (num / 1000) % 1000, num % 1000);
+            return String.format("%d,%03d,%03d,%03d", num / 1000000000, (num / 1000000) % 1000, (num / 1000) % 1000,
+                    num % 1000);
         }
     }
 
-
     /**
-     * SQL statement iterator that supports both string and file input with streaming
+     * SQL statement iterator that supports both string and file input with
+     * streaming
      */
     static class SQLIterator implements Iterable<String> {
         private final java.io.Reader reader;
         private final boolean fromFile;
         private final String sqlString;
         private int pos = 0;
-        
+
         private SQLIterator(String sql) {
             this.sqlString = sql;
             this.reader = null;
             this.fromFile = false;
         }
-        
+
         private SQLIterator(java.io.Reader reader) {
             this.reader = reader;
             this.sqlString = null;
             this.fromFile = true;
         }
-        
+
         public static SQLIterator fromString(String sql) {
             return new SQLIterator(sql);
         }
-        
+
         public static SQLIterator fromFile(String filepath) throws Exception {
             java.io.FileReader fr = new java.io.FileReader(filepath);
             java.io.BufferedReader br = new java.io.BufferedReader(fr, 65536); // 64KB buffer
             return new SQLIterator(br);
         }
-        
+
         @Override
         public Iterator<String> iterator() {
             return new Iterator<String>() {
                 private String nextStmt = null;
                 private boolean finished = false;
-                
+
                 @Override
                 public boolean hasNext() {
-                    if (nextStmt != null) return true;
-                    if (finished) return false;
-                    
+                    if (nextStmt != null)
+                        return true;
+                    if (finished)
+                        return false;
+
                     try {
                         nextStmt = readNextStatement();
                         if (nextStmt == null) {
@@ -545,7 +576,7 @@ public final class CLI {
                         throw new RuntimeException("Error reading SQL statement", e);
                     }
                 }
-                
+
                 @Override
                 public String next() {
                     if (!hasNext()) {
@@ -555,27 +586,29 @@ public final class CLI {
                     nextStmt = null;
                     return stmt;
                 }
-                
+
                 private String readNextStatement() throws Exception {
                     final StringBuilder current = new StringBuilder();
-                    
+
                     char quote = 0; // 0=none, '\'', '"', '`'
                     char commentEnd = 0; // 0=none, '\n', '*'
                     char prev = 0;
-                    
+
                     while (true) {
                         int chInt;
                         char ch;
-                        
+
                         if (fromFile) {
                             chInt = reader.read();
-                            if (chInt == -1) break; // EOF
+                            if (chInt == -1)
+                                break; // EOF
                             ch = (char) chInt;
                         } else {
-                            if (pos >= sqlString.length()) break;
+                            if (pos >= sqlString.length())
+                                break;
                             ch = sqlString.charAt(pos++);
                         }
-                        
+
                         // Check for comment start (only when not in quote)
                         if (quote == 0 && commentEnd == 0) {
                             // Single-line comment: --
@@ -597,7 +630,7 @@ public final class CLI {
                                 }
                             }
                         }
-                        
+
                         // Inside comment - check for end
                         if (commentEnd != 0) {
                             if (commentEnd == '\n') {
@@ -621,7 +654,7 @@ public final class CLI {
                             prev = ch;
                             continue;
                         }
-                        
+
                         // Track quotes
                         if (quote != 0) {
                             if (prev != '\\' && ch == quote) {
@@ -637,14 +670,14 @@ public final class CLI {
                         } else {
                             current.append(ch);
                         }
-                        
+
                         prev = ch;
                     }
-                    
+
                     String stmt = current.toString().trim();
                     return stmt.isEmpty() ? null : stmt;
                 }
-                
+
                 private char peekNext() throws Exception {
                     if (fromFile) {
                         reader.mark(1);
@@ -655,12 +688,13 @@ public final class CLI {
                         return pos < sqlString.length() ? sqlString.charAt(pos) : 0;
                     }
                 }
-                
+
                 private void consumeNext() throws Exception {
                     if (fromFile) {
                         reader.read();
                     } else {
-                        if (pos < sqlString.length()) pos++;
+                        if (pos < sqlString.length())
+                            pos++;
                     }
                 }
             };
