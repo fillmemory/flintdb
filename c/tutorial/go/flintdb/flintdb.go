@@ -221,10 +221,12 @@ func (m *Meta) SetFormatTSV() {
 type Row struct {
 	inner *C.struct_flintdb_row
 	meta  *C.struct_flintdb_meta
+	owned bool // true if we own the row and should free it
 }
 
 func (r *Row) Free() {
-	if r.inner != nil {
+	// Only free if we own the row
+	if r.inner != nil && r.owned {
 		C.row_free_wrapper(r.inner)
 	}
 }
@@ -345,7 +347,7 @@ func (t *Table) CreateRow() (*Row, error) {
 		return nil, &FlintDBError{Message: "failed to create row"}
 	}
 
-	return &Row{inner: row, meta: t.meta}, nil
+	return &Row{inner: row, meta: t.meta, owned: true}, nil
 }
 
 func (t *Table) Insert(row *Row) (int64, error) {
@@ -393,7 +395,7 @@ func (t *Table) Read(rowid int64) (*Row, error) {
 	if row == nil {
 		return nil, &FlintDBError{Message: "row not found"}
 	}
-	return &Row{inner: (*C.struct_flintdb_row)(unsafe.Pointer(row)), meta: t.meta}, nil
+	return &Row{inner: (*C.struct_flintdb_row)(unsafe.Pointer(row)), meta: t.meta, owned: false}, nil
 }
 
 type CursorInt64 struct {
@@ -489,7 +491,7 @@ func (f *GenericFile) CreateRow() (*Row, error) {
 		return nil, &FlintDBError{Message: "failed to create row"}
 	}
 
-	return &Row{inner: row, meta: f.meta}, nil
+	return &Row{inner: row, meta: f.meta, owned: true}, nil
 }
 
 func (f *GenericFile) Write(row *Row) error {
@@ -534,7 +536,8 @@ func (c *CursorRow) Next() (*Row, error) {
 	if row == nil {
 		return nil, nil
 	}
-	return &Row{inner: row, meta: c.meta}, nil
+	// Return borrowed row - cursor owns it, don't free
+	return &Row{inner: row, meta: c.meta, owned: false}, nil
 }
 
 func (c *CursorRow) Close() {

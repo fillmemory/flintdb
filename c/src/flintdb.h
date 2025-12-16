@@ -166,8 +166,9 @@ struct flintdb_variant {
         f64 f;
         struct flintdb_decimal  d;
         struct {
-            u8 owned:2; // 0: not owned, 1: owned (free on destroy), 2: string pool
-            u8 sflag:1; // type == VARIANT_STRING => 0: null-terminated, 1: not null-terminated
+            u8 owned; // 0: not owned, 1: owned (free on destroy), 2: string pool
+            u8 sflag; // type == VARIANT_STRING => 0: null-terminated, 1: not null-terminated
+            u8 reserved[2];
             u32 length;
             char *data; // not null-terminated
         } b; // bytes/string/uuid/ipv6

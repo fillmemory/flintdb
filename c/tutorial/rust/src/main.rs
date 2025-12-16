@@ -57,7 +57,7 @@ fn tutorial_table_find() -> Result<(), String> {
     // 3. Iterate through the cursor to get rowids
     while let Some(rowid) = cursor.next()? {
         let row = tbl.read(rowid)?;
-        print_row_safe(row);
+        print_row_safe(row.ptr);
     }
 
     println!("\nSuccessfully found and read data.\n");
@@ -133,7 +133,7 @@ fn tutorial_table_update_delete() -> Result<(), String> {
     if let Some(rowid) = cursor.next()? {
         let old_row = tbl.read(rowid)?;
         println!("Before update:");
-        print_row_safe(old_row);
+        print_row_safe(old_row.ptr);
 
         // Note: Full update implementation requires apply_at function
         println!("(Update operations require additional binding implementation)");
@@ -148,7 +148,7 @@ fn tutorial_table_update_delete() -> Result<(), String> {
     let mut cursor2 = tbl.find("")?;
     while let Some(rowid) = cursor2.next()? {
         let row = tbl.read(rowid)?;
-        print_row_safe(row);
+        print_row_safe(row.ptr);
     }
 
     println!("\nTable operations demonstrated.\n");

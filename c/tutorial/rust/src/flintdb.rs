@@ -192,7 +192,7 @@ impl Table {
         Ok(rowid)
     }
 
-    pub fn read(&self, rowid: i64) -> Result<*const flintdb_row, String> {
+    pub fn read(&self, rowid: i64) -> Result<Row, String> {
         let mut err: *mut ::std::os::raw::c_char = ptr::null_mut();
         let tbl = unsafe { &*self.ptr };
         let row_ptr = unsafe {
@@ -206,7 +206,8 @@ impl Table {
         if row_ptr.is_null() {
             return Err("Failed to read row".to_string());
         }
-        Ok(row_ptr)
+        // read() returns a borrowed row owned by the table
+        Ok(unsafe { Row::borrowed(row_ptr as *mut flintdb_row) })
     }
 
     pub fn find(&mut self, where_clause: &str) -> Result<CursorI64, String> {
@@ -309,7 +310,8 @@ impl Drop for GenericFile {
 }
 
 pub struct Row {
-    pub ptr: *mut flintdb_row
+    pub ptr: *mut flintdb_row,
+    owned: bool,  // true if we own the row and should free it
 }
 
 impl Row {
@@ -320,7 +322,12 @@ impl Row {
         if ptr.is_null() {
             return Err("Failed to create row".to_string());
         }
-        Ok(Row { ptr })
+        Ok(Row { ptr, owned: true })
+    }
+    
+    // Create a borrowed row (not owned, won't be freed)
+    unsafe fn borrowed(ptr: *mut flintdb_row) -> Self {
+        Row { ptr, owned: false }
     }
 
     pub fn set_i32(&mut self, col: u16, value: i32) -> Result<(), String> {
@@ -375,9 +382,12 @@ impl Row {
 
 impl Drop for Row {
     fn drop(&mut self) {
-        unsafe {
-            if let Some(free_fn) = (*self.ptr).free {
-                free_fn(self.ptr);
+        // Only free if we own the row
+        if self.owned {
+            unsafe {
+                if let Some(free_fn) = (*self.ptr).free {
+                    free_fn(self.ptr);
+                }
             }
         }
     }
@@ -436,7 +446,8 @@ impl CursorRow {
         if row_ptr.is_null() {
             Ok(None)
         } else {
-            Ok(Some(Row { ptr: row_ptr }))
+            // Return borrowed row - cursor owns it, don't free
+            Ok(Some(unsafe { Row::borrowed(row_ptr) }))
         }
     }
 }
