@@ -109,7 +109,7 @@ WAL support is now available for crash recovery and transaction management.
 
 ### WAL Modes
 
-* **NONE**: No WAL 
+* **OFF**: No WAL 
 * **LOG**: Standard WAL mode with append-only logging
 * **TRUNCATE**: Auto-truncate WAL file after checkpoint
 
@@ -125,7 +125,7 @@ WAL support is now available for crash recovery and transaction management.
 
 For detailed code examples and tutorials, see:
 - **Java**: `java/tutorial/` directory
-- **C**: `c/tutorial/` directory  
+- **C**: `c/tutorial/c/` directory  
 - **Go**: `c/tutorial/go/` directory
 - **Rust**: `c/tutorial/rust/` directory
 - **Zig**: `c/tutorial/zig/` directory
@@ -134,7 +134,7 @@ For detailed code examples and tutorials, see:
 
 ```bash
 # CLI for quick inspection
-./bin/flintdb "SELECT * FROM data.FlintDB LIMIT 10" -pretty
+./bin/flintdb "SELECT * FROM data.flintdb LIMIT 10" -pretty
 
 # Web UI for interactive debugging
 # Java (port 3333)
@@ -195,18 +195,18 @@ cd c
 
 #### Intel Core i7-8700B @ 3.20GHz (6 cores)
 
-| Implementation | Cache Size | Time | Performance |
-|----------------|------------|------|-------------|
-| **C** | 256KB | **41s** | Baseline |
-| **Java** | 50KB | 54s | C is 24% faster |
-| **Java** | 1MB | 61s | Larger cache slower (GC overhead) |
+| Implementation | Cache Limit (Nodes) | Time | Performance |
+|----------------|---------------------|------|-------------|
+| **C** | 256K | **41s** | Baseline |
+| **Java** | 50K | 54s | C is 24% faster |
+| **Java** | 1M | 61s | Larger cache slower (GC overhead) |
 
 #### Apple M1 Chip
 
-| Implementation | Cache Size | Time | Performance |
-|----------------|------------|------|-------------|
-| **C** | 256KB | **22s** | Baseline |
-| **Java** | 50KB | 38s | C is 42% faster |
+| Implementation | Cache Limit (Nodes) | Time | Performance |
+|----------------|---------------------|------|-------------|
+| **C** | 256K | **22s** | Baseline |
+| **Java** | 50K | 38s | C is 42% faster |
 
 **Key Findings**:
 - **C is consistently faster than Java** (24% on Intel, 42% on M1)
@@ -214,7 +214,7 @@ cd c
   - Reduced GC pressure (Java)
   - Better CPU cache locality
   - Lower memory overhead
-- **C requires minimum 256KB cache** due to:
+- **C requires minimum 256K cache** due to:
   - Fixed-size hash table (no auto-resize)
   - Backward-shift deletion instability with frequent evictions
   - 50K cache causes segfault during bulk inserts
@@ -222,7 +222,7 @@ cd c
 
 **Note**: Both implementations use direct memory access (C pointers, Java ByteBuffer.allocateDirect)
 
-**Test Environment**: macOS, TPC-H lineitem dataset, WAL compression enabled
+**Test Environment**: macOS, TPC-H lineitem dataset, WAL=OFF
 
 ## License
 
