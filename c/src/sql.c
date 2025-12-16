@@ -1811,12 +1811,12 @@ int flintdb_sql_to_meta(struct flintdb_sql *in, struct flintdb_meta *out, char *
         out->wal_checkpoint_interval = in->wal_checkpoint_interval;
     if (in->wal_compression_threshold > 0)
         out->wal_compression_threshold = in->wal_compression_threshold;
-        if (in->wal_sync != 0)
-            out->wal_sync = in->wal_sync;
-        if (in->wal_buffer_size > 0)
-            out->wal_buffer_size = in->wal_buffer_size;
-        if (in->wal_page_data == 0)
-            out->wal_page_data = 0;
+    if (in->wal_sync != 0)
+        out->wal_sync = in->wal_sync;
+    if (in->wal_buffer_size > 0)
+        out->wal_buffer_size = in->wal_buffer_size;
+    if (in->wal_page_data == 0)
+        out->wal_page_data = 0;
     return 0;
 
 EXCEPTION:

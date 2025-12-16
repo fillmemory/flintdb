@@ -25,6 +25,11 @@
 #include <sys/uio.h>
 #endif
 
+// Platform-specific I/O headers
+#if defined(__linux__) && defined(HAVE_LIBURING)
+#include <liburing.h>
+#endif
+
 #define HEADER_SIZE 4096  // Match filesystem block size for atomic writes
 #define DEFAULT_BATCH_SIZE 10000
 #define DEFAULT_BATCH_BUFFER_SIZE (4 * 1024 * 1024) // 4MB batch buffer
@@ -77,7 +82,60 @@ struct wal_impl {
     
     // Multiple storages management
     struct hashmap *storages;  // Map of file -> wal_storage
+    
+    // Platform-specific I/O context
+#if defined(__linux__) && defined(HAVE_LIBURING)
+    struct io_uring ring;      // io_uring instance for Linux
+    int io_uring_enabled;      // Flag to indicate if io_uring is successfully initialized
+#endif
 };
+
+// Platform-specific I/O initialization and cleanup
+#if defined(__linux__) && defined(HAVE_LIBURING)
+static int wal_io_init_linux(struct wal_impl *impl) {
+    // Initialize io_uring with queue depth of 256
+    int ret = io_uring_queue_init(256, &impl->ring, 0);
+    if (ret < 0) {
+        WARN("Failed to initialize io_uring: %s, falling back to standard I/O", strerror(-ret));
+        impl->io_uring_enabled = 0;
+        return -1;
+    }
+    impl->io_uring_enabled = 1;
+    return 0;
+}
+
+static void wal_io_cleanup_linux(struct wal_impl *impl) {
+    if (impl->io_uring_enabled) {
+        io_uring_queue_exit(&impl->ring);
+        impl->io_uring_enabled = 0;
+    }
+}
+#elif defined(__linux__)
+static int wal_io_init_linux(struct wal_impl *impl) {
+    // liburing not available, no initialization needed
+    (void)impl;
+    return 0;
+}
+
+static void wal_io_cleanup_linux(struct wal_impl *impl) {
+    // No cleanup needed without liburing
+    (void)impl;
+}
+#endif
+
+#ifdef __APPLE__
+static int wal_io_init_macos(struct wal_impl *impl) {
+    // F_NOCACHE is already set on the file descriptor, no additional setup needed
+    // We don't use dispatch_queue as it requires Objective-C blocks
+    (void)impl;
+    return 0;
+}
+
+static void wal_io_cleanup_macos(struct wal_impl *impl) {
+    // No cleanup needed for F_NOCACHE approach
+    (void)impl;
+}
+#endif
 
 #ifdef _WIN32
 static ssize_t wal_write_all(int fd, const void *buf, size_t len) {
@@ -94,6 +152,98 @@ static ssize_t wal_write_all(int fd, const void *buf, size_t len) {
         remaining -= (size_t)n;
     }
     return (ssize_t)len;
+}
+#endif
+
+// Forward declarations
+static ssize_t wal_pwrite_all(int fd, const void *buf, size_t len, off_t offset);
+#ifndef _WIN32
+static ssize_t wal_pwritev_all(int fd, const struct iovec *iov, int iovcnt, off_t offset);
+#endif
+
+// Platform-optimized write functions
+#if defined(__linux__) && defined(HAVE_LIBURING)
+static ssize_t wal_pwrite_linux_io_uring(struct wal_impl *impl, const void *buf, size_t len, off_t offset) {
+    if (!impl->io_uring_enabled) {
+        // Fallback to standard pwrite
+        return pwrite(impl->fd, buf, len, offset);
+    }
+    
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&impl->ring);
+    if (!sqe) {
+        // Queue is full, submit and retry
+        io_uring_submit(&impl->ring);
+        sqe = io_uring_get_sqe(&impl->ring);
+        if (!sqe) return -1;
+    }
+    
+    io_uring_prep_write(sqe, impl->fd, buf, len, offset);
+    sqe->user_data = (uintptr_t)buf;
+    
+    int ret = io_uring_submit(&impl->ring);
+    if (ret < 0) return ret;
+    
+    struct io_uring_cqe *cqe;
+    ret = io_uring_wait_cqe(&impl->ring, &cqe);
+    if (ret < 0) return ret;
+    
+    ssize_t result = cqe->res;
+    io_uring_cqe_seen(&impl->ring, cqe);
+    
+    return result;
+}
+
+static ssize_t wal_pwritev_linux_io_uring(struct wal_impl *impl, const struct iovec *iov, int iovcnt, off_t offset) {
+    if (!impl->io_uring_enabled) {
+        // Fallback to standard pwritev
+        return wal_pwritev_all(impl->fd, iov, iovcnt, offset);
+    }
+    
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&impl->ring);
+    if (!sqe) {
+        io_uring_submit(&impl->ring);
+        sqe = io_uring_get_sqe(&impl->ring);
+        if (!sqe) return -1;
+    }
+    
+    io_uring_prep_writev(sqe, impl->fd, iov, iovcnt, offset);
+    sqe->user_data = (uintptr_t)iov;
+    
+    int ret = io_uring_submit(&impl->ring);
+    if (ret < 0) return ret;
+    
+    struct io_uring_cqe *cqe;
+    ret = io_uring_wait_cqe(&impl->ring, &cqe);
+    if (ret < 0) return ret;
+    
+    ssize_t result = cqe->res;
+    io_uring_cqe_seen(&impl->ring, cqe);
+    
+    return result;
+}
+#elif defined(__linux__)
+// Fallback for Linux without liburing
+static ssize_t wal_pwrite_linux_io_uring(struct wal_impl *impl, const void *buf, size_t len, off_t offset) {
+    return pwrite(impl->fd, buf, len, offset);
+}
+
+static ssize_t wal_pwritev_linux_io_uring(struct wal_impl *impl, const struct iovec *iov, int iovcnt, off_t offset) {
+    return wal_pwritev_all(impl->fd, iov, iovcnt, offset);
+}
+#endif
+
+#ifdef __APPLE__
+// macOS uses F_NOCACHE to bypass page cache, but for simplicity we'll use standard pwrite
+// with F_NOCACHE set on the fd. dispatch_io requires Objective-C blocks which are complex in pure C.
+// For optimal performance with pure C, we rely on F_NOCACHE + standard pwrite.
+static ssize_t wal_pwrite_macos_dispatch(struct wal_impl *impl, const void *buf, size_t len, off_t offset) {
+    // With F_NOCACHE already set on fd, standard pwrite will bypass page cache
+    return pwrite(impl->fd, buf, len, offset);
+}
+
+static ssize_t wal_pwritev_macos_dispatch(struct wal_impl *impl, const struct iovec *iov, int iovcnt, off_t offset) {
+    // For vectored writes on macOS with F_NOCACHE, use standard pwritev helper
+    return wal_pwritev_all(impl->fd, iov, iovcnt, offset);
 }
 #endif
 
@@ -361,8 +511,15 @@ static void wal_flush_header(struct wal_impl *impl) {
 static void wal_flush_batch(struct wal_impl *impl, int do_sync) {
     if (impl->batch_count == 0 || impl->fd <= 0) return;
 
-    // Use pwrite to avoid lseek+write overhead and keep file offset untouched.
-    ssize_t written = wal_pwrite_all(impl->fd, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
+    // Platform-optimized batch write
+    ssize_t written;
+#ifdef __linux__
+    written = wal_pwrite_linux_io_uring(impl, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
+#elif defined(__APPLE__)
+    written = wal_pwrite_macos_dispatch(impl, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
+#else
+    written = wal_pwrite_all(impl->fd, impl->batch_buffer, (size_t)impl->batch_size, (off_t)impl->current_position);
+#endif
     if (written > 0) impl->current_position += written;
 
     // Only sync when explicitly requested (commit/checkpoint/close)
@@ -433,10 +590,16 @@ static void wal_log(struct wal_impl *impl, u8 operation, i64 transaction_id, i32
             iov[iovcnt++] = (struct iovec){ .iov_base = (void*)page_data, .iov_len = (size_t)final_size };
         }
 
-        // Offset-based direct write: no lseek.
-        wal_pwritev_all(impl->fd, iov, iovcnt, (off_t)impl->current_position);
+        // Platform-optimized direct write
+#ifdef __linux__
+        wal_pwritev_linux_io_uring(impl, iov, iovcnt, (off_t)impl->current_position);
+#elif defined(__APPLE__)
+        wal_pwritev_macos_dispatch(impl, iov, iovcnt, (off_t)impl->current_position);
 #else
-        // Windows/minimal fallback: offset-based writes (wal_pwrite_all may internally lseek).
+        wal_pwritev_all(impl->fd, iov, iovcnt, (off_t)impl->current_position);
+#endif
+#else
+        // Windows: offset-based writes (wal_pwrite_all may internally lseek).
         off_t off = (off_t)impl->current_position;
         wal_pwrite_all(impl->fd, header, sizeof(header), off);
         off += (off_t)sizeof(header);
@@ -947,6 +1110,14 @@ static void wal_close(struct wal *me) {
             impl->storages->free(impl->storages);
         }
         
+        // Platform-specific I/O cleanup
+#ifdef __linux__
+        wal_io_cleanup_linux(impl);
+#endif
+#ifdef __APPLE__
+        wal_io_cleanup_macos(impl);
+#endif
+        
         if (impl->fd > 0) {
             close(impl->fd);
         }
@@ -1002,12 +1173,29 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
     impl->batch_size = 0;
     impl->batch_count = 0;
 
-    // Open WAL file
-    impl->fd = open(path, O_RDWR | O_CREAT, 0644);
+    // Open WAL file with platform-specific optimizations
+    int open_flags = O_RDWR | O_CREAT;
+    
+    impl->fd = open(path, open_flags, 0644);
     if (impl->fd < 0) {
         FREE(impl->batch_buffer);
         THROW(e, "Failed to open WAL file: %s", strerror(errno));
     }
+    
+    // Platform-specific I/O initialization and optimization hints
+#ifdef __linux__
+    // Linux: Use io_uring for async I/O performance
+    // Note: O_DIRECT is not used because it requires strict alignment that
+    // is difficult to maintain with variable-sized WAL records
+    wal_io_init_linux(impl);
+    // Advise kernel about sequential write pattern
+    posix_fadvise(impl->fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
+#ifdef __APPLE__
+    // macOS: Use F_NOCACHE to avoid caching WAL writes
+    fcntl(impl->fd, F_NOCACHE, 1);
+    wal_io_init_macos(impl);
+#endif
     
     // Check if new file or existing
     struct stat st;
@@ -1045,6 +1233,12 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
 
 EXCEPTION:
     if (impl) {
+#ifdef __linux__
+        wal_io_cleanup_linux(impl);
+#endif
+#ifdef __APPLE__
+        wal_io_cleanup_macos(impl);
+#endif
         if (impl->fd > 0) close(impl->fd);
         FREE(impl);
     }

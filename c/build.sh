@@ -64,17 +64,12 @@ if [ $AUTO_DETECT_ALLOCATOR -eq 1 ]; then
             echo "No specialized memory allocator found, using default"
         fi
     else
-        # Linux - prefer tcmalloc over jemalloc for better INSERT performance
-        if command -v ldconfig &>/dev/null; then
-            if ldconfig -p | grep -q tcmalloc; then
-                ALLOCATOR=tcmalloc
-                echo "Using tcmalloc as memory allocator"
-            # elif ldconfig -p | grep -q jemalloc; then
-            #     ALLOCATOR=jemalloc
-            #     echo "Using jemalloc as memory allocator"
-            else
-                echo "No specialized memory allocator found, using default"
-            fi
+        if [ -f /usr/lib/libtcmalloc.so ] || [ -f /usr/lib/x86_64-linux-gnu/libtcmalloc.so ] || [ -f /usr/local/lib/libtcmalloc.so ]; then
+            ALLOCATOR=tcmalloc
+            echo "Using tcmalloc as memory allocator"
+        elif [ -f /usr/lib/libjemalloc.so ] || [ -f /usr/lib/x86_64-linux-gnu/libjemalloc.so ] || [ -f /usr/local/lib/libjemalloc.so ]; then
+            ALLOCATOR=jemalloc
+            echo "Using jemalloc as memory allocator"
         else
             echo "No specialized memory allocator found, using default"
         fi

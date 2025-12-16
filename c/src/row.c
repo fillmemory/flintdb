@@ -497,7 +497,7 @@ static struct flintdb_variant *row_get(const struct flintdb_row *r, u16 i, char 
             *e = row_error_set(r, "row_get: row or array is NULL");
         return NULL;
     }
-    if (i < 0 || i >= r->length) {
+    if (i >= r->length) {
         if (e)
             *e = row_error_set(r, "row_get: index out of bounds");
         return NULL;
@@ -518,7 +518,7 @@ static void row_set(struct flintdb_row *r, u16 i, struct flintdb_variant *v, cha
             *e = row_error_set(r, "row_set: row or array is NULL");
         return;
     }
-    if (i < 0 || i >= r->length) {
+    if (i >= r->length) {
         if (e)
             *e = row_error_set(r, "row_set: index out of bounds");
         return;
@@ -902,7 +902,7 @@ static i8 row_is_nil(const struct flintdb_row *r, u16 i, char **e) {
             *e = "row_is_nil: row or array is NULL";
         return 1;
     }
-    if (i < 0 || i >= r->length) {
+    if (i >= r->length) {
         if (e)
             *e = "row_is_nil: index out of bounds";
         return 1;
@@ -919,7 +919,7 @@ static void row_string_set(struct flintdb_row *rr, u16 i, const char *str, char 
             *ee = "string_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "string_set: index out of bounds";
         return;
@@ -936,7 +936,7 @@ static void row_i64_set(struct flintdb_row *rr, u16 i, i64 val, char **ee) {
             *ee = "i64_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "i64_set: index out of bounds";
         return;
@@ -952,7 +952,7 @@ static void row_f64_set(struct flintdb_row *rr, u16 i, f64 val, char **ee) {
             *ee = "f64_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "f64_set: index out of bounds";
         return;
@@ -968,7 +968,7 @@ static void row_u8_set(struct flintdb_row *rr, u16 i, u8 val, char **ee) {
             *ee = "u8_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "u8_set: index out of bounds";
         return;
@@ -984,7 +984,7 @@ static void row_i8_set(struct flintdb_row *rr, u16 i, i8 val, char **ee) {
             *ee = "i8_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "i8_set: index out of bounds";
         return;
@@ -1000,7 +1000,7 @@ static void row_u16_set(struct flintdb_row *rr, u16 i, u16 val, char **ee) {
             *ee = "u16_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "u16_set: index out of bounds";
         return;
@@ -1016,7 +1016,7 @@ static void row_i16_set(struct flintdb_row *rr, u16 i, i16 val, char **ee) {
             *ee = "i16_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "i16_set: index out of bounds";
         return;
@@ -1032,7 +1032,7 @@ static void row_u32_set(struct flintdb_row *rr, u16 i, u32 val, char **ee) {
             *ee = "u32_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "u32_set: index out of bounds";
         return;
@@ -1048,7 +1048,7 @@ static void row_i32_set(struct flintdb_row *rr, u16 i, i32 val, char **ee) {
             *ee = "i32_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "i32_set: index out of bounds";
         return;
@@ -1064,7 +1064,7 @@ static void row_bytes_set(struct flintdb_row *rr, u16 i, const char *data, u32 l
             *ee = "bytes_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "bytes_set: index out of bounds";
         return;
@@ -1080,7 +1080,7 @@ static void row_date_set(struct flintdb_row *rr, u16 i, time_t val, char **ee) {
             *ee = "date_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "date_set: index out of bounds";
         return;
@@ -1096,7 +1096,7 @@ static void row_time_set(struct flintdb_row *rr, u16 i, time_t val, char **ee) {
             *ee = "time_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "time_set: index out of bounds";
         return;
@@ -1112,7 +1112,7 @@ static void row_uuid_set(struct flintdb_row *rr, u16 i, const char *data, u32 le
             *ee = "uuid_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "uuid_set: index out of bounds";
         return;
@@ -1128,7 +1128,7 @@ static void row_ipv6_set(struct flintdb_row *rr, u16 i, const char *data, u32 le
             *ee = "ipv6_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "ipv6_set: index out of bounds";
         return;
@@ -1144,7 +1144,7 @@ static void row_decimal_set(struct flintdb_row *rr, u16 i, struct flintdb_decima
             *ee = "decimal_set: row/array NULL";
         return;
     }
-    if (i < 0 || i >= rr->length) {
+    if (i >= rr->length) {
         if (ee)
             *ee = "decimal_set: index out of bounds";
         return;
@@ -1156,7 +1156,7 @@ static void row_decimal_set(struct flintdb_row *rr, u16 i, struct flintdb_decima
 
 // getters
 static const char *row_string_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_string_get: index out of bounds";
         return NULL;
@@ -1167,7 +1167,7 @@ static const char *row_string_get(const struct flintdb_row *r, u16 i, char **e) 
 }
 
 static i8 row_i8_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_i8_get: index out of bounds";
         return 0;
@@ -1176,7 +1176,7 @@ static i8 row_i8_get(const struct flintdb_row *r, u16 i, char **e) {
 }
 
 static u8 row_u8_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_u8_get: index out of bounds";
         return 0;
@@ -1185,7 +1185,7 @@ static u8 row_u8_get(const struct flintdb_row *r, u16 i, char **e) {
 }
 
 static i16 row_i16_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_i16_get: index out of bounds";
         return 0;
@@ -1194,7 +1194,7 @@ static i16 row_i16_get(const struct flintdb_row *r, u16 i, char **e) {
 }
 
 static u16 row_u16_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_u16_get: index out of bounds";
         return 0;
@@ -1203,7 +1203,7 @@ static u16 row_u16_get(const struct flintdb_row *r, u16 i, char **e) {
 }
 
 static i32 row_i32_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_i32_get: index out of bounds";
         return 0;
@@ -1212,7 +1212,7 @@ static i32 row_i32_get(const struct flintdb_row *r, u16 i, char **e) {
 }
 
 static u32 row_u32_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_u32_get: index out of bounds";
         return 0;
@@ -1221,7 +1221,7 @@ static u32 row_u32_get(const struct flintdb_row *r, u16 i, char **e) {
 }
 
 static i64 row_i64_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_i64_get: index out of bounds";
         return 0;
@@ -1230,7 +1230,7 @@ static i64 row_i64_get(const struct flintdb_row *r, u16 i, char **e) {
 }
 
 static f64 row_f64_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_f64_get: index out of bounds";
         return 0.0;
@@ -1240,7 +1240,7 @@ static f64 row_f64_get(const struct flintdb_row *r, u16 i, char **e) {
 
 static struct flintdb_decimal  row_decimal_get(const struct flintdb_row *r, u16 i, char **e) {
     struct flintdb_decimal  d = {0};
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_decimal_get: index out of bounds";
         return d;
@@ -1251,7 +1251,7 @@ static struct flintdb_decimal  row_decimal_get(const struct flintdb_row *r, u16 
 static const char *row_bytes_get(const struct flintdb_row *r, u16 i, u32 *length, char **e) {
     if (length)
         *length = 0;
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_bytes_get: index out of bounds";
         return NULL;
@@ -1260,7 +1260,7 @@ static const char *row_bytes_get(const struct flintdb_row *r, u16 i, u32 *length
 }
 
 static time_t row_date_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_date_get: index out of bounds";
         return (time_t)0;
@@ -1269,7 +1269,7 @@ static time_t row_date_get(const struct flintdb_row *r, u16 i, char **e) {
 }
 
 static time_t row_time_get(const struct flintdb_row *r, u16 i, char **e) {
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_time_get: index out of bounds";
         return (time_t)0;
@@ -1280,7 +1280,7 @@ static time_t row_time_get(const struct flintdb_row *r, u16 i, char **e) {
 static const char *row_uuid_get(const struct flintdb_row *r, u16 i, u32 *length, char **e) {
     if (length)
         *length = 0;
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_uuid_get: index out of bounds";
         return NULL;
@@ -1291,7 +1291,7 @@ static const char *row_uuid_get(const struct flintdb_row *r, u16 i, u32 *length,
 static const char *row_ipv6_get(const struct flintdb_row *r, u16 i, u32 *length, char **e) {
     if (length)
         *length = 0;
-    if (!r || i < 0 || i >= r->length) {
+    if (!r || i >= r->length) {
         if (e)
             *e = "row_ipv6_get: index out of bounds";
         return NULL;
@@ -1306,7 +1306,7 @@ static i8 row_is_zero(const struct flintdb_row *r, u16 i, char **e) {
             *e = "row_is_zero: row or array is NULL";
         return 1;
     }
-    if (i < 0 || i >= r->length) {
+    if (i >= r->length) {
         if (e)
             *e = "row_is_zero: index out of bounds";
         return 1;
