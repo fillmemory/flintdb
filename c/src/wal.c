@@ -495,6 +495,11 @@ static i64 wal_commit(struct wal *me, i64 id, char **e) {
     
     // Then log commit record to WAL
     wal_log(impl, OP_COMMIT, id, 0, 0, NULL, 0, 0);
+    
+    // CRITICAL: Flush batch immediately after commit to ensure all transaction records are written
+    // This is essential for performance - without it, batch only flushes when reaching count limit
+    wal_flush_batch(impl, 1);  // sync=1 for durability
+    
     impl->committed_offset = impl->current_position;
     impl->total_count++;
     impl->transaction_count++;

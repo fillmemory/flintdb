@@ -26,6 +26,16 @@
 
 // TODO: union file formats for table_open and genericfile_open?
 
+// Get environment variable as integer with default value
+static int get_env_int(const char *name, int default_value) {
+    const char *val = getenv(name);
+    if (val) {
+        int result = atoi(val);
+        return result > 0 ? result : default_value;
+    }
+    return default_value;
+}
+
 // Ensure and return path to temp directory. Uses environment variable FLINTDB_TEMP_DIR if set,
 // otherwise falls back to the default macro. Automatically creates the directory if missing.
 static const char * ensure_temp_dir(void) {
@@ -756,6 +766,12 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
         if (!tx)
         tx = flintdb_transaction_begin(table, e);
 
+        // Commit transaction periodically for large bulk inserts to enable WAL checkpointing
+        // This prevents WAL file from growing too large and improves performance
+        // Can be configured via FLINTDB_BULK_INSERT_COMMIT_INTERVAL environment variable
+        const int BULK_INSERT_COMMIT_INTERVAL = get_env_int("FLINTDB_BULK_INSERT_COMMIT_INTERVAL", 10000);
+        int rows_in_current_tx = 0;
+
         for(struct flintdb_row *r; (r = src_result->row_cursor->next(src_result->row_cursor, e)) != NULL;) {
             if (e && *e) THROW_S(e);
             
@@ -807,6 +823,22 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
                 THROW(e, "Failed to insert row into target table: %s", target);
             }
             affected++;
+            rows_in_current_tx++;
+            
+            // Periodically commit and restart transaction for bulk inserts (only if we own the tx)
+            if (t == NULL && rows_in_current_tx >= BULK_INSERT_COMMIT_INTERVAL) {
+                tx->commit(tx, e);
+                if (e && *e) {
+                    if (reuse_row) reuse_row->free(reuse_row);
+                    THROW_S(e);
+                }
+                tx = flintdb_transaction_begin(table, e);
+                if (e && *e) {
+                    if (reuse_row) reuse_row->free(reuse_row);
+                    THROW_S(e);
+                }
+                rows_in_current_tx = 0;
+            }
         }
         
         if (reuse_row) reuse_row->free(reuse_row);
