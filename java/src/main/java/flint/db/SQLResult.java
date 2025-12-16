@@ -11,6 +11,7 @@ public final class SQLResult implements AutoCloseable {
 
     final String[] columns;
     final Cursor<Row> cursor;
+    final Transaction transaction;
 
     /**
      * Get number of affected rows
@@ -37,6 +38,14 @@ public final class SQLResult implements AutoCloseable {
     }
 
     /**
+     * Get transaction associated with this result (for BEGIN TRANSACTION)
+     * @return transaction or null
+     */
+    public Transaction getTransaction() {
+        return transaction;
+    }
+
+    /**
      * Close the result and release resources
      */
     @Override
@@ -54,6 +63,7 @@ public final class SQLResult implements AutoCloseable {
         this.affected = affected;
         this.columns = null;
         this.cursor = null;
+        this.transaction = null;
     }
 
     /**
@@ -65,5 +75,18 @@ public final class SQLResult implements AutoCloseable {
         this.affected = -1;
         this.columns = columns;
         this.cursor = cursor;
+        this.transaction = null;
+    }
+
+    /**
+     * Constructor with transaction (for BEGIN TRANSACTION result)
+     * @param affected
+     * @param transaction
+     */
+    public SQLResult(long affected, Transaction transaction) {
+        this.affected = affected;
+        this.columns = null;
+        this.cursor = null;
+        this.transaction = transaction;
     }
 }

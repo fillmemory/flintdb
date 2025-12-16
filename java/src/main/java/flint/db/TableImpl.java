@@ -9,7 +9,7 @@ import java.io.IOException;
 import java.text.DecimalFormat;
 import java.util.Comparator;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
 /**
@@ -22,7 +22,7 @@ final class TableImpl implements Table {
 	private final Meta meta;
 	private final int rowBytes;
 	private Sorter[] sorters;
-	private final AtomicInteger lock = new AtomicInteger(0);
+	private final ReentrantLock lock = new ReentrantLock();
 
 	private Storage storage;
     private WAL wal;
@@ -31,16 +31,13 @@ final class TableImpl implements Table {
 	private Formatter<IoBuffer, IoBuffer> rowformatter;
 	private final Logger logger;
 
-	// Thread lock helpers - atomic spinlock
+	// Thread lock helpers - reentrant lock (allows same thread to lock multiple times)
 	private void tableLock() {
-		int expected = 0;
-		while (!lock.compareAndSet(expected, 1)) {
-			expected = 0;
-		}
+		lock.lock();
 	}
 
 	private void tableUnlock() {
-		lock.set(0);
+		lock.unlock();
 	}
 
 	TableImpl(final File file, final Meta meta, final int mode, final Logger logger) throws IOException {

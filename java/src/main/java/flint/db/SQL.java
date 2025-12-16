@@ -24,6 +24,10 @@ final class SQL {
 	 */
 	public static SQL parse(final String sql) {
 		final String[] tokens = tokenize(trim_mws(sql));
+		if (sql.toUpperCase().contains("UPDATE")) {
+			System.err.println("[SQL.parse] SQL: " + sql);
+			System.err.println("[SQL.parse] tokens: " + Arrays.toString(tokens));
+		}
 		final Map<String, String> m = statements(tokens);
 		return new SQL(sql, m);
 	}
@@ -666,6 +670,7 @@ final class SQL {
 				} else if ("WHERE".equalsIgnoreCase(s)) {
 					part = s.toUpperCase();
 					where = seek(a, i + 1);
+					break; // Stop collecting SET values when WHERE clause begins
 				} else if ("LIMIT".equalsIgnoreCase(s)) {
 					part = s.toUpperCase();
 					limit = seek(a, i + 1);
@@ -676,21 +681,34 @@ final class SQL {
 			}
 
 			if (part != null && columns == null) {
+				System.err.println("[UPDATE] c.size()=" + c.size() + ", c=" + c);
 				for (int n = 0; n < c.size();) {
-					String column = c.get(n++);
-					String op = c.get(n++);
-					String value = c.get(n++);
+					System.err.println("[UPDATE] n=" + n + ", c.size()=" + c.size());
+					String token = c.get(n++);
+					
+					// Handle both "name = 'value'" and "name='value'" formats
+					String column, op, value;
+					if (token.contains("=")) {
+						int eqPos = token.indexOf('=');
+						column = token.substring(0, eqPos).trim();
+						op = "=";
+						value = token.substring(eqPos + 1).trim();
+					} else {
+						column = token;
+						op = c.get(n++);
+						value = c.get(n++);
+					}
 
-					// System.err.println("x : " + n + " => " + column + " " + op + " " + value + " " + value.getClass());
-					// System.err.println("x1 : " + columns + " / " + values);
+					System.err.println("x : " + n + " => " + column + " " + op + " " + value + " " + value.getClass());
+					System.err.println("x1 : " + columns + " / " + values);
 					columns = (columns == null) ? column : (columns + (", ") + (column));
-					values = (values == null) ? value : (values + (value)); // value ends with ','
-					// System.err.println("x2 : " + columns + " / " + values);
+					values = (values == null) ? value : (values + (", ") + (value));
+					System.err.println("x2 : " + columns + " / " + values);
 
 					if (!"=".equals(op))
 						throw new RuntimeException("operator " + op);
 				}
-				// System.err.println("x3 : " + columns + " / " + values);
+				System.err.println("x3 : " + columns + " / " + values);
 			}
 
 			final Map<String, String> m = new java.util.LinkedHashMap<>();

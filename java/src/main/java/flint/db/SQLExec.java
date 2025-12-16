@@ -9,6 +9,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 
 /**
@@ -31,6 +32,7 @@ public final class SQLExec {
         int mode;
         int refCount;
         long lastUsed;
+        final ReentrantLock lock;
         
         PooledTable(String path, Table table, int mode) {
             this.path = path;
@@ -38,6 +40,7 @@ public final class SQLExec {
             this.mode = mode;
             this.refCount = 1;
             this.lastUsed = System.currentTimeMillis();
+            this.lock = new ReentrantLock();
         }
     }
 
@@ -49,11 +52,24 @@ public final class SQLExec {
      * @throws DatabaseException on SQL execution error
      */
     public static SQLResult execute(final String sql) throws DatabaseException {
+        return execute(sql, null);
+    }
+
+    /**
+     * Execute SQL statement with existing transaction context and return result
+     * 
+     * @param sql SQL statement
+     * @param transaction Current transaction context (null if no active transaction)
+     * @return SQLResult object containing affected rows or result cursor
+     * @throws DatabaseException on SQL execution error
+     */
+    public static SQLResult execute(final String sql, Transaction transaction) throws DatabaseException {
         if (sql == null || sql.trim().isEmpty()) {
             throw new DatabaseException(ErrorCode.INVALID_OPERATION,"SQL statement is null or empty");
         }
 
         SQL q = SQL.parse(sql);
+        //System.err.println("[SQLExec.execute] SQL: " + sql.substring(0, Math.min(100, sql.length())));
 
         // SHOW TABLES doesn't operate on a single table file
         if (q.statement().toUpperCase().startsWith("SHOW") 
@@ -63,13 +79,17 @@ public final class SQLExec {
         }
 
         String statement = q.statement().toUpperCase();
+        //System.err.println("[SQLExec.execute] Statement: " + statement + ", Table: " + q.table());
         
         // Handle transaction commands (BEGIN TRANSACTION, COMMIT, ROLLBACK)
         if ("BEGIN".equals(statement)) {
+            // System.err.println("[SQLExec.execute] Calling beginTransaction for table: " + q.table());
             return beginTransaction(q);
         } else if ("COMMIT".equals(statement)) {
-            return commitTransaction(q);
+            // System.err.println("[SQLExec.execute] Calling commitTransaction");
+            //return commitTransaction(q);
         } else if ("ROLLBACK".equals(statement)) {
+            // System.err.println("[SQLExec.execute] Calling rollbackTransaction");
             return rollbackTransaction(q);
         }
         
@@ -219,24 +239,32 @@ public final class SQLExec {
         synchronized (tablePool) {
             PooledTable pt = tablePool.get(path);
             if (pt != null) {
-                boolean needWrite = (Table.OPEN_WRITE & mode) > 0;
-                boolean hasWrite = (Table.OPEN_WRITE & pt.mode) > 0;
-                if (needWrite && !hasWrite) {
-                    try {
-                        pt.table.close();
-                    } catch (Exception ignore) {
-                        // ignore close errors during upgrade
+                // Try to acquire lock (will succeed if same thread holds it - reentrant)
+                pt.lock.lock();
+                try {
+                    boolean needWrite = (Table.OPEN_WRITE & mode) > 0;
+                    boolean hasWrite = (Table.OPEN_WRITE & pt.mode) > 0;
+                    if (needWrite && !hasWrite) {
+                        try {
+                            pt.table.close();
+                        } catch (Exception ignore) {
+                            // ignore close errors during upgrade
+                        }
+                        pt.table = Table.open(new File(path), Table.OPEN_WRITE);
+                        pt.mode = Table.OPEN_WRITE;
                     }
-                    pt.table = Table.open(new File(path), Table.OPEN_WRITE);
-                    pt.mode = Table.OPEN_WRITE;
+                    pt.refCount++;
+                    pt.lastUsed = System.currentTimeMillis();
+                    return pt.table;
+                } catch (Exception e) {
+                    pt.lock.unlock();
+                    throw e;
                 }
-                pt.refCount++;
-                pt.lastUsed = System.currentTimeMillis();
-                return pt.table;
             }
 
             Table t = Table.open(new File(path), mode);
             pt = new PooledTable(path, t, mode);
+            pt.lock.lock(); // Lock for first borrow
             tablePool.put(path, pt);
             return t;
         }
@@ -252,8 +280,14 @@ public final class SQLExec {
                 pt.refCount--;
                 pt.lastUsed = System.currentTimeMillis();
                 if (pt.refCount == 0) {
-                    pt.table.close();
-                    tablePool.remove(path);
+                    try {
+                        pt.table.close();
+                        tablePool.remove(path);
+                    } finally {
+                        pt.lock.unlock(); // Release lock when closing
+                    }
+                } else {
+                    pt.lock.unlock(); // Release one lock level
                 }
             }
         }
@@ -322,7 +356,16 @@ public final class SQLExec {
                 }
             }
             
-            long rowid = table.apply(row, upsert);
+            // Check if there's an active transaction for this table
+            Transaction tx = activeTransactions.get().get(q.table());
+            
+            long rowid;
+            if (tx != null) {
+                rowid = table.apply(row, upsert, tx);
+            } else {
+                rowid = table.apply(row, upsert);
+            }
+            
             if (rowid < 0) {
                 throw new DatabaseException(ErrorCode.TRANSACTION_FAILED, "Failed to insert row");
             }
@@ -831,10 +874,25 @@ public final class SQLExec {
             table = borrowTable(q.table());
             Meta meta = table.meta();
             
+            // Check if there's an active transaction for this table
+            Transaction tx = activeTransactions.get().get(q.table());
+            System.err.println("[update] Table: " + q.table() + ", table instance: " + System.identityHashCode(table) + ", activeTransactions size: " + activeTransactions.get().size() + ", tx: " + (tx != null ? tx.id() : "null"));
+            
             String where = buildIndexableWhere(meta, q);
+            System.err.println("[update] WHERE clause: " + where);
             try(Cursor<Long> cursor = table.find(where)){
+                System.err.println("[update] Got cursor from table.find()");
+                int foundCount = 0;
                 for (long rowid; (rowid = cursor.next()) > -1;) {
-                    Row row = table.read(rowid).copy();
+                    foundCount++;
+                    System.err.println("[update] Reading rowid: " + rowid + " (found #" + foundCount + ")");
+                    Row readRow = table.read(rowid);
+                    System.err.println("[update] Read result: " + (readRow != null ? "Row found" : "NULL"));
+                    if (readRow == null) {
+                        System.err.println("[update] WARNING: table.read(" + rowid + ") returned null, skipping");
+                        continue;
+                    }
+                    Row row = readRow.copy();
                     
                     for (int i = 0; i < columns.length; i++) {
                         String colName = columns[i];
@@ -847,7 +905,11 @@ public final class SQLExec {
                         }
                     }
                     
-                    table.apply(rowid, row);
+                    if (tx != null) {
+                        table.apply(rowid, row, tx);
+                    } else {
+                        table.apply(rowid, row);
+                    }
                     affected++;
                 }
             }
@@ -882,10 +944,18 @@ public final class SQLExec {
             table = borrowTable(q.table());
             Meta meta = table.meta();
             
+            // Check if there's an active transaction for this table
+            Transaction tx = activeTransactions.get().get(q.table());
+            
             String where = buildIndexableWhere(meta, q);
             try(Cursor<Long> cursor = table.find(where)){
                 for (long rowid; (rowid = cursor.next()) > -1;) {
-                    long ok = table.delete(rowid);
+                    long ok;
+                    if (tx != null) {
+                        ok = table.delete(rowid, tx);
+                    } else {
+                        ok = table.delete(rowid);
+                    }
                     if (ok < 0) {
                         throw new DatabaseException(ErrorCode.NOT_FOUND, "Failed to delete row with ID: " + rowid);
                     }
@@ -2395,17 +2465,21 @@ public final class SQLExec {
         }
         
         tablePath = JdbcConfig.resolve(tablePath);
+        System.err.println("[beginTransaction] tablePath: " + tablePath);
         
         try {
             Table table = borrowTable(tablePath);
+            System.err.println("[beginTransaction] Borrowed table instance: " + System.identityHashCode(table));
             Transaction tx = table.begin();
+            System.err.println("[beginTransaction] Created transaction ID: " + tx.id());
             
             // Store transaction in thread-local map
+            // Don't return the table to pool yet - keep it borrowed until commit/rollback
             activeTransactions.get().put(tablePath, tx);
+            System.err.println("[beginTransaction] Stored in activeTransactions, size: " + activeTransactions.get().size());
             
-            returnTable(tablePath);
-            
-            return new SQLResult(1);
+            // Return transaction in result so CLI can keep it
+            return new SQLResult(1, tx);
         } catch (IOException e) {
             throw new DatabaseException(ErrorCode.INTERNAL_ERROR, "Failed to begin transaction: " + e.getMessage(), e);
         }
@@ -2425,11 +2499,23 @@ public final class SQLExec {
                 Transaction tx = activeTransactions.get().remove(tablePath);
                 if (tx != null) {
                     tx.commit();
+                    // Return the borrowed table to pool after commit
+                    try {
+                        returnTable(tablePath);
+                    } catch (IOException e) {
+                        System.err.println("Failed to return table after commit: " + e.getMessage());
+                    }
                 }
             } else {
                 // Commit all active transactions
-                for (Transaction tx : activeTransactions.get().values()) {
-                    tx.commit();
+                for (Map.Entry<String, Transaction> entry : activeTransactions.get().entrySet()) {
+                    entry.getValue().commit();
+                    // Return the borrowed table to pool after commit
+                    try {
+                        returnTable(entry.getKey());
+                    } catch (IOException e) {
+                        System.err.println("Failed to return table after commit: " + e.getMessage());
+                    }
                 }
                 activeTransactions.get().clear();
             }
@@ -2446,19 +2532,37 @@ public final class SQLExec {
      */
     static SQLResult rollbackTransaction(SQL q) throws DatabaseException {
         String tablePath = q.table();
+        System.err.println("[rollbackTransaction] tablePath: " + tablePath + ", activeTransactions size: " + activeTransactions.get().size());
         
         try {
             if (tablePath != null && !tablePath.isEmpty()) {
                 // Rollback specific table transaction
                 tablePath = JdbcConfig.resolve(tablePath);
+                System.err.println("[rollbackTransaction] Resolved tablePath: " + tablePath);
                 Transaction tx = activeTransactions.get().remove(tablePath);
+                System.err.println("[rollbackTransaction] Found transaction: " + (tx != null ? tx.id() : "null"));
                 if (tx != null) {
+                    System.err.println("[rollbackTransaction] Calling tx.rollback() for transaction ID: " + tx.id());
                     tx.rollback();
+                    System.err.println("[rollbackTransaction] tx.rollback() completed");
+                    // Return the borrowed table to pool after rollback
+                    try {
+                        returnTable(tablePath);
+                    } catch (IOException e) {
+                        System.err.println("Failed to return table after rollback: " + e.getMessage());
+                    }
                 }
             } else {
                 // Rollback all active transactions
-                for (Transaction tx : activeTransactions.get().values()) {
-                    tx.rollback();
+                System.err.println("[rollbackTransaction] Rolling back all transactions, count: " + activeTransactions.get().size());
+                for (Map.Entry<String, Transaction> entry : activeTransactions.get().entrySet()) {
+                    entry.getValue().rollback();
+                    // Return the borrowed table to pool after rollback
+                    try {
+                        returnTable(entry.getKey());
+                    } catch (IOException e) {
+                        System.err.println("Failed to return table after rollback: " + e.getMessage());
+                    }
                 }
                 activeTransactions.get().clear();
             }

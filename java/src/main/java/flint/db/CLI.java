@@ -112,17 +112,28 @@ public final class CLI {
         long totalAffected = 0;
         int statementCount = 0;
         boolean hasError = false;
+        Transaction transaction = null;  // Keep transaction across statements
 
-        while (statements.hasNext()) {
-            String stmt = statements.next();
-            statementCount++;
-            
-            if (statementCount > 1 && status) {
-                out.println(); // blank line between statements
-            }
+        try {
+            while (statements.hasNext()) {
+                String stmt = statements.next();
+                statementCount++;
+                
+                if (statementCount > 1 && status) {
+                    out.println(); // blank line between statements
+                }
 
-            IO.StopWatch watch = new IO.StopWatch();
-            try (SQLResult result = SQLExec.execute(stmt)) {
+                IO.StopWatch watch = new IO.StopWatch();
+                SQLResult result = null;
+                try {
+                    result = SQLExec.execute(stmt);
+                    // Track transaction state (BEGIN creates new, COMMIT/ROLLBACK closes it)
+                    if (result.getTransaction() != null) {
+                        transaction = result.getTransaction();
+                    } else if (transaction != null) {
+                        // COMMIT or ROLLBACK was called, transaction is now closed
+                        transaction = null;
+                    }
                 if (result == null) {
                     throw new IllegalStateException("Failed to execute SQL");
                 }
@@ -146,15 +157,29 @@ public final class CLI {
                     }
                 }
 
-                totalAffected += affected;
+                    totalAffected += affected;
 
-            } catch (Exception e) {
-                System.err.println("Error in statement " + statementCount + ": " + e.getMessage());
-                if (LOG) {
-                    e.printStackTrace();
+                } catch (Exception e) {
+                    System.err.println("Error in statement " + statementCount + ": " + e.getMessage());
+                    if (LOG) {
+                        e.printStackTrace();
+                    }
+                    hasError = true;
+                    // Continue executing remaining statements
+                } finally {
+                    if (result != null && result.getCursor() != null) {
+                        try {
+                            result.close();
+                        } catch (Exception ignored) {}
+                    }
                 }
-                hasError = true;
-                // Continue executing remaining statements
+            }
+        } finally {
+            // Clean up transaction if still active
+            if (transaction != null) {
+                try {
+                    transaction.close();
+                } catch (Exception ignored) {}
             }
         }
 

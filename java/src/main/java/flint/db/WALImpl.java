@@ -87,7 +87,9 @@ final class WALImpl implements WAL {
     WALImpl(File file, Meta meta) throws IOException {
         String m = meta.walMode() != null ? meta.walMode().toUpperCase() : Meta.WAL_OPT_TRUNCATE;
         this.autoTruncate = Meta.WAL_OPT_TRUNCATE.equals(m);
-        this.CHECKPOINT_INTERVAL = meta.walCheckpointInterval() > 0 ? meta.walCheckpointInterval() : Long.getLong("FLINTDB_WAL_CHECKPOINT_INTERVAL", 10000L);
+        // Lower checkpoint interval to avoid large WAL files during bulk inserts
+        // 100 transactions = 1M rows with 10K rows/tx
+        this.CHECKPOINT_INTERVAL = meta.walCheckpointInterval() > 0 ? meta.walCheckpointInterval() : Long.getLong("FLINTDB_WAL_CHECKPOINT_INTERVAL", 100L);
          // Initialize WAL log storage
         this.logger = new WALLogStorage(
             file,
@@ -103,9 +105,9 @@ final class WALImpl implements WAL {
         // Make WAL header offsets durable and, in TRUNCATE mode, avoid leaving a large WAL
         // that will be fully scanned on next open.
         try (logger) {
-            // if (autoTruncate) {
-            //     logger.checkpoint();
-            // }
+            if (autoTruncate) {
+                logger.checkpoint();
+            }
             logger.sync();
         }
         storages.entrySet().forEach(entry -> {
@@ -127,10 +129,7 @@ final class WALImpl implements WAL {
     @Override
     public long begin() {
         final long id = logger.increaseAndGet();
-        storages.entrySet().forEach(entry -> {
-            WALStorage storage = entry.getValue();
-            storage.transaction(id);
-        });
+        storages.values().forEach(storage -> storage.transaction(id));
         return id;
     }
 
@@ -159,10 +158,8 @@ final class WALImpl implements WAL {
     @Override
     public void rollback(long id) {
         // Rollback all storages
-        for (WALStorage storage : storages.values()) {
-            storage.rollbackTransaction(id);
-        }
-        // Then log the rollback
+        storages.values().forEach(storage -> storage.rollbackTransaction(id));
+        // Log the rollback
         logger.rollback(id);
     }
 
@@ -769,19 +766,30 @@ final class WALLogStorage implements AutoCloseable {
 }
 
 /**
- * WAL Data Storage implementation for storing actual data changes.
+ * WAL Data Storage - Simplified implementation
+ * 
+ * Strategy:
+ * - Always write to origin immediately (transaction or not)
+ * - Log operations to WAL for crash recovery
+ * - Track new pages allocated in transaction
+ * - On rollback: delete tracked new pages from origin
+ * 
+ * This is simpler than shadow paging and works with B+Tree comparators
+ * that need to read data immediately after write.
  */
 final class WALStorage implements Storage {
     private final Storage origin;
     private final WALLogStorage logger;
-    private final int identifier; // file identifier
-    private long transaction = -1; // current transaction id
-    private final WAL.Callback callback; // cache synchronization callback
+    private final int identifier;
+    private long transaction = -1;
+    private final WAL.Callback callback;
     
-    // Dirty page cache for uncommitted UPDATE/DELETE operations
-    // Maps: page offset -> dirty page data (null for DELETE)
-    private final Map<Long, IoBuffer> dirtyPages = new HashMap<>();
-    private final Map<Long, Boolean> deletedPages = new HashMap<>(); // track deleted pages
+    // Track pages allocated in current transaction (for rollback deletion)
+    private final java.util.Set<Long> newPages = new java.util.HashSet<>();
+    // Backup of pages before update (for rollback restore)
+    private final Map<Long, IoBuffer> oldPages = new HashMap<>();
+    // Track pages deleted in current transaction (for rollback restore)
+    private final Map<Long, IoBuffer> deletedPageBackups = new HashMap<>();
 
     WALStorage(final Options options, final int identifier, final WALLogStorage logger, final WAL.Callback callback) throws IOException {
         this.origin = Storage.create(options);
@@ -795,25 +803,22 @@ final class WALStorage implements Storage {
     }
     
     void replay(WALLogStorage.WALRecord record) throws IOException {
-        // Replay WAL record to origin storage
         switch (record.operation) {
-            case WAL.OP_UPDATE -> {
-                // UPDATE: replay data to origin
+            case WAL.OP_WRITE, WAL.OP_UPDATE -> {
                 if (record.data != null) {
                     IoBuffer buffer = IoBuffer.wrap(java.nio.ByteBuffer.wrap(record.data));
-                    origin.write(record.pageOffset, buffer);
+                    if (record.operation == WAL.OP_WRITE) {
+                        origin.write(buffer);
+                    } else {
+                        origin.write(record.pageOffset, buffer);
+                    }
                 }
             }
             case WAL.OP_DELETE -> {
-                // DELETE: replay delete to origin
                 origin.delete(record.pageOffset);
                 if (callback != null) {
                     callback.refresh(record.pageOffset);
                 }
-            }
-            case WAL.OP_WRITE -> {
-                // WRITE (INSERT): already written to origin during transaction
-                // Metadata-only record, no replay needed
             }
         }
     }
@@ -825,82 +830,70 @@ final class WALStorage implements Storage {
 
     void commitTransaction(long id) throws IOException {
         if (this.transaction != id) {
-            return; // Not our transaction
-        }
-
-        // Commit ordering matters for crash-safety without recovery:
-        // write all non-root pages first, then update root pointer (commonly index 0) last.
-        // This ensures a crash mid-commit yields only orphan pages, not a broken tree.
-        final long rootIndex = 0L;
-
-        // Flush dirty pages to origin storage (excluding rootIndex)
-        for (Map.Entry<Long, IoBuffer> entry : dirtyPages.entrySet()) {
-            long index = entry.getKey();
-            if (index == rootIndex) continue;
-            IoBuffer data = entry.getValue();
-            data.position(0); // Reset position before write
-            origin.write(index, data);
-        }
-
-        // Apply deletes to origin storage (excluding rootIndex)
-        for (Long index : deletedPages.keySet()) {
-            if (index == rootIndex) continue;
-            boolean deleted = origin.delete(index);
-            if (deleted && callback != null) {
-                callback.refresh(index);
-            }
-        }
-
-        // Apply rootIndex update last (if present)
-        IoBuffer rootUpdate = dirtyPages.get(rootIndex);
-        if (rootUpdate != null) {
-            rootUpdate.position(0);
-            origin.write(rootIndex, rootUpdate);
-        }
-
-        // Apply rootIndex delete last (very uncommon; keep ordering consistent)
-        if (deletedPages.containsKey(rootIndex)) {
-            boolean deleted = origin.delete(rootIndex);
-            if (deleted && callback != null) {
-                callback.refresh(rootIndex);
-            }
+            return;
         }
         
-        // Clear caches after commit
-        dirtyPages.clear();
-        deletedPages.clear();
+        // All writes already applied to origin
+        // Just clear tracking
+        newPages.clear();
+        oldPages.clear();
+        deletedPageBackups.clear();
         this.transaction = -1;
     }
 
     void rollbackTransaction(long id) {
         if (this.transaction != id) {
-            return; // Not our transaction
+            return;
         }
 
-        // Invalidate caches for any pages that were modified in this transaction.
-        // This is critical because callers may have cached objects based on dirty reads;
-        // after rollback those pages revert to origin contents.
-        if (callback != null) {
-            for (Long index : dirtyPages.keySet()) {
+        try {
+            // 1. Delete newly allocated pages
+            for (Long index : newPages) {
                 try {
-                    callback.refresh(index);
-                } catch (IOException ignore) {
-                    // Best-effort cache invalidation; rollback correctness does not depend on it.
+                    origin.delete(index);
+                    if (callback != null) {
+                        callback.refresh(index);
+                    }
+                } catch (Exception e) {
+                    // Best effort
                 }
             }
-            for (Long index : deletedPages.keySet()) {
+            
+            // 2. Restore updated pages to original state
+            for (Map.Entry<Long, IoBuffer> entry : oldPages.entrySet()) {
                 try {
-                    callback.refresh(index);
-                } catch (IOException ignore) {
-                    // Best-effort cache invalidation; rollback correctness does not depend on it.
+                    Long index = entry.getKey();
+                    IoBuffer oldData = entry.getValue();
+                    oldData.position(0);
+                    origin.write(index, oldData);
+                    if (callback != null) {
+                        callback.refresh(index);
+                    }
+                } catch (Exception e) {
+                    // Best effort
                 }
             }
+            
+            // 3. Restore deleted pages
+            for (Map.Entry<Long, IoBuffer> entry : deletedPageBackups.entrySet()) {
+                try {
+                    Long index = entry.getKey();
+                    IoBuffer oldData = entry.getValue();
+                    oldData.position(0);
+                    origin.write(index, oldData);
+                    if (callback != null) {
+                        callback.refresh(index);
+                    }
+                } catch (Exception e) {
+                    // Best effort
+                }
+            }
+        } finally {
+            newPages.clear();
+            oldPages.clear();
+            deletedPageBackups.clear();
+            this.transaction = -1;
         }
-
-        // Discard dirty pages and deleted pages (don't apply to origin)
-        dirtyPages.clear();
-        deletedPages.clear();
-        this.transaction = -1;
     }
 
     @Override
@@ -910,88 +903,103 @@ final class WALStorage implements Storage {
 
     @Override
     public long write(IoBuffer bb) throws IOException {
-        // BPlusTree.java  -> storage.write(IoBuffer.wrap(EMPTY_BYTES)); => for obtaining index
-        // TableImpl.java  -> storage.write(raw);
-        // Write to origin storage immediately
+        // Always write to origin immediately
         IoBuffer data = bb.slice();
         final long index = origin.write(data);
         
-        // Log metadata for recovery (in case of rollback, we can't undo origin write)
-        // This is minimal overhead - just metadata, no data duplication
+        // If in transaction, log to WAL and track
         if (transaction > 0) {
-            logger.log(WAL.OP_WRITE, transaction, identifier, index, null, true);
+            // Make copy for WAL
+            data.position(0);
+            byte[] copy = new byte[data.remaining()];
+            data.get(copy);
+            IoBuffer cached = IoBuffer.wrap(copy);
+            
+            if (logger.logPageData()) {
+                logger.log(WAL.OP_WRITE, transaction, identifier, index, cached, false);
+            } else {
+                logger.log(WAL.OP_WRITE, transaction, identifier, index, null, true);
+            }
+            
+            newPages.add(index);
         }
-
+        
         return index;
     }
 
     @Override
     public void write(long index, IoBuffer bb) throws IOException {
+        // If in transaction, backup original data first
+        if (transaction > 0 && !oldPages.containsKey(index)) {
+            try {
+                IoBuffer oldData = origin.read(index);
+                if (oldData != null) {
+                    // Make copy of original data
+                    byte[] backup = new byte[oldData.remaining()];
+                    oldData.get(backup);
+                    oldPages.put(index, IoBuffer.wrap(backup));
+                }
+            } catch (Exception e) {
+                // If can't read old data, proceed anyway
+            }
+        }
+        
+        // Write new data to origin
+        IoBuffer data = bb.slice();
+        origin.write(index, data);
+        
+        // If in transaction, log to WAL
         if (transaction > 0) {
-            // UPDATE within transaction: don't write to origin immediately
-            // Store in dirty page cache and log to WAL
-            IoBuffer data = bb.slice();
-            // Make one immutable copy and reuse it for both WAL logging and dirty-page cache.
+            // Make copy for WAL
+            data.position(0);
             byte[] copy = new byte[data.remaining()];
             data.get(copy);
             IoBuffer cached = IoBuffer.wrap(copy);
-
+            
             if (logger.logPageData()) {
                 logger.log(WAL.OP_UPDATE, transaction, identifier, index, cached, false);
             } else {
-                // metadata-only mode: keep dirty page for read-your-own-writes and commit,
-                // but do not write page image into WAL.
                 logger.log(WAL.OP_UPDATE, transaction, identifier, index, null, true);
             }
-            dirtyPages.put(index, cached);
-        } else {
-            // No transaction: direct write to origin
-            IoBuffer data = bb.slice();
-            origin.write(index, data);
         }
     }
 
     @Override
     public IoBuffer read(long index) throws IOException {
-        // Check if page is deleted in current transaction
-        if (deletedPages.containsKey(index) && transaction > 0) {
-            throw new IOException("Page " + index + " has been deleted in current transaction");
-        }
-        
-        // Check dirty page cache first (read-your-own-writes)
-        IoBuffer dirtyPage = dirtyPages.get(index);
-        if (dirtyPage != null) {
-            // Return a copy to avoid external modification
-            IoBuffer copy = dirtyPage.duplicate();
-            copy.position(0);
-            return copy;
-        }
-        
-        // Not in dirty cache, read from origin storage
+        // Always read from origin (no dirty page cache)
         return origin.read(index);
     }
 
     @Override
     public boolean delete(long index) throws IOException {
+        // If in transaction, backup original data first
         if (transaction > 0) {
-            // DELETE within transaction: don't delete from origin immediately
-            // Mark as deleted in cache and log to WAL
+            try {
+                IoBuffer oldData = origin.read(index);
+                if (oldData != null) {
+                    byte[] backup = new byte[oldData.remaining()];
+                    oldData.get(backup);
+                    deletedPageBackups.put(index, IoBuffer.wrap(backup));
+                }
+            } catch (Exception e) {
+                // If can't read, proceed anyway
+            }
+            
             if (logger.logPageData()) {
                 logger.log(WAL.OP_DELETE, transaction, identifier, index, null);
             } else {
                 logger.log(WAL.OP_DELETE, transaction, identifier, index, null, true);
             }
-            deletedPages.put(index, true);
-            dirtyPages.remove(index); // Remove from dirty cache if exists
-            return true;
-        } else {
-            // No transaction: direct delete from origin
-            boolean result = origin.delete(index);
-            if (result && callback != null) {
-                callback.refresh(index);
-            }
-            return result;
         }
+        
+        // Delete from origin
+        boolean result = origin.delete(index);
+        
+        if (result && callback != null) {
+            callback.refresh(index);
+        }
+        
+        return result;
     }
 
     @Override

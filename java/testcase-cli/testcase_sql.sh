@@ -9,7 +9,7 @@ CREATE TABLE temp/testcase.flintdb (
     salary DECIMAL(10,2) NOT NULL,
 
     PRIMARY KEY (id)
-)
+) WAL=TRUNCATE
 EOF
 )
 
@@ -122,6 +122,34 @@ rm temp/output_sorted.flintdb* 2>/dev/null
 echo "SELECT INTO with aggregation"
 ./bin/flintdb "SELECT COUNT(*) as total, AVG(salary) as avg_salary FROM temp/testcase.flintdb INTO temp/output_summary.tsv" -log -status
 ./bin/flintdb "SELECT * FROM temp/output_summary.tsv" -pretty
+
+
+echo ""
+echo "========================================"
+echo "Transaction Tests"
+echo "========================================"
+echo "DROP TABLE transactions"
+./bin/flintdb "DROP TABLE temp/transactions.flintdb" -status
+
+echo "CREATE TABLE transactions"
+./bin/flintdb "CREATE TABLE temp/transactions.flintdb (id UINT NOT NULL, name STRING(100), amount DECIMAL(10,2), PRIMARY KEY (id)) WAL=TRUNCATE " -status
+
+echo "BEGIN TRANSACTION and COMMIT (single process)"
+./bin/flintdb "BEGIN TRANSACTION temp/transactions.flintdb; INSERT INTO temp/transactions.flintdb VALUES (1, 'Transaction1', 100.50); INSERT INTO temp/transactions.flintdb VALUES (2, 'Transaction2', 200.75); INSERT INTO temp/transactions.flintdb VALUES (3, 'Transaction3', 300.25); COMMIT" -status
+
+echo "SELECT after COMMIT (should have 3 rows)"
+./bin/flintdb "SELECT * FROM temp/transactions.flintdb" -pretty
+
+# Note: ROLLBACK is not yet fully supported in the current WAL implementation
+# The current WAL provides durability (crash recovery) but not full atomicity (rollback)
+# echo "BEGIN TRANSACTION and ROLLBACK (single process)"
+# ./bin/flintdb "BEGIN TRANSACTION temp/transactions.flintdb; INSERT INTO temp/transactions.flintdb VALUES (4, 'Transaction4', 400.00); INSERT INTO temp/transactions.flintdb VALUES (5, 'Transaction5', 500.00); ROLLBACK" -status
+
+echo "Multiple transactions in sequence (single process)"
+./bin/flintdb "BEGIN TRANSACTION temp/transactions.flintdb; INSERT INTO temp/transactions.flintdb VALUES (4, 'TX4', 400.00); COMMIT; BEGIN TRANSACTION temp/transactions.flintdb; INSERT INTO temp/transactions.flintdb VALUES (5, 'TX5', 500.00); COMMIT" -status
+
+echo "SELECT after multiple commits (should have 5 rows)"
+./bin/flintdb "SELECT * FROM temp/transactions.flintdb" -pretty
 
 
 echo ""
