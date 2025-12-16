@@ -1456,7 +1456,7 @@ static inline void row_init(struct flintdb_meta *meta, struct flintdb_row *r, ch
                 struct flintdb_variant tmp;
                 flintdb_variant_init(&tmp);
                 // Use non-owning slice to avoid allocation; row_set will copy/convert as needed
-                flintdb_variant_string_ref_set(&tmp, defv, (u32)strlen(defv));
+                flintdb_variant_string_ref_set(&tmp, defv, (u32)strlen(defv), 0);
                 row_set(r, i, &tmp, e);
                 flintdb_variant_free(&tmp);
             }
@@ -1567,7 +1567,7 @@ struct flintdb_row *flintdb_row_from_argv(struct flintdb_meta *meta, u16 argc, c
         flintdb_variant_init(&tmp);
         u32 L = (u32)strlen(v);
         // Use non-owning reference to avoid allocation; row_set will convert/copy
-        flintdb_variant_string_ref_set(&tmp, v, L);
+        flintdb_variant_string_ref_set(&tmp, v, L, 0);
         r->set(r, col, &tmp, e);
         flintdb_variant_free(&tmp);
         if (e && *e)
@@ -2475,11 +2475,11 @@ static int bin_decode(struct formatter *me, struct buffer *in, struct flintdb_ro
             }
             switch (ctype) {
             case VARIANT_STRING: {
-                // Copy into variant-owned buffer to ensure NUL-termination.
-                // The BIN payload is a raw byte slice (not NUL-terminated) and the input buffer
-                // is reused; referencing it would make string_get/strlen-based paths read past
-                // the field and print stray whitespace/newlines.
-                flintdb_variant_string_set(&r->array[i], (p ? p : ""), n); // TODO: must improve efficiency
+                // flintdb_variant_string_set(&r->array[i], (p ? p : ""), n); // safe but slower
+
+                // Use string_ref_set for better performance - sflag will track null-termination status
+                // string_get will handle null-termination conversion when needed
+                flintdb_variant_string_ref_set(&r->array[i], (p ? p : ""), n, 1);
                 break;
             }
             case VARIANT_DECIMAL: {
@@ -3210,7 +3210,7 @@ static int text_decode(struct formatter *me, struct buffer *in, struct flintdb_r
                 // Fallback: pass through as STRING using a non-owning slice to avoid allocation
                 struct flintdb_variant tmp;
                 flintdb_variant_init(&tmp);
-                flintdb_variant_string_ref_set(&tmp, fv, fl);
+                flintdb_variant_string_ref_set(&tmp, fv, fl, 0);
                 r->set(r, i, &tmp, e);
                 flintdb_variant_free(&tmp);
             }

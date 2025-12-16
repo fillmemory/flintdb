@@ -4,10 +4,10 @@
 #
 # Prerequisites:
 # Compiler: gcc, clang
-#   Redhat: sudo yum install gcc make zlib-devel arrow-devel cjson-devel
-#   Ubuntu: sudo apt-get install build-essential zlib1g-dev libarrow-dev libcjson-dev
-#  Mingw64: pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-zlib mingw-w64-x86_64-arrow mingw-w64-x86_64-cjson
-#    macOS: brew install zlib apache-arrow cjson
+#   Redhat: sudo yum install gcc make zlib-devel arrow-devel cjson-devel gperftools-devel jemalloc-devel
+#   Ubuntu: sudo apt-get install build-essential zlib1g-dev libarrow-dev libcjson-dev libgoogle-perftools-dev libjemalloc-dev
+#  Mingw64: pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-zlib mingw-w64-x86_64-arrow mingw-w64-x86_64-cjson mingw-w64-x86_64-gperftools mingw-w64-x86_64-jemalloc
+#    macOS: brew install zlib apache-arrow cjson gperftools jemalloc 
 #
 # How to build 
 # ./build.sh 
@@ -54,11 +54,10 @@ if [ $AUTO_DETECT_ALLOCATOR -eq 1 ]; then
     # Detect OS and check for memory allocators accordingly
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
-        # if brew list jemalloc &>/dev/null || [ -f /usr/local/lib/libjemalloc.dylib ] || [ -f /opt/homebrew/lib/libjemalloc.dylib ]; then
-        #     ALLOCATOR=jemalloc
-        #     echo "Using jemalloc as memory allocator"
-        # el
-        if brew list gperftools &>/dev/null || [ -f /usr/local/lib/libtcmalloc.dylib ] || [ -f /opt/homebrew/lib/libtcmalloc.dylib ]; then
+        if brew list jemalloc &>/dev/null || [ -f /usr/local/lib/libjemalloc.dylib ] || [ -f /opt/homebrew/lib/libjemalloc.dylib ]; then
+            ALLOCATOR=jemalloc
+            echo "Using jemalloc as memory allocator"
+        elif brew list gperftools &>/dev/null || [ -f /usr/local/lib/libtcmalloc.dylib ] || [ -f /opt/homebrew/lib/libtcmalloc.dylib ]; then
             ALLOCATOR=tcmalloc
             echo "Using tcmalloc as memory allocator"
         else

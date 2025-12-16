@@ -296,19 +296,21 @@ int flintdb_variant_string_set(struct flintdb_variant *v, const char *str, u32 l
 	v->value.b.length = length;
 	v->value.b.data = buf;
 	v->value.b.owned = 1;
+	v->value.b.sflag = 0; // null-terminated
 	simd_memcpy(buf, str, length);
 	buf[length] = '\0';
 #endif
 	return 0;
 }
 
-int flintdb_variant_string_ref_set(struct flintdb_variant *v, const char *str, u32 length) {
+int flintdb_variant_string_ref_set(struct flintdb_variant *v, const char *str, u32 length, u8 sflag) {
 	if (!v) return -1;
 	variant_release_if_owned(v);
 	v->type = VARIANT_STRING;
 	v->value.b.length = length;
 	v->value.b.data = (char *)str; // non-owning reference into external buffer
 	v->value.b.owned = 0;
+	v->value.b.sflag = sflag; // 1; // not null-terminated
 	return 0;
 }
 
@@ -610,7 +612,24 @@ int flintdb_variant_copy(struct flintdb_variant *dest, const struct flintdb_vari
 
 const char * flintdb_variant_string_get(const struct flintdb_variant *v) {
 	if (!v) return NULL;
-	if (v->type == VARIANT_STRING) return v->value.b.data;
+	if (v->type == VARIANT_STRING) {
+		// If string is not null-terminated (sflag=1), create a temporary null-terminated copy
+		if (v->value.b.sflag) {
+			static __thread char *temp_buf = NULL;
+			static __thread size_t temp_buf_size = 0;
+			size_t needed = (size_t)v->value.b.length + 1;
+			if (temp_buf_size < needed) {
+				char *new_buf = (char *)realloc(temp_buf, needed);
+				if (!new_buf) return NULL;
+				temp_buf = new_buf;
+				temp_buf_size = needed;
+			}
+			memcpy(temp_buf, v->value.b.data, v->value.b.length);
+			temp_buf[v->value.b.length] = '\0';
+			return temp_buf;
+		}
+		return v->value.b.data;
+	}
 	// Provide string views for numeric and date/time types only
 	static __thread char s_buf[64];
 	switch (v->type) {

@@ -167,7 +167,7 @@ struct flintdb_variant {
         struct flintdb_decimal  d;
         struct {
             u8 owned:2; // 0: not owned, 1: owned (free on destroy), 2: string pool
-            // u8 type:1; // 0: string null-terminated, 1: bytes (not null-terminated)
+            u8 sflag:1; // type == VARIANT_STRING => 0: null-terminated, 1: not null-terminated
             u32 length;
             char *data; // not null-terminated
         } b; // bytes/string/uuid/ipv6
@@ -314,7 +314,7 @@ FLINTDB_API int flintdb_variant_u16_set(struct flintdb_variant *v, u16 val);
 FLINTDB_API int flintdb_variant_i64_set(struct flintdb_variant *v, i64 val);
 FLINTDB_API int flintdb_variant_f64_set(struct flintdb_variant *v, f64 val);
 FLINTDB_API int flintdb_variant_string_set(struct flintdb_variant *v, const char *str, u32 length);
-FLINTDB_API int flintdb_variant_string_ref_set(struct flintdb_variant *v, const char *str, u32 length);
+FLINTDB_API int flintdb_variant_string_ref_set(struct flintdb_variant *v, const char *str, u32 length, u8 sflag); // sflag: 0=null-terminated, 1=not null-terminated
 FLINTDB_API int flintdb_variant_decimal_set(struct flintdb_variant *v, u8 sign, u8 scale, struct flintdb_decimal  data);
 FLINTDB_API int flintdb_variant_bytes_set(struct flintdb_variant *v, const char *data, u32 length);
 FLINTDB_API int flintdb_variant_date_set(struct flintdb_variant *v, time_t val);
