@@ -30,6 +30,59 @@
 #include <liburing.h>
 #endif
 
+/**
+ * ================================================================================
+ * FlintDB Write-Ahead Log (WAL) Implementation
+ * ================================================================================
+ * 
+ * WAL Architecture Overview:
+ * -------------------------
+ * This implementation uses an "immediate-write with backup/restore" strategy,
+ * which differs from traditional shadow paging approaches.
+ * 
+ * Key Design Principles:
+ * ----------------------
+ * 1. IMMEDIATE WRITES: All data modifications (INSERT/UPDATE/DELETE) are 
+ *    written directly to the origin storage files, even within transactions.
+ * 
+ * 2. METADATA LOGGING: WAL file only stores operation metadata (not full page images)
+ *    for crash recovery replay.
+ * 
+ * 3. TRACKING FOR ROLLBACK: During transactions, the system tracks:
+ *    - new_pages: Pages allocated (for deletion on rollback)
+ *    - old_pages: Original data before updates (for restoration on rollback)
+ *    - deleted_page_backups: Data before deletion (for restoration on rollback)
+ * 
+ * 4. COMMIT: Simply clears tracking structures (writes already applied).
+ * 
+ * 5. ROLLBACK: Reverts changes by:
+ *    - Deleting newly allocated pages
+ *    - Restoring backed-up page data
+ *    - Restoring deleted pages
+ * 
+ * Advantages of this approach:
+ * ----------------------------
+ * - No read latency: Data is immediately visible after write
+ * - Simpler than shadow paging: No need for page mapping indirection
+ * - Works with B+Tree comparators that need immediate data access
+ * - Smaller WAL files: Only metadata, not full page images
+ * 
+ * Transaction Flow:
+ * -----------------
+ * BEGIN  -> Set transaction ID, initialize tracking maps
+ * WRITE  -> Write to origin + track in new_pages + log metadata
+ * UPDATE -> Backup old data + write new data to origin + log metadata
+ * DELETE -> Backup data + delete from origin + log metadata
+ * COMMIT -> Clear tracking maps (data already persisted)
+ * ROLLBACK -> Delete new pages + restore old/deleted pages
+ * 
+ * Crash Recovery:
+ * ---------------
+ * WAL replay reconstructs committed state by replaying logged operations.
+ * Uncommitted transactions are implicitly rolled back (not replayed).
+ * ================================================================================
+ */
+
 
 
 #define HEADER_SIZE 4096  // Match filesystem block size for atomic writes
@@ -50,40 +103,54 @@ static int get_env_int(const char *name, int default_value) {
     return default_value;
 }
 
-// WAL implementation structure
+/**
+ * WAL Implementation Structure
+ * ----------------------------
+ * Core WAL manager that handles transaction logging, checkpointing,
+ * and multiple storage file coordination.
+ */
 struct wal_impl {
+    // === Core WAL State ===
     int fd;                     // WAL file descriptor
     char path[PATH_MAX];        // WAL file path
     i64 max_size;              // Maximum WAL file size
-    i64 transaction_id;        // Current transaction ID
+    i64 transaction_id;        // Current transaction ID (monotonically increasing)
     i64 transaction_count;     // Total transaction count
-    i64 committed_offset;      // Committed offset
-    i64 checkpoint_offset;     // Checkpoint offset
-    i64 current_position;      // Current write position
-    i32 total_count;           // Total transaction count
-    i32 processed_count;       // Processed transaction count
-    int auto_truncate;         // Auto truncate mode (1 for TRUNCATE, 0 for LOG)
-    i64 checkpoint_interval;   // Checkpoint every N transactions
+    i64 committed_offset;      // Last committed file offset
+    i64 checkpoint_offset;     // Last checkpointed offset
+    i64 current_position;      // Current write position in WAL file
+    i32 total_count;           // Total operation count
+    i32 processed_count;       // Processed operation count
     
-    // Batch logging
-    char *batch_buffer;        // Batch buffer
-    i32 batch_size;            // Current batch size
-    i32 batch_count;           // Batch record count
-    i32 batch_capacity;         // Batch buffer capacity (bytes)
+    // === Checkpoint Configuration ===
+    int auto_truncate;         // Auto truncate mode (1 for TRUNCATE, 0 for LOG)
+    i64 checkpoint_interval;   // Checkpoint every N transactions (default: 100)
+    
+    // === Batch Write Optimization ===
+    // WAL operations are batched in memory before flushing to disk
+    char *batch_buffer;        // Batch buffer for accumulating WAL records
+    i32 batch_size;            // Current batch size in bytes
+    i32 batch_count;           // Number of records in current batch
+    i32 batch_capacity;        // Batch buffer capacity in bytes (default: 4MB)
     i32 batch_size_limit;      // Batch size limit (configurable)
-    i32 compression_threshold; // Compression threshold (configurable)
+    i32 compression_threshold; // Compress if record > threshold (default: 8KB)
 
-    // Sync behavior
+    // === Durability Configuration ===
     i32 sync_mode;             // WAL_SYNC_DEFAULT|WAL_SYNC_OFF|WAL_SYNC_NORMAL|WAL_SYNC_FULL
 
-    // WAL payload policy
-    i32 log_page_data;         // 1=log page images for UPDATE/DELETE, 0=metadata only
+    // === Payload Policy ===
+    i32 log_page_data;         // 1=log full page images, 0=metadata only (default: 0)
+                               // We use metadata-only logging since data is already
+                               // written to origin storage files
 
-    // Large record policy
-    i32 direct_write_threshold; // If record size exceeds this, write directly (writev) instead of copying into batch buffer
+    // === Large Record Optimization ===
+    i32 direct_write_threshold; // If record size > threshold, use writev directly
+                               // instead of copying to batch buffer (default: 64KB)
     
-    // Multiple storages management
-    struct hashmap *storages;  // Map of file -> wal_storage
+    // === Multi-File Storage Management ===
+    struct hashmap *storages;  // Map: storage_id -> wal_storage instance
+                               // Manages multiple wrapped storage files (.flintdb, .i.*)
+                               // Each storage tracks its own transaction state
     
     // Platform-specific I/O context
 #if defined(__linux__) && defined(HAVE_LIBURING)
@@ -357,14 +424,18 @@ static inline void wal_encode_record_header(
 }
 
 // Dirty page entry for uncommitted UPDATE/DELETE operations.
-// For UPDATE: store page bytes inline and expose a buffer view (free is no-op for callers).
-// For DELETE: data_size=0 and is_delete=1.
+/**
+ * Dirty Page Structure
+ * --------------------
+ * Represents a backed-up page for rollback purposes.
+ * Stores original page data inline for efficient memory management.
+ */
 struct dirty_page {
-    i64 offset;                 // Page offset
-    int is_delete;              // 1 if this is a DELETE operation
-    i32 data_size;              // Page data size (0 for DELETE)
-    struct buffer buf;          // Buffer view of data[] (free is no-op)
-    char data[];                // Flexible array for page bytes
+    i64 offset;                 // Page offset in storage file
+    int is_delete;              // 1 if this is a DELETE operation, 0 otherwise
+    i32 data_size;              // Size of backed-up data (0 for DELETE)
+    struct buffer buf;          // Buffer view of data[] (free is no-op for callers)
+    char data[];                // Flexible array containing actual page bytes
 };
 
 static void dirty_page_free(struct dirty_page *page) {
@@ -372,33 +443,102 @@ static void dirty_page_free(struct dirty_page *page) {
     FREE(page);
 }
 
-// Storage wrapper structure
 /**
- * WAL Storage - Immediate write with backup/restore for rollback
+ * ================================================================================
+ * WAL Storage Wrapper
+ * ================================================================================
  * 
- * Strategy (matches Java implementation):
- * - Always write to origin immediately (transaction or not)
- * - Log operations to WAL for crash recovery  
- * - Track new pages allocated in transaction (for rollback deletion)
- * - Backup pages before update/delete (for rollback restore)
- * - On commit: just clear tracking (all writes already applied)
- * - On rollback: delete new pages, restore old pages
+ * Wraps an origin storage file (e.g., .flintdb or .i.* index) to provide
+ * transactional semantics with immediate-write and backup/restore rollback.
+ * 
+ * Architecture:
+ * -------------
+ *           ┌──────────────┐
+ *           │ wal_storage  │  (This wrapper)
+ *           └──────┬───────┘
+ *                  │
+ *     ┌────────────┼────────────┐
+ *     │                         │
+ *     ▼                         ▼
+ * ┌─────────┐            ┌──────────┐
+ * │ origin  │            │   WAL    │
+ * │ storage │            │  logger  │
+ * │  file   │            │   (.wal) │
+ * └─────────┘            └──────────┘
+ * 
+ * Transaction State Tracking (for ROLLBACK):
+ * ------------------------------------------
+ * 
+ * new_pages:              Tracks newly allocated pages
+ *   Map<offset, 1>        - Created by WRITE (INSERT) operations
+ *                         - On ROLLBACK: these pages are DELETED
+ * 
+ * old_pages:              Backs up original data before updates
+ *   Map<offset, data>     - Created before first UPDATE to a page
+ *                         - On ROLLBACK: original data is RESTORED
+ * 
+ * deleted_page_backups:   Backs up data before deletion
+ *   Map<offset, data>     - Created before DELETE operations
+ *                         - On ROLLBACK: deleted data is RESTORED
+ * 
+ * Operation Flow Examples:
+ * ------------------------
+ * 
+ * 1. INSERT (new row):
+ *    - Write data to origin immediately
+ *    - Add offset to new_pages map
+ *    - Log metadata to WAL
+ *    ROLLBACK: Delete page from origin using new_pages map
+ * 
+ * 2. UPDATE (modify existing row):
+ *    - Backup original page to old_pages (if not already backed up)
+ *    - Write new data to origin immediately
+ *    - Log operation to WAL
+ *    ROLLBACK: Restore original data from old_pages map
+ * 
+ * 3. DELETE (remove row):
+ *    - Backup page data to deleted_page_backups
+ *    - Delete page from origin immediately
+ *    - Log operation to WAL
+ *    ROLLBACK: Restore page from deleted_page_backups map
+ * 
+ * 4. COMMIT:
+ *    - All writes already applied to origin
+ *    - Simply clear all tracking maps
+ *    - Log COMMIT record to WAL
+ * 
+ * 5. ROLLBACK:
+ *    - Iterate new_pages -> DELETE from origin
+ *    - Iterate old_pages -> RESTORE original data to origin
+ *    - Iterate deleted_page_backups -> RESTORE deleted pages to origin
+ *    - Clear all tracking maps
+ *    - Log ROLLBACK record to WAL
+ * 
+ * ================================================================================
  */
 struct wal_storage {
-    struct storage base;        // Base storage structure (must be first!)
-    struct storage *origin;     // Original storage
-    struct wal_impl *logger;    // WAL logger
-    int identifier;             // File identifier
-    i64 transaction;            // Current transaction ID
-    int (*callback)(const void *obj, i64 offset); // Cache synchronization callback
-    const void *callback_obj;   // Callback object context
+    struct storage base;        // Base storage vtable (must be first for casting!)
+    struct storage *origin;     // Underlying storage file being wrapped
+    struct wal_impl *logger;    // WAL manager for logging operations
+    int identifier;             // Unique ID for this storage (for multi-file coordination)
+    i64 transaction;            // Current transaction ID (-1 if no active transaction)
+    int (*callback)(const void *obj, i64 offset); // Cache invalidation callback
+    const void *callback_obj;   // Context for callback function
     
-    // Track pages allocated in current transaction (for rollback deletion)
-    struct hashmap *new_pages;          // offset -> 1 (just tracking)
-    // Backup of pages before update (for rollback restore)
-    struct hashmap *old_pages;          // offset -> backup data
-    // Backup of pages before delete (for rollback restore)
-    struct hashmap *deleted_page_backups; // offset -> backup data
+    // === Rollback Tracking Structures ===
+    // These maps are populated during transactions and cleared on commit/rollback
+    
+    struct hashmap *new_pages;          // Map: offset -> 1
+                                        // Tracks pages allocated in current transaction
+                                        // On ROLLBACK: delete these pages
+    
+    struct hashmap *old_pages;          // Map: offset -> dirty_page*
+                                        // Backs up original page data before first UPDATE
+                                        // On ROLLBACK: restore these pages
+    
+    struct hashmap *deleted_page_backups; // Map: offset -> dirty_page*
+                                          // Backs up page data before DELETE
+                                          // On ROLLBACK: restore deleted pages
 };
 
 // A WAL implementation that does nothing
@@ -850,21 +990,38 @@ static i64 wal_storage_bytes_get(struct storage *me) {
     return ws->origin->bytes_get(ws->origin);
 }
 
+/**
+ * READ operation: Direct passthrough to origin
+ * No transaction tracking needed for reads
+ */
 static struct buffer* wal_storage_read(struct storage *me, i64 offset, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
-    // Always read from origin (no dirty cache)
+    // Always read from origin (no dirty page cache in this design)
     return ws->origin->read(ws->origin, offset, e);
 }
 
+/**
+ * WRITE operation: Allocate new page (INSERT)
+ * 
+ * Flow:
+ * 1. Write data to origin storage immediately
+ * 2. If in transaction: track offset in new_pages for potential rollback
+ * 3. Log metadata to WAL for crash recovery
+ * 
+ * On ROLLBACK: Pages in new_pages will be deleted from origin
+ */
 static i64 wal_storage_write(struct storage *me, struct buffer *in, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
-    // Write-through: write to origin immediately
+    
+    // IMMEDIATE WRITE: Write to origin first (no shadow paging)
     i64 index = ws->origin->write(ws->origin, in, e);
     
-    // Log metadata only to WAL if transaction is active (data already in origin storage)
+    // If in transaction and write succeeded
     if (ws->transaction > 0 && ws->logger && index >= 0) {
+        // Log metadata to WAL (data already in origin, so metadata_only=1)
         wal_log(ws->logger, OP_WRITE, ws->transaction, ws->identifier, index, NULL, 0, 1);
-        // Track new page for rollback
+        
+        // Track this as a new page for potential rollback
         if (ws->new_pages) {
             ws->new_pages->put(ws->new_pages, (keytype)index, (valtype)1, NULL);
         }
@@ -873,18 +1030,29 @@ static i64 wal_storage_write(struct storage *me, struct buffer *in, char **e) {
     return index;
 }
 
+/**
+ * WRITE_AT operation: Update existing page (UPDATE)
+ * 
+ * Flow:
+ * 1. If in transaction and first update to this page: backup original data
+ * 2. Write new data to origin immediately
+ * 3. Log operation to WAL
+ * 
+ * On ROLLBACK: Original data from old_pages will be restored
+ */
 static i64 wal_storage_write_at(struct storage *me, i64 offset, struct buffer *in, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
     
+    // BACKUP BEFORE WRITE (for rollback capability)
     if (ws->transaction > 0 && ws->old_pages) {
-        // Backup old data if not already backed up
+        // Check if this page has already been backed up in this transaction
         valtype existing = (valtype)ws->old_pages->get(ws->old_pages, (keytype)offset);
         if (existing == HASHMAP_INVALID_VAL) {
-            // First update to this page in this transaction, backup the old data
+            // First update to this page - backup the original data
             struct buffer *old_data = ws->origin->read(ws->origin, offset, e);
             if (e && *e) return -1;
             if (old_data) {
-                // Copy the old data
+                // Allocate backup structure with inline data
                 i32 size = (i32)(old_data->limit - old_data->position);
                 struct dirty_page *backup = CALLOC(1, (size_t)sizeof(struct dirty_page) + (size_t)size);
                 if (!backup) {
@@ -896,21 +1064,25 @@ static i64 wal_storage_write_at(struct storage *me, i64 offset, struct buffer *i
                 memcpy(backup->data, old_data->array + old_data->position, (size_t)size);
                 old_data->free(old_data);
                 
+                // Store backup in old_pages map
                 ws->old_pages->put(ws->old_pages, (keytype)offset, (valtype)(uintptr_t)backup, NULL);
             }
         }
+        // If already backed up, skip (we only need the FIRST version for rollback)
     }
     
-    // Write to origin immediately
+    // IMMEDIATE WRITE: Update origin with new data
     i64 result = ws->origin->write_at(ws->origin, offset, in, e);
     
-    // Log to WAL
+    // LOG TO WAL
     if (ws->transaction > 0 && ws->logger && result == 0) {
         i32 data_size = (i32)(in->limit - in->position);
         if (ws->logger->log_page_data) {
+            // Log full page image (if configured)
             wal_log(ws->logger, OP_UPDATE, ws->transaction, ws->identifier, offset,
                     in->array + in->position, data_size, 0);
         } else {
+            // Log metadata only (default - data already in origin)
             wal_log(ws->logger, OP_UPDATE, ws->transaction, ws->identifier, offset, NULL, 0, 1);
         }
     }
@@ -921,14 +1093,26 @@ EXCEPTION:
     return -1;
 }
 
+/**
+ * DELETE operation: Remove page (DELETE)
+ * 
+ * Flow:
+ * 1. If in transaction: backup page data before deletion
+ * 2. Delete from origin immediately
+ * 3. Log operation to WAL
+ * 
+ * On ROLLBACK: Backed-up data from deleted_page_backups will be restored
+ */
 static i32 wal_storage_delete(struct storage *me, i64 offset, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
     
+    // BACKUP BEFORE DELETE (for rollback capability)
     if (ws->transaction > 0 && ws->deleted_page_backups) {
-        // Backup data before deletion
+        // Read and backup the page data before deleting
         struct buffer *old_data = ws->origin->read(ws->origin, offset, e);
         if (e && *e) return 0;
         if (old_data) {
+            // Allocate backup structure with inline data
             i32 size = (i32)(old_data->limit - old_data->position);
             struct dirty_page *backup = CALLOC(1, (size_t)sizeof(struct dirty_page) + (size_t)size);
             if (!backup) {
@@ -940,18 +1124,20 @@ static i32 wal_storage_delete(struct storage *me, i64 offset, char **e) {
             memcpy(backup->data, old_data->array + old_data->position, (size_t)size);
             old_data->free(old_data);
             
+            // Store backup in deleted_page_backups map
             ws->deleted_page_backups->put(ws->deleted_page_backups, (keytype)offset, (valtype)(uintptr_t)backup, NULL);
         }
     }
     
-    // Delete from origin immediately
+    // IMMEDIATE DELETE: Remove from origin
     i32 result = ws->origin->delete(ws->origin, offset, e);
     
-    // Log to WAL
+    // LOG TO WAL
     if (ws->transaction > 0 && ws->logger && result) {
         if (ws->logger->log_page_data) {
             wal_log(ws->logger, OP_DELETE, ws->transaction, ws->identifier, offset, NULL, 0, 0);
         } else {
+            // Metadata only (default)
             wal_log(ws->logger, OP_DELETE, ws->transaction, ws->identifier, offset, NULL, 0, 1);
         }
     }
@@ -966,21 +1152,40 @@ EXCEPTION:
     return 0;
 }
 
+/**
+ * Set transaction ID for this storage
+ */
 static void wal_storage_transaction(struct storage *me, i64 id, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
     ws->transaction = id;
 }
 
+/**
+ * COMMIT operation: Finalize transaction
+ * 
+ * Since all writes have already been applied to origin storage immediately,
+ * commit only needs to clean up the tracking structures.
+ * 
+ * Steps:
+ * 1. Clear new_pages map (no longer need to track for rollback)
+ * 2. Free and clear old_pages backups (no longer need original data)
+ * 3. Free and clear deleted_page_backups (no longer need deleted data)
+ * 4. Reset transaction ID to -1
+ * 
+ * This is much simpler than traditional 2PC because we don't need to
+ * flush shadow pages or swap page mappings.
+ */
 static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e) {
     if (ws->transaction != id) {
         return; // Not our transaction
     }
     
-    // All changes already written to origin, just clear tracking maps
+    // Clear new_pages tracking (just keys, no data to free)
     if (ws->new_pages) {
         ws->new_pages->clear(ws->new_pages);
     }
     
+    // Free old_pages backups and clear map
     if (ws->old_pages) {
         struct map_iterator it = {0};
         while (ws->old_pages->iterate(ws->old_pages, &it)) {
@@ -990,6 +1195,7 @@ static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e) {
         ws->old_pages->clear(ws->old_pages);
     }
     
+    // Free deleted_page_backups and clear map
     if (ws->deleted_page_backups) {
         struct map_iterator it = {0};
         while (ws->deleted_page_backups->iterate(ws->deleted_page_backups, &it)) {
@@ -1002,6 +1208,27 @@ static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e) {
     ws->transaction = -1;
 }
 
+/**
+ * ROLLBACK operation: Undo all transaction changes
+ * 
+ * Since we wrote changes directly to origin storage, we must now UNDO them
+ * by using the backup data we collected during the transaction.
+ * 
+ * Steps:
+ * 1. Delete all newly allocated pages (from new_pages map)
+ * 2. Restore all updated pages to their original state (from old_pages map)
+ * 3. Restore all deleted pages (from deleted_page_backups map)
+ * 4. Invalidate cache entries for modified pages
+ * 5. Free all backup data and clear maps
+ * 6. Reset transaction ID to -1
+ * 
+ * Order matters:
+ * - Delete new pages first (they shouldn't exist)
+ * - Then restore updates (bring back old data)
+ * - Then restore deletions (bring back deleted data)
+ * 
+ * This achieves full rollback even though writes were immediate.
+ */
 static void wal_storage_rollback(struct wal_storage *ws, i64 id) {
     if (ws->transaction != id) {
         return; // Not our transaction
@@ -1009,12 +1236,13 @@ static void wal_storage_rollback(struct wal_storage *ws, i64 id) {
     
     char *e = NULL;
     
-    // 1. Delete newPages from origin
+    // STEP 1: Delete newly allocated pages (from INSERT operations)
     if (ws->new_pages) {
         struct map_iterator it = {0};
         while (ws->new_pages->iterate(ws->new_pages, &it)) {
             i64 offset = (i64)it.key;
             ws->origin->delete(ws->origin, offset, &e);
+            // Invalidate cache
             if (ws->callback) {
                 ws->callback(ws->callback_obj, offset);
             }
@@ -1022,32 +1250,36 @@ static void wal_storage_rollback(struct wal_storage *ws, i64 id) {
         ws->new_pages->clear(ws->new_pages);
     }
     
-    // 2. Restore oldPages to origin
+    // STEP 2: Restore updated pages to original state (from UPDATE operations)
     if (ws->old_pages) {
         struct map_iterator it = {0};
         while (ws->old_pages->iterate(ws->old_pages, &it)) {
             struct dirty_page *backup = (struct dirty_page*)(uintptr_t)it.val;
+            // Wrap backup data in a buffer
             struct buffer buf;
             buffer_wrap(backup->data, (u32)backup->data_size, &buf);
             buf.limit = (u32)backup->data_size;
             buf.position = 0;
+            // Restore original data to origin storage
             ws->origin->write_at(ws->origin, backup->offset, &buf, &e);
             FREE(backup);
         }
         ws->old_pages->clear(ws->old_pages);
     }
     
-    // 3. Restore deletedPageBackups to origin
+    // STEP 3: Restore deleted pages (from DELETE operations)
     if (ws->deleted_page_backups) {
         struct map_iterator it = {0};
         while (ws->deleted_page_backups->iterate(ws->deleted_page_backups, &it)) {
             struct dirty_page *backup = (struct dirty_page*)(uintptr_t)it.val;
+            // Wrap backup data in a buffer
             struct buffer buf;
             buffer_wrap(backup->data, (u32)backup->data_size, &buf);
             buf.limit = (u32)backup->data_size;
             buf.position = 0;
-            // Restore by writing at the original offset (use write_at, not write)
+            // Restore deleted data to origin storage
             ws->origin->write_at(ws->origin, backup->offset, &buf, &e);
+            // Invalidate cache
             if (ws->callback) {
                 ws->callback(ws->callback_obj, backup->offset);
             }

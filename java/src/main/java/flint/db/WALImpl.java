@@ -179,7 +179,7 @@ final class WALImpl implements WAL {
                 System.err.println("WAL recovery: Storage not found for fileId=" + fileId);
                 continue;
             }
-            
+
             // Replay each record
             for (WALLogStorage.WALRecord record : records) {
                 try {
