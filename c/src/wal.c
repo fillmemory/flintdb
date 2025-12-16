@@ -378,6 +378,17 @@ static void dirty_page_free(struct dirty_page *page) {
 }
 
 // Storage wrapper structure
+/**
+ * WAL Storage - Immediate write with backup/restore for rollback
+ * 
+ * Strategy (matches Java implementation):
+ * - Always write to origin immediately (transaction or not)
+ * - Log operations to WAL for crash recovery  
+ * - Track new pages allocated in transaction (for rollback deletion)
+ * - Backup pages before update/delete (for rollback restore)
+ * - On commit: just clear tracking (all writes already applied)
+ * - On rollback: delete new pages, restore old pages
+ */
 struct wal_storage {
     struct storage base;        // Base storage structure (must be first!)
     struct storage *origin;     // Original storage
@@ -386,7 +397,13 @@ struct wal_storage {
     i64 transaction;            // Current transaction ID
     int (*callback)(const void *obj, i64 offset); // Cache synchronization callback
     const void *callback_obj;   // Callback object context
-    struct hashmap *dirty_pages; // Hashmap of offset -> dirty_page (O(1) lookup)
+    
+    // Track pages allocated in current transaction (for rollback deletion)
+    struct hashmap *new_pages;          // offset -> 1 (just tracking)
+    // Backup of pages before update (for rollback restore)
+    struct hashmap *old_pages;          // offset -> backup data
+    // Backup of pages before delete (for rollback restore)
+    struct hashmap *deleted_page_backups; // offset -> backup data
 };
 
 // A WAL implementation that does nothing
@@ -793,15 +810,32 @@ static void wal_storage_close(struct storage *me) {
 static void wal_storage_close_internal(struct wal_storage *ws) {
     if (!ws) return;
 
-    // Free dirty pages hashmap
-    if (ws->dirty_pages) {
+    // Free new_pages hashmap
+    if (ws->new_pages) {
+        ws->new_pages->free(ws->new_pages);
+        ws->new_pages = NULL;
+    }
+
+    // Free old_pages hashmap and its backup data
+    if (ws->old_pages) {
         struct map_iterator it = {0};
-        while (ws->dirty_pages->iterate(ws->dirty_pages, &it)) {
+        while (ws->old_pages->iterate(ws->old_pages, &it)) {
             struct dirty_page *page = (struct dirty_page*)(uintptr_t)it.val;
             dirty_page_free(page);
         }
-        ws->dirty_pages->free(ws->dirty_pages);
-        ws->dirty_pages = NULL;
+        ws->old_pages->free(ws->old_pages);
+        ws->old_pages = NULL;
+    }
+
+    // Free deleted_page_backups hashmap and its backup data
+    if (ws->deleted_page_backups) {
+        struct map_iterator it = {0};
+        while (ws->deleted_page_backups->iterate(ws->deleted_page_backups, &it)) {
+            struct dirty_page *page = (struct dirty_page*)(uintptr_t)it.val;
+            dirty_page_free(page);
+        }
+        ws->deleted_page_backups->free(ws->deleted_page_backups);
+        ws->deleted_page_backups = NULL;
     }
 
     if (ws->origin) {
@@ -823,25 +857,8 @@ static i64 wal_storage_bytes_get(struct storage *me) {
 
 static struct buffer* wal_storage_read(struct storage *me, i64 offset, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
-    
-    // Check dirty page cache first (read-your-own-writes) - O(1) lookup
-    if (ws->dirty_pages) {
-        valtype val = (valtype)ws->dirty_pages->get(ws->dirty_pages, (keytype)offset);
-        if (val != HASHMAP_INVALID_VAL) {
-            struct dirty_page *page = (struct dirty_page*)(uintptr_t)val;
-            if (page->is_delete) {
-                THROW(e, "Page %lld has been deleted in current transaction", offset);
-            }
-            // Return dirty page buffer view (caller may free; it's a no-op)
-            return &page->buf;
-        }
-    }
-    
-    // Not in dirty cache, read from origin
+    // Always read from origin (no dirty cache)
     return ws->origin->read(ws->origin, offset, e);
-    
-EXCEPTION:
-    return NULL;
 }
 
 static i64 wal_storage_write(struct storage *me, struct buffer *in, char **e) {
@@ -852,6 +869,10 @@ static i64 wal_storage_write(struct storage *me, struct buffer *in, char **e) {
     // Log metadata only to WAL if transaction is active (data already in origin storage)
     if (ws->transaction > 0 && ws->logger && index >= 0) {
         wal_log(ws->logger, OP_WRITE, ws->transaction, ws->identifier, index, NULL, 0, 1);
+        // Track new page for rollback
+        if (ws->new_pages) {
+            ws->new_pages->put(ws->new_pages, (keytype)index, (valtype)1, NULL);
+        }
     }
     
     return index;
@@ -860,55 +881,46 @@ static i64 wal_storage_write(struct storage *me, struct buffer *in, char **e) {
 static i64 wal_storage_write_at(struct storage *me, i64 offset, struct buffer *in, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
     
-    if (ws->transaction > 0) {
-        // UPDATE within transaction: don't write to origin immediately
-        // Store in dirty page cache and log to WAL
-        i32 data_size = (i32)(in->limit - in->position);
-
-        // If this offset already has a dirty entry in this transaction, free it (avoid leaks).
-        if (ws->dirty_pages) {
-            valtype existing_val = (valtype)ws->dirty_pages->get(ws->dirty_pages, (keytype)offset);
-            if (existing_val != HASHMAP_INVALID_VAL) {
-                struct dirty_page *existing = (struct dirty_page*)(uintptr_t)existing_val;
-                dirty_page_free(existing);
+    if (ws->transaction > 0 && ws->old_pages) {
+        // Backup old data if not already backed up
+        valtype existing = (valtype)ws->old_pages->get(ws->old_pages, (keytype)offset);
+        if (existing == HASHMAP_INVALID_VAL) {
+            // First update to this page in this transaction, backup the old data
+            struct buffer *old_data = ws->origin->read(ws->origin, offset, e);
+            if (e && *e) return -1;
+            if (old_data) {
+                // Copy the old data
+                i32 size = (i32)(old_data->limit - old_data->position);
+                struct dirty_page *backup = CALLOC(1, (size_t)sizeof(struct dirty_page) + (size_t)size);
+                if (!backup) {
+                    old_data->free(old_data);
+                    THROW(e, "Out of memory");
+                }
+                backup->offset = offset;
+                backup->data_size = size;
+                memcpy(backup->data, old_data->array + old_data->position, (size_t)size);
+                old_data->free(old_data);
+                
+                ws->old_pages->put(ws->old_pages, (keytype)offset, (valtype)(uintptr_t)backup, NULL);
             }
         }
-
-        // Allocate dirty page as a single block: struct + inline data.
-        struct dirty_page *page = CALLOC(1, (size_t)sizeof(struct dirty_page) + (size_t)data_size);
-        if (!page) THROW(e, "Out of memory");
-
-        page->offset = offset;
-        page->is_delete = 0;
-        page->data_size = data_size;
-
-        // Copy updated bytes once.
-        memcpy(page->data, in->array + in->position, (size_t)data_size);
-
-        // Initialize buffer view backed by page->data.
-        buffer_wrap(page->data, (u32)data_size, &page->buf);
-        page->buf.limit = (u32)data_size;
-        page->buf.position = 0;
-        page->buf.free = &dirty_page_buffer_free;
-
-        // Log to WAL after we have a stable copy (enables direct-write path w/o extra memcpy).
-        if (ws->logger && ws->logger->log_page_data) {
+    }
+    
+    // Write to origin immediately
+    i64 result = ws->origin->write_at(ws->origin, offset, in, e);
+    
+    // Log to WAL
+    if (ws->transaction > 0 && ws->logger && result == 0) {
+        i32 data_size = (i32)(in->limit - in->position);
+        if (ws->logger->log_page_data) {
             wal_log(ws->logger, OP_UPDATE, ws->transaction, ws->identifier, offset,
-                    page->data, data_size, 0);
+                    in->array + in->position, data_size, 0);
         } else {
-            // Fast mode: record metadata only (reduces WAL I/O significantly)
             wal_log(ws->logger, OP_UPDATE, ws->transaction, ws->identifier, offset, NULL, 0, 1);
         }
-
-        // Add to hashmap (O(1) insert)
-        ws->dirty_pages->put(ws->dirty_pages, (keytype)offset, (valtype)(uintptr_t)page, NULL);
-        
-        return 0;
-    } else {
-        // No transaction: direct write to origin
-        i64 result = ws->origin->write_at(ws->origin, offset, in, e);
-        return result;
     }
+    
+    return result;
     
 EXCEPTION:
     return -1;
@@ -917,43 +929,43 @@ EXCEPTION:
 static i32 wal_storage_delete(struct storage *me, i64 offset, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
     
-    if (ws->transaction > 0) {
-        // DELETE within transaction: don't delete from origin immediately
-        // Mark as deleted in cache and log to WAL
-        if (ws->logger && ws->logger->log_page_data) {
+    if (ws->transaction > 0 && ws->deleted_page_backups) {
+        // Backup data before deletion
+        struct buffer *old_data = ws->origin->read(ws->origin, offset, e);
+        if (e && *e) return 0;
+        if (old_data) {
+            i32 size = (i32)(old_data->limit - old_data->position);
+            struct dirty_page *backup = CALLOC(1, (size_t)sizeof(struct dirty_page) + (size_t)size);
+            if (!backup) {
+                old_data->free(old_data);
+                THROW(e, "Out of memory");
+            }
+            backup->offset = offset;
+            backup->data_size = size;
+            memcpy(backup->data, old_data->array + old_data->position, (size_t)size);
+            old_data->free(old_data);
+            
+            ws->deleted_page_backups->put(ws->deleted_page_backups, (keytype)offset, (valtype)(uintptr_t)backup, NULL);
+        }
+    }
+    
+    // Delete from origin immediately
+    i32 result = ws->origin->delete(ws->origin, offset, e);
+    
+    // Log to WAL
+    if (ws->transaction > 0 && ws->logger && result) {
+        if (ws->logger->log_page_data) {
             wal_log(ws->logger, OP_DELETE, ws->transaction, ws->identifier, offset, NULL, 0, 0);
         } else {
             wal_log(ws->logger, OP_DELETE, ws->transaction, ws->identifier, offset, NULL, 0, 1);
         }
-        
-        // If this offset already has a dirty entry, replace it.
-        if (ws->dirty_pages) {
-            valtype existing_val = (valtype)ws->dirty_pages->get(ws->dirty_pages, (keytype)offset);
-            if (existing_val != HASHMAP_INVALID_VAL) {
-                struct dirty_page *existing = (struct dirty_page*)(uintptr_t)existing_val;
-                dirty_page_free(existing);
-            }
-        }
-
-        struct dirty_page *page = CALLOC(1, sizeof(struct dirty_page));
-        if (!page) THROW(e, "Out of memory");
-
-        page->offset = offset;
-        page->is_delete = 1;
-        page->data_size = 0;
-        
-        // Add to hashmap (O(1) insert)
-        ws->dirty_pages->put(ws->dirty_pages, (keytype)offset, (valtype)(uintptr_t)page, NULL);
-        
-        return 1;
-    } else {
-        // No transaction: direct delete from origin
-        i32 result = ws->origin->delete(ws->origin, offset, e);
-        if (result && ws->callback != NULL) {
-            ws->callback(ws->callback_obj, offset);
-        }
-        return result;
     }
+    
+    if (result && ws->callback != NULL) {
+        ws->callback(ws->callback_obj, offset);
+    }
+    
+    return result;
     
 EXCEPTION:
     return 0;
@@ -969,58 +981,27 @@ static void wal_storage_commit(struct wal_storage *ws, i64 id, char **e) {
         return; // Not our transaction
     }
     
-    // Flush dirty pages to origin storage
-    if (ws->dirty_pages) {
-        // Commit ordering matters for crash-safety without recovery:
-        // apply all non-root offsets first, then apply root (offset 0) last.
-        // This ensures a crash mid-commit yields only orphan pages, not a broken tree.
-        struct dirty_page *root_page = NULL;
+    // All changes already written to origin, just clear tracking maps
+    if (ws->new_pages) {
+        ws->new_pages->clear(ws->new_pages);
+    }
+    
+    if (ws->old_pages) {
         struct map_iterator it = {0};
-        while (ws->dirty_pages->iterate(ws->dirty_pages, &it)) {
-            struct dirty_page *page = (struct dirty_page*)(uintptr_t)it.val;
-
-            if (page->offset == 0) {
-                root_page = page;
-                continue;
-            }
-
-            if (page->is_delete) {
-                // Apply delete
-                ws->origin->delete(ws->origin, page->offset, e);
-                if (e && *e) return;
-                if (ws->callback) {
-                    ws->callback(ws->callback_obj, page->offset);
-                }
-            } else if (page->data_size > 0) {
-                // Apply update
-                page->buf.position = 0;
-                ws->origin->write_at(ws->origin, page->offset, &page->buf, e);
-                if (e && *e) return;
-            }
+        while (ws->old_pages->iterate(ws->old_pages, &it)) {
+            struct dirty_page *backup = (struct dirty_page*)(uintptr_t)it.val;
+            FREE(backup);
         }
-
-        // Apply root pointer record last (if present)
-        if (root_page) {
-            if (root_page->is_delete) {
-                ws->origin->delete(ws->origin, root_page->offset, e);
-                if (e && *e) return;
-                if (ws->callback) {
-                    ws->callback(ws->callback_obj, root_page->offset);
-                }
-            } else if (root_page->data_size > 0) {
-                root_page->buf.position = 0;
-                ws->origin->write_at(ws->origin, root_page->offset, &root_page->buf, e);
-                if (e && *e) return;
-            }
+        ws->old_pages->clear(ws->old_pages);
+    }
+    
+    if (ws->deleted_page_backups) {
+        struct map_iterator it = {0};
+        while (ws->deleted_page_backups->iterate(ws->deleted_page_backups, &it)) {
+            struct dirty_page *backup = (struct dirty_page*)(uintptr_t)it.val;
+            FREE(backup);
         }
-        
-        // Clear dirty pages
-        it = (struct map_iterator){0};
-        while (ws->dirty_pages->iterate(ws->dirty_pages, &it)) {
-            struct dirty_page *page = (struct dirty_page*)(uintptr_t)it.val;
-            dirty_page_free(page);
-        }
-        ws->dirty_pages->clear(ws->dirty_pages);
+        ws->deleted_page_backups->clear(ws->deleted_page_backups);
     }
     
     ws->transaction = -1;
@@ -1031,14 +1012,53 @@ static void wal_storage_rollback(struct wal_storage *ws, i64 id) {
         return; // Not our transaction
     }
     
-    // Discard dirty pages (don't apply to origin)
-    if (ws->dirty_pages) {
+    char *e = NULL;
+    
+    // 1. Delete newPages from origin
+    if (ws->new_pages) {
         struct map_iterator it = {0};
-        while (ws->dirty_pages->iterate(ws->dirty_pages, &it)) {
-            struct dirty_page *page = (struct dirty_page*)(uintptr_t)it.val;
-            dirty_page_free(page);
+        while (ws->new_pages->iterate(ws->new_pages, &it)) {
+            i64 offset = (i64)it.key;
+            ws->origin->delete(ws->origin, offset, &e);
+            if (ws->callback) {
+                ws->callback(ws->callback_obj, offset);
+            }
         }
-        ws->dirty_pages->clear(ws->dirty_pages);
+        ws->new_pages->clear(ws->new_pages);
+    }
+    
+    // 2. Restore oldPages to origin
+    if (ws->old_pages) {
+        struct map_iterator it = {0};
+        while (ws->old_pages->iterate(ws->old_pages, &it)) {
+            struct dirty_page *backup = (struct dirty_page*)(uintptr_t)it.val;
+            struct buffer buf;
+            buffer_wrap(backup->data, (u32)backup->data_size, &buf);
+            buf.limit = (u32)backup->data_size;
+            buf.position = 0;
+            ws->origin->write_at(ws->origin, backup->offset, &buf, &e);
+            FREE(backup);
+        }
+        ws->old_pages->clear(ws->old_pages);
+    }
+    
+    // 3. Restore deletedPageBackups to origin
+    if (ws->deleted_page_backups) {
+        struct map_iterator it = {0};
+        while (ws->deleted_page_backups->iterate(ws->deleted_page_backups, &it)) {
+            struct dirty_page *backup = (struct dirty_page*)(uintptr_t)it.val;
+            struct buffer buf;
+            buffer_wrap(backup->data, (u32)backup->data_size, &buf);
+            buf.limit = (u32)backup->data_size;
+            buf.position = 0;
+            // Restore by writing at the original offset (use write_at, not write)
+            ws->origin->write_at(ws->origin, backup->offset, &buf, &e);
+            if (ws->callback) {
+                ws->callback(ws->callback_obj, backup->offset);
+            }
+            FREE(backup);
+        }
+        ws->deleted_page_backups->clear(ws->deleted_page_backups);
     }
     
     ws->transaction = -1;
@@ -1066,9 +1086,15 @@ static struct storage* wal_wrap_storage(struct storage* origin, struct wal* wal,
     ws->callback_obj = callback_obj;
     ws->base.managed_by_wal = 1;
     
-    // Initialize dirty pages hashmap (offset -> dirty_page)
-    ws->dirty_pages = hashmap_new(256, hashmap_int_hash, hashmap_int_cmpr);
-    if (!ws->dirty_pages) THROW(e, "Failed to create dirty pages map");
+    // Initialize tracking maps for immediate-write architecture
+    ws->new_pages = hashmap_new(256, hashmap_int_hash, hashmap_int_cmpr);
+    if (!ws->new_pages) THROW(e, "Failed to create new pages map");
+    
+    ws->old_pages = hashmap_new(256, hashmap_int_hash, hashmap_int_cmpr);
+    if (!ws->old_pages) THROW(e, "Failed to create old pages map");
+    
+    ws->deleted_page_backups = hashmap_new(256, hashmap_int_hash, hashmap_int_cmpr);
+    if (!ws->deleted_page_backups) THROW(e, "Failed to create deleted page backups map");
 
     // Setup storage function pointers in base
     ws->base.close = wal_storage_close;

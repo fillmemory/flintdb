@@ -178,7 +178,7 @@ static void usage(const char *progname) {
     printf("\t%s \"SHOW TABLES WHERE temp OPTION -R\"\n", CMD);
     printf("\t%s \"DESC temp/file"TABLE_NAME_SUFFIX"\"\n", CMD);
     printf("\t%s \"META temp/file"TABLE_NAME_SUFFIX"\"\n", CMD);
-    printf("\t%s \"BEGIN TRANSACTION "TABLE_NAME_SUFFIX"\"\n", CMD);
+    printf("\t%s \"BEGIN TRANSACTION temp/table"TABLE_NAME_SUFFIX"\"\n", CMD);
     printf("\n");
     printf("Development build: not all features are implemented yet.\n");
     printf("\n");
@@ -234,6 +234,11 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
             } else {
                 THROW(e, "-f requires a file path");
             }
+        } else if (strcmp(s, "-log") == 0) {
+            // TODO: Enable detailed logging
+        } else if (s[0] == '-') {
+            // Unknown option - ignore with warning
+            fprintf(stderr, "Warning: Unknown option '%s' - ignoring\n", s);
         } else {
             // Treat as SQL if no explicit -sql flag
             if (sql == NULL && sql_file == NULL) {
@@ -242,13 +247,18 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
         }
     }
 
-    if (argc <= 1) {
-        usage(argv[0]);
-        return 0;
-    }
-
+    // If no SQL provided but stdin is available, read from stdin
     if (sql == NULL && sql_file == NULL) {
-        THROW(e, "SQL statement or file must be specified");
+        if (argc <= 1 && isatty(STDIN_FILENO)) {
+            // No arguments and stdin is a terminal - show usage
+            usage(argv[0]);
+            return 0;
+        } else if (!isatty(STDIN_FILENO)) {
+            // stdin is not a terminal - read from stdin
+            sql_file = "-"; // Special marker for stdin
+        } else {
+            THROW(e, "SQL statement or file must be specified");
+        }
     }
 
     if (sql != NULL && sql_file != NULL) {
@@ -290,7 +300,6 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
         // Execute SQL
         STOPWATCH_START(watch);
         result = flintdb_sql_exec(stmt, transaction, e);
-        transaction = result->transaction; // keep transaction for next statement if any
         time_dur(time_elapsed(&watch), time_buf, sizeof(time_buf));
 
         FREE(stmt); // Free statement after execution
@@ -310,6 +319,9 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
             stmt_idx++;
             continue;
         }
+        
+        // Keep transaction for next statement if any
+        transaction = result->transaction;
 
         // Handle different result types
         if (result->row_cursor) {
@@ -704,10 +716,15 @@ static struct flintdb_sql_iterator *sql_iterator_new_from_file(const char *filep
         THROW(e, "Invalid file path");
     }
 
-    // Open file for streaming
-    FILE *f = fopen(filepath, "rb");
-    if (!f) {
-        THROW(e, "Cannot open file");
+    // Open file for streaming, or use stdin if filepath is "-"
+    FILE *f;
+    if (strcmp(filepath, "-") == 0) {
+        f = stdin;
+    } else {
+        f = fopen(filepath, "rb");
+        if (!f) {
+            THROW(e, "Cannot open file");
+        }
     }
 
     // Create iterator
@@ -934,7 +951,7 @@ static void sql_iterator_free(struct flintdb_sql_iterator *iter) {
         FREE(iter->current_stmt);
     if (iter->file_buffer)
         FREE(iter->file_buffer);
-    if (iter->from_file && iter->file)
+    if (iter->from_file && iter->file && iter->file != stdin)
         fclose(iter->file);
     if (iter->owns_sql && iter->sql)
         FREE((void *)iter->sql);

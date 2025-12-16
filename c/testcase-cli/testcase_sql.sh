@@ -9,7 +9,7 @@ CREATE TABLE ../temp/testcase.flintdb (
     salary DECIMAL(10,2) NOT NULL,
 
     PRIMARY KEY (id)
-)
+) WAL=TRUNCATE
 EOF
 )
 
