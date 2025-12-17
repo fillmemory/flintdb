@@ -11,6 +11,11 @@ c/tutorial/zig/zig-out/
 c/tutorial/go/bin/
 c/tutorial/go/pkg/
 c/tutorial/go/tutorial
+c/tutorial/python3/__pycache__/
+c/tutorial/python3/*.pyc
+c/tutorial/python3/*.pyo
+c/tutorial/python3/.pytest_cache/
+c/tutorial/python3/venv/
 c/testcase
 java/bin/main/
 java/bin/test/
@@ -21,3 +26,4 @@ java/.gradle/
 java/.idea/
 java/hs_err_pid*.log
 java/transformer-rules/
+c/tutorial/c/tutorial

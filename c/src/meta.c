@@ -114,6 +114,50 @@ void flintdb_meta_close(struct flintdb_meta *m) {
     m->priv = NULL;
 }
 
+struct flintdb_meta* flintdb_meta_new_ptr(const char *name, char **e) {
+    // Allocate and zero-initialize on heap first
+    struct flintdb_meta *ptr = CALLOC(1, sizeof(struct flintdb_meta));
+    if (!ptr) {
+        if (e) *e = "Out of memory";
+        return NULL;
+    }
+    
+    // Initialize by calling flintdb_meta_new and assigning result
+    *ptr = flintdb_meta_new(name, e);
+    if (e && *e) {
+        free(ptr);
+        return NULL;
+    }
+    
+    return ptr;
+}
+
+struct flintdb_meta* flintdb_meta_open_ptr(const char *filename, char **e) {
+    // Allocate and zero-initialize on heap first
+    struct flintdb_meta *ptr = CALLOC(1, sizeof(struct flintdb_meta));
+    if (!ptr) {
+        if (e) *e = "Out of memory";
+        return NULL;
+    }
+    
+    // Initialize by calling flintdb_meta_open and assigning result
+    *ptr = flintdb_meta_open(filename, e);
+    if (e && *e) {
+        free(ptr);
+        return NULL;
+    }
+    
+    return ptr;
+}
+
+void flintdb_meta_free_ptr(struct flintdb_meta *m) {
+    if (m) {
+        flintdb_meta_close(m);
+        FREE(m);
+    }
+}
+
+
 int flintdb_meta_write(const struct flintdb_meta *m, const char *filename, char **e) {
     int fd = -1;
     if (!m || !filename)  THROW(e, "meta or filename is NULL");

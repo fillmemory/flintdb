@@ -348,10 +348,10 @@ FLINTDB_API i8 flintdb_variant_is_null(const struct flintdb_variant *v);
 
 
 // Meta operations
-
 FLINTDB_API struct flintdb_meta flintdb_meta_new(const char *name, char **e);
 FLINTDB_API struct flintdb_meta flintdb_meta_open(const char *filename, char **e);
 FLINTDB_API void flintdb_meta_close(struct flintdb_meta *m);
+
 FLINTDB_API int  flintdb_meta_write(const struct flintdb_meta *m, const char *filename, char **e);
 FLINTDB_API int flintdb_meta_to_sql_string(const struct flintdb_meta *m, char *s, i32 len, char **e);
 FLINTDB_API int  flintdb_meta_compare(const struct flintdb_meta *a, const struct flintdb_meta *b);
@@ -360,6 +360,13 @@ FLINTDB_API void flintdb_meta_columns_add(struct flintdb_meta *m, const char *na
 FLINTDB_API void flintdb_meta_indexes_add(struct flintdb_meta *m, const char *name, const char *algorithm, const char keys[][MAX_COLUMN_NAME_LIMIT], u16 key_count, char **e);
 
 FLINTDB_API int flintdb_column_at(struct flintdb_meta *m, const char *name); // Get column index by name
+
+
+// Pointer versions for language bindings (e.g., Python, Java, etc.)
+FLINTDB_API struct flintdb_meta* flintdb_meta_new_ptr(const char *name, char **e);
+FLINTDB_API struct flintdb_meta* flintdb_meta_open_ptr(const char *filename, char **e);
+FLINTDB_API void flintdb_meta_free_ptr(struct flintdb_meta *m);
+
 
 // Row operations
 FLINTDB_API struct flintdb_row * flintdb_row_new(struct flintdb_meta *meta, char **e);

@@ -13,4 +13,5 @@ It is intended for learning/examples and **does not include all FlintDB features
 - Go: `go/`
 - Rust: `rust/`
 - Zig: `zig/`
+- Python3: `python3/`
 
