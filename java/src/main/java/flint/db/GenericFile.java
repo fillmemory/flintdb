@@ -102,7 +102,7 @@ public interface GenericFile extends AutoCloseable {
             return Union.open(file);
         }
         if (file.getName().endsWith(Meta.TABLE_NAME_SUFFIX)) {
-            return FlintdbFile.open(file);
+            return Union.TableAdapter.open(file);
         }
         //# endif
         return TSVFile.open(file);
@@ -212,7 +212,7 @@ public interface GenericFile extends AutoCloseable {
             return JsonlFile.create(file, meta.columns(), logger);
         }
         if (file.getName().endsWith(Meta.TABLE_NAME_SUFFIX)) {
-            return FlintdbFile.create(file, meta, logger);
+            return Union.TableAdapter.create(file, meta, logger);
         }
         return TSVFile.create(file, meta.columns(), logger);
     }
