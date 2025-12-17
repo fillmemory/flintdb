@@ -22,7 +22,7 @@ __thread char TL_ERROR[ERROR_BUFSZ] = {0}; // thread-local error buffer
 
 char* l_now(char* buff, size_t bsz) {
 	struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
+	flintdb_timespec_utc(&ts);
 	struct tm *st = localtime(&ts.tv_sec);	
 	strftime(buff, bsz, "%m-%d %H:%M:%S", st);
 	snprintf(buff+14, 5, ".%03d", (int)(ts.tv_nsec / 1000 / 1000));
@@ -32,7 +32,7 @@ char* l_now(char* buff, size_t bsz) {
 // return elapsed time in milliseconds
 u64 time_elapsed(struct timespec *watch) {
 	struct timespec now;
-	timespec_get(&now, TIME_UTC);
+	flintdb_timespec_utc(&now);
 	u64 ms = (now.tv_sec - watch->tv_sec) * 1000 + (now.tv_nsec - watch->tv_nsec) / 1000 / 1000;
 	return ms;
 }

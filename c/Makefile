@@ -240,12 +240,18 @@ $(OBJ_SO_DIR)/%.o: $(SRC_DIR)/%.c
 
 
 ## Convenience targets
-.PHONY: cli shared static
+.PHONY: cli shared static ios
 cli: $(TARGET_CLI)
 shared: $(TARGET_SO)
 static: $(TARGET_A)
 
+# iOS build (XCFramework)
+# Requires Xcode Command Line Tools.
+ios:
+	@bash ./build_ios.sh
+
 clean:
 	rm -rf $(OBJ_CLI_DIR) $(OBJ_SO_DIR) $(WEBUI_EMBEDDED_H)
+	rm -rf ./build/ios
 
 .PHONY: all clean

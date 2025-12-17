@@ -70,7 +70,20 @@ extern __thread char TL_ERROR[ERROR_BUFSZ]; // thread-local error buffer
 
 #define STRING_INET_ADDRSTRLEN 100
 
-#define STOPWATCH_START(watch) struct timespec watch; timespec_get(&watch, TIME_UTC);
+// Cross-platform clock helper:
+// - Windows: uses timespec_get (provided in runtime_win32.* when needed)
+// - Apple/Linux: prefers clock_gettime when available
+static inline void flintdb_timespec_utc(struct timespec *ts) {
+#if defined(_WIN32)
+  timespec_get(ts, TIME_UTC);
+#elif defined(CLOCK_REALTIME)
+  clock_gettime(CLOCK_REALTIME, ts);
+#else
+  timespec_get(ts, TIME_UTC);
+#endif
+}
+
+#define STOPWATCH_START(watch) struct timespec watch; flintdb_timespec_utc(&watch);
 // #define STOPWATCH_ELAPSED(watch) time_elapsed(&watch);
 
 
