@@ -33,7 +33,8 @@ $(error ERROR: MinGW64 is NOT supported. Please use MSYS2 UCRT64 shell instead. 
 	# MSYS2: no LTO, no march=native (can cause issues)
 	# Disable -Wuse-after-free for GCC 13+ false positives
 	# Add -s to strip symbols for smaller binaries
-	CFLAGS_BASE = -Wall -Wextra -I./c -O3 -s -std=$(STD) -Wformat=0 -Wno-unused-parameter -Wno-strict-aliasing -Wno-use-after-free -D_GNU_SOURCE
+	# Force UTF-8 for source input and runtime multibyte encoding (MinGW GCC)
+	CFLAGS_BASE = -Wall -Wextra -I./c -O3 -s -std=$(STD) -finput-charset=UTF-8 -fexec-charset=UTF-8 -Wformat=0 -Wno-unused-parameter -Wno-strict-aliasing -Wno-use-after-free -D_GNU_SOURCE
 	LDFLAGS_BASE = -lc -lm -lpthread -lz -s
 	else
 $(error ERROR: Only MSYS2 UCRT64 is supported on Windows. Native Windows build (cmd.exe, PowerShell) is NOT supported. Please install MSYS2 from https://www.msys2.org/ and use UCRT64 shell)

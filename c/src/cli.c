@@ -10,6 +10,10 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 // Now include project headers (runtime_win32.h will handle POSIX declarations)
 #include "iostream.h"
 #include "flintdb.h"
@@ -112,6 +116,13 @@ extern int webui_run(int argc, char **argv, char **e); // in webui.c
  */
 int main(int argc, char *argv[]) {
     char *e = NULL;
+
+#ifdef _WIN32
+    // Ensure Windows console uses UTF-8 for both output and input.
+    // (This affects console code page only; compile-time UTF-8 handling is set in Makefile.)
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
 
     // Register signal handlers for graceful shutdown
     signal(SIGINT, signal_handler);  // Ctrl-C
