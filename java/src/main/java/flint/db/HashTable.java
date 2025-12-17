@@ -72,14 +72,14 @@ public final class HashTable implements Table {
 	public static Table open( //
 			final File file, //
 			final Meta meta, final Logger logger) throws IOException {
-		return new HashTable(Meta.make(file, meta), meta, OPEN_WRITE | OPEN_READ, logger);
+		return new HashTable(Meta.make(file, meta), meta, OPEN_RDWR, logger);
 	}
 
 	/**
 	 * Opens an existing hash table from file with the specified access mode.
 	 * 
 	 * @param file existing data file containing the table
-	 * @param mode file access mode (OPEN_WRITE | OPEN_READ or OPEN_READ)
+	 * @param mode file access mode (OPEN_RDWR | OPEN_RDONLY or OPEN_RDONLY)
 	 * @param logger logger for operations and error reporting
 	 * @return HashTable instance for the existing table
 	 * @throws IOException if file opening or metadata reading fails
@@ -147,11 +147,11 @@ public final class HashTable implements Table {
 	 */
 	private boolean open(final int mode) throws IOException { // , java.nio.channels.OverlappingFileLockException
 		if (this.storage == null) {
-			// System.out.println("FileTable open : " + mode + ", " + ((OPEN_WRITE & mode) > 0 ? "OPEN_WRITE" : "OPEN_READ"));
+			// System.out.println("FileTable open : " + mode + ", " + ((OPEN_RDWR & mode) > 0 ? "OPEN_RDWR" : "OPEN_RDONLY"));
 			this.storage = Storage.create(new Storage.Options() //
 					.file(file) //
-					.mutable((OPEN_WRITE & mode) > 0) //
-					.lock((OPEN_WRITE & mode) > 0) //
+					.mutable((OPEN_RDWR & mode) > 0) //
+					.lock((OPEN_RDWR & mode) > 0) //
 					// .headerBytes((short) 0) //
 					.blockBytes((short) meta.rowBytes()) //
 					.compact(meta.compact()) //
@@ -161,7 +161,7 @@ public final class HashTable implements Table {
 					.storage(meta.storage()) //
 			);
 
-			if ((OPEN_WRITE & mode) > 0) {
+			if ((OPEN_RDWR & mode) > 0) {
 				// HEADER
 				final int HEAD_SZ = 4 + 4; // signature(4B) + version(4B)
 				final IoBuffer h = storage.head(HEAD_SZ); /* MappedIoBuffer */
@@ -173,12 +173,12 @@ public final class HashTable implements Table {
 				}
 			}
 
-			this.cache = Cache.create((OPEN_WRITE & mode) > 0 ? meta.cacheSize() : 0);
+			this.cache = Cache.create((OPEN_RDWR & mode) > 0 ? meta.cacheSize() : 0);
 			this.reader = (final long node) -> row(node);
 
 			logger.log("open " // + file //
 					+ " format : " + format() //
-					+ ", mode : " + ((OPEN_WRITE & mode) > 0 ? "rw" : "r") //
+					+ ", mode : " + ((OPEN_RDWR & mode) > 0 ? "rw" : "r") //
 					+ ", row bytes : " + new DecimalFormat("#,##0").format(meta.rowBytes()) + "B" //
 					+ ", compact : " + new DecimalFormat("#,##0").format(meta.compact()) + "B"  //
 					+ ", storage : " + meta.storage() + " " + IO.readableBytesSize(bytes()) //
@@ -736,7 +736,7 @@ public final class HashTable implements Table {
 				}
 			};
 
-			this.hash = new HashFile(indexFile, 1024 * 1024, (OPEN_WRITE & mode) > 0, (1024 * 1024 * 5), comparator);
+			this.hash = new HashFile(indexFile, 1024 * 1024, (OPEN_RDWR & mode) > 0, (1024 * 1024 * 5), comparator);
 		}
 
 		/**

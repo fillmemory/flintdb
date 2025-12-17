@@ -255,7 +255,7 @@ public final class Union implements GenericFile {
         try {
             if (!tablePaths.isEmpty()) {
                 final File f = tablePaths.get(0);
-                try (var t = Table.open(f, Table.OPEN_READ)) {
+                try (var t = Table.open(f, Table.OPEN_RDONLY)) {
                     return t.meta();
                 }
             }
@@ -352,7 +352,7 @@ public final class Union implements GenericFile {
 
                 // Open next Table cursor (primary index, ascending) - forward
                 if (tidx < tablePaths.size()) {
-                    currentTable = Table.open(tablePaths.get(tidx++), Table.OPEN_READ);
+                    currentTable = Table.open(tablePaths.get(tidx++), Table.OPEN_RDONLY);
                     validateSchema(currentTable.meta());
                     // @SuppressWarnings("unchecked")
                     // final Comparable<Row>[] compiled = new Comparable[] { Filter.ALL, filter };
@@ -483,7 +483,7 @@ public final class Union implements GenericFile {
         // Schema validation (tables)
         for (int i = 0; i < tablePaths.size(); i++) {
             final File f = tablePaths.get(i);
-            final Table t = Table.open(f, Table.OPEN_READ);
+            final Table t = Table.open(f, Table.OPEN_RDONLY);
             final Meta m;
             try {
                 m = t.meta();
@@ -558,7 +558,7 @@ public final class Union implements GenericFile {
                     };
                     rowCursor = rif.find(Filter.NOLIMIT, merged); // no per-source limit
                 } else {
-                    table = Table.open(file, Table.OPEN_READ);
+                    table = Table.open(file, Table.OPEN_RDONLY);
                     idCursor = table.find(Index.PRIMARY, Filter.ASCENDING, Filter.NOLIMIT, effFilter);
                 }
                 opened = true;

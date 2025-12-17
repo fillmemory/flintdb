@@ -25,7 +25,7 @@ public class GroupbyExample {
         // 1. Insert sample items
         try (var closer = new IO.Closer()) {
             System.out.println("---- Inserting items into TSV:");
-            var f = closer.register(GenericFile.create(file, meta.columns())); // OPEN_WRITE
+            var f = closer.register(GenericFile.create(file, meta.columns())); // OPEN_RDWR
             String[][] items = {
                     { "Fruit", "Apple", "100" },
                     { "Fruit", "Banana", "80" },
@@ -51,7 +51,7 @@ public class GroupbyExample {
         // 2. Group by category and calculate total price (= SQL GROUP BY)
         try (var closer = new IO.Closer()) {
             System.out.println("\n---- Group By category:");
-            var f = closer.register(GenericFile.open(file)); // OPEN_READ
+            var f = closer.register(GenericFile.open(file)); // OPEN_RDONLY
             var cursor = closer.register(f.find()); // SELECT * FROM
 
             var groupby = new Aggregate.Groupby[] { // GROUP BY

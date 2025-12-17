@@ -34,7 +34,7 @@ public class DBExample {
         // 1. Insert a new customer
         try (var closer = new IO.Closer()) {
             System.out.println("---- Inserting customers into FlintDB:");
-            var table = closer.register(Table.open(file, meta)); // OPEN_WRITE
+            var table = closer.register(Table.open(file, meta)); // OPEN_RDWR
             for (int i = 0; i < 2; i++) {
                 var r = Row.create(meta);
                 r.set("customer_id", i + 1);
@@ -53,7 +53,7 @@ public class DBExample {
         // 2. Find customer by ID using cursor with filter
         try (var closer = new IO.Closer()) {
             System.out.println("\n---- Cursor lookup - Type 1:");
-            var table = closer.register(Table.open(file)); // OPEN_READ
+            var table = closer.register(Table.open(file)); // OPEN_RDONLY
             var index = table.meta().index(Index.PRIMARY);
             var cursor = table.find(
                     Index.PRIMARY,
@@ -68,7 +68,7 @@ public class DBExample {
         // 3. Find customer by ID using cursor with raw query
         try (var closer = new IO.Closer()) {
             System.out.println("\n---- Cursor lookup - Type 2:");
-            var table = closer.register(Table.open(file)); // OPEN_READ
+            var table = closer.register(Table.open(file)); // OPEN_RDONLY
             var cursor = table.find("USING INDEX(PRIMARY ASC) WHERE customer_id = 2 LIMIT 1"); // "ORDER BY" not supported
             // if 'USING INDEX(PRIMARY)' is unset, Primary Key will be used
             for (long i; (i = cursor.next()) != -1L;) {
@@ -79,7 +79,7 @@ public class DBExample {
         // 4. Find customer by ID using direct lookup
         try (var closer = new IO.Closer()) {
             System.out.println("\n---- Direct lookup:");
-            var table = closer.register(Table.open(file)); // OPEN_READ
+            var table = closer.register(Table.open(file)); // OPEN_RDONLY
             Row row = table.one(Index.PRIMARY, Row.mapify("customer_id", 2)); // = SELECT * FROM <file> WHERE customer_id = 2 LIMIT 1
             if (row != null) {
                 System.out.println(row);
@@ -91,7 +91,7 @@ public class DBExample {
         // 5. Find customers by secondary index
         try (var closer = new IO.Closer()) {
             System.out.println("\n---- Email domain lookup:");
-            var table = closer.register(Table.open(file)); // OPEN_READ
+            var table = closer.register(Table.open(file)); // OPEN_RDONLY
             var cursor = table.find(
                     "USING INDEX(ix_email ASC) WHERE email LIKE 'john2@tutorial.temp'"); // = SELECT * FROM <file> WHERE email LIKE '%@tutorial.temp'
             for (long i; (i = cursor.next()) != -1L;) {

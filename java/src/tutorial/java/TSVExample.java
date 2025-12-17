@@ -27,7 +27,7 @@ public class TSVExample {
         // 1. Insert a new customer
         try (var closer = new IO.Closer()) {
             System.out.println("---- Inserting customers into TSV:");
-            var f = closer.register(GenericFile.create(file, meta.columns())); // OPEN_WRITE
+            var f = closer.register(GenericFile.create(file, meta.columns())); // OPEN_RDWR
             for (int i = 0; i < 2; i++) {
                 var r = Row.create(meta);
                 r.set("customer_id", i + 1);
@@ -47,7 +47,7 @@ public class TSVExample {
         // 2. Find customer by ID using cursor
         try (var closer = new IO.Closer()) {
             System.out.println("\n---- Cursor lookup:");
-            var f = closer.register(GenericFile.open(file)); // OPEN_READ
+            var f = closer.register(GenericFile.open(file)); // OPEN_RDONLY
             var cursor = f.find("WHERE customer_id = 2 LIMIT 1"); // "ORDER BY" not supported
             for (Row r; (r = cursor.next()) != null;) {
                 System.out.println(r);

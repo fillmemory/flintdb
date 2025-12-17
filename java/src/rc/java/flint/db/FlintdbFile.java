@@ -15,7 +15,7 @@ final class FlintdbFile implements GenericFile {
     }
 
     static FlintdbFile open(final File file) throws IOException {
-        return new FlintdbFile(Table.open(file, Table.OPEN_READ));
+        return new FlintdbFile(Table.open(file, Table.OPEN_RDONLY));
     }
 
     static FlintdbFile create(final File file, final Meta meta, final Logger logger) throws IOException {

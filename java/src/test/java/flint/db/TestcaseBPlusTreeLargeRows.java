@@ -250,7 +250,7 @@ public class TestcaseBPlusTreeLargeRows {
 		System.out.println(meta.toString());
 
 		final IO.StopWatch watch = new IO.StopWatch();
-		try (final Table table = new HashTable(file, meta, Table.OPEN_WRITE, new Logger.NullLogger())) {
+		try (final Table table = new HashTable(file, meta, Table.OPEN_RDWR, new Logger.NullLogger())) {
 			try (final InputStream in = new FileInputStream(randomintFile)) {
 				final byte[] bytes = new byte[4];
 
