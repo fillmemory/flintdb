@@ -11,6 +11,8 @@
 #include <unistd.h>
 
 #ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
 #include <windows.h>
 #endif
 
@@ -118,10 +120,23 @@ int main(int argc, char *argv[]) {
     char *e = NULL;
 
 #ifdef _WIN32
-    // Ensure Windows console uses UTF-8 for both output and input.
-    // (This affects console code page only; compile-time UTF-8 handling is set in Makefile.)
-    SetConsoleOutputCP(CP_UTF8);
-    SetConsoleCP(CP_UTF8);
+    // Keep byte output stable (avoid CRLF translation / codepage surprises).
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+
+    // If attached to a real Windows console, switch console code pages to UTF-8.
+    // (When output is redirected, this is unnecessary.)
+    {
+        DWORD console_mode = 0;
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hOut != INVALID_HANDLE_VALUE && GetConsoleMode(hOut, &console_mode)) {
+            SetConsoleOutputCP(CP_UTF8);
+        }
+        HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+        if (hIn != INVALID_HANDLE_VALUE && GetConsoleMode(hIn, &console_mode)) {
+            SetConsoleCP(CP_UTF8);
+        }
+    }
 #endif
 
     // Register signal handlers for graceful shutdown
