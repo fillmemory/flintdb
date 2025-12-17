@@ -18,6 +18,10 @@ c/tutorial/python3/*.pyc
 c/tutorial/python3/*.pyo
 c/tutorial/python3/.pytest_cache/
 c/tutorial/python3/venv
+c/tutorial/swift/.clang-module-cache/
+c/tutorial/swift/.swift-module-cache/
+c/tutorial/swift/flintdb_swift_shim.o
+c/tutorial/swift/tutorial
 c/testcase
 java/bin/main/
 java/bin/test/

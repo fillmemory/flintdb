@@ -1,0 +1,4 @@
+module FlintDB {
+  header "flintdb_swift_shim.h"
+  export *
+}
