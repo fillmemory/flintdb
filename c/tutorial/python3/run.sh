@@ -6,4 +6,4 @@ if [[ -f "./venv/bin/activate" ]]; then
 	source "./venv/bin/activate"
 fi
 
-python tutorial.py
+python3 tutorial.py
