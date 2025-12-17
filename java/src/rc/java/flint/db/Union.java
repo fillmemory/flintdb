@@ -249,6 +249,15 @@ public final class Union implements GenericFile {
         }
     }
 
+    private GenericFile openFile(final File file) throws IOException {
+        if (GenericFile.supports(file)) {
+            return GenericFile.open(file);
+        } else if (file.getName().endsWith(Meta.TABLE_NAME_SUFFIX)) {
+            return TableAdapter.open(file);
+        }
+        throw new IllegalArgumentException("Unsupported file type: " + file);
+    }
+
     @Override
     public Meta meta() throws IOException {
         // Open just long enough to read metadata, then close immediately
@@ -261,7 +270,7 @@ public final class Union implements GenericFile {
             }
             if (!recordPaths.isEmpty()) {
                 final File f = recordPaths.get(0);
-                try (var rf = GenericFile.open(f)) {
+                try (var rf = openFile(f)) {
                     return rf.meta();
                 }
             }
@@ -334,7 +343,7 @@ public final class Union implements GenericFile {
 
                 // Open next NonIndexedFile cursor (forward)
                 if (fidx < recordPaths.size()) {
-                    currentNonIndexedFile = GenericFile.open(recordPaths.get(fidx++));
+                    currentNonIndexedFile = openFile(recordPaths.get(fidx++));
                     validateSchema(currentNonIndexedFile.meta());
                     final Comparable<Row> merged = Filter.ALL.equals(effectiveFilter[0]) ? effectiveFilter[1]
                             : (Row r) -> {
@@ -460,7 +469,7 @@ public final class Union implements GenericFile {
         // Schema validation (record files)
         for (int i = 0; i < recordPaths.size(); i++) {
             final File f = recordPaths.get(i);
-            final GenericFile rf = GenericFile.open(f);
+            final GenericFile rf = openFile(f);
             final Meta m;
             try {
                 m = rf.meta();
@@ -546,7 +555,7 @@ public final class Union implements GenericFile {
                 if (opened)
                     return;
                 if (record) {
-                    rif = GenericFile.open(file);
+                    rif = openFile(file);
                     final Comparable<Row> merged = Filter.ALL.equals(effFilter[0]) ? effFilter[1] : (Row r) -> {
                         int d = 0;
                         for (int i = 0; i < effFilter.length; i++) {
@@ -954,7 +963,7 @@ public final class Union implements GenericFile {
         long totalRows = 0;
         // Sum rows from record files
         for (File f : recordPaths) {
-            try (var rf = GenericFile.open(f)) {
+            try (var rf = openFile(f)) {
                 long v = rf.rows(force);
                 if (v > 0)
                     totalRows += v;

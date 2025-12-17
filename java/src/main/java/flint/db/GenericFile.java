@@ -91,7 +91,6 @@ public interface GenericFile extends AutoCloseable {
      * @throws IOException
      */
     static GenericFile open(final File file) throws IOException {
-        //# ifndef EXCLUDE (Do not remove this block. Internal use)
         if (file.getName().endsWith(".parquet")) {
             return ParquetFile.open(file);
         }
@@ -101,10 +100,6 @@ public interface GenericFile extends AutoCloseable {
         if (file.getName().endsWith(".union")) {
             return Union.open(file);
         }
-        if (file.getName().endsWith(Meta.TABLE_NAME_SUFFIX)) {
-            return Union.TableAdapter.open(file);
-        }
-        //# endif
         return TSVFile.open(file);
     }
 
