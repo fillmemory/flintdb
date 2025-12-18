@@ -46,6 +46,22 @@ static void variant__strpool_make_key(void) {
 // Thread-local cached pool pointer to avoid repeated pthread_getspecific calls
 static _Thread_local struct string_pool *VARIANT_STRPOOL_CACHED = NULL;
 
+// Thread-local temporary string buffer cleanup
+static pthread_key_t VARIANT_TEMPSTR_KEY;
+static pthread_once_t VARIANT_TEMPSTR_KEY_ONCE = PTHREAD_ONCE_INIT;
+static _Thread_local char *temp_str_buf = NULL;
+static _Thread_local size_t temp_str_capacity = 0;
+static void variant__tempstr_destroy(void *p) {
+	if (p) {
+		FREE(p);
+		DEBUG("Variant temp string buffer destroyed");
+	}
+}
+static void variant__tempstr_make_key(void) {
+	(void)pthread_key_create(&VARIANT_TEMPSTR_KEY, variant__tempstr_destroy);
+	DEBUG("Variant temp string buffer key created");
+}
+
 // Cleanup function to explicitly free the main thread's variant string pool
 void variant_strpool_cleanup(void) {
 	// Only cleanup if the pool was actually created
@@ -54,6 +70,16 @@ void variant_strpool_cleanup(void) {
 		variant__strpool_destroy(pool);
 		(void)pthread_setspecific(VARIANT_STRPOOL_KEY, NULL);
 		VARIANT_STRPOOL_CACHED = NULL;
+	}
+}
+
+// Cleanup function to explicitly free the main thread's temp string buffer
+void variant_tempstr_cleanup(void) {
+	if (temp_str_buf != NULL) {
+		variant__tempstr_destroy(temp_str_buf);
+		(void)pthread_setspecific(VARIANT_TEMPSTR_KEY, NULL);
+		temp_str_buf = NULL;
+		temp_str_capacity = 0;
 	}
 }
 
@@ -627,8 +653,8 @@ const char * flintdb_variant_string_get(const struct flintdb_variant *v) {
 		// If string is not null-terminated (sflag=1), create a temporary null-terminated copy
 		if (v->value.b.sflag) {
 			// Use thread-local buffer for non-null-terminated strings
-			static __thread char *temp_str_buf = NULL;
-			static __thread size_t temp_str_capacity = 0;
+			// Initialize pthread key for cleanup on thread exit
+			(void)pthread_once(&VARIANT_TEMPSTR_KEY_ONCE, variant__tempstr_make_key);
 			
 			size_t needed = (size_t)v->value.b.length + 1;
 			if (needed > temp_str_capacity) {
@@ -636,6 +662,8 @@ const char * flintdb_variant_string_get(const struct flintdb_variant *v) {
 				if (!new_buf) return NULL;
 				temp_str_buf = new_buf;
 				temp_str_capacity = needed;
+				// Register buffer for cleanup when thread exits
+				(void)pthread_setspecific(VARIANT_TEMPSTR_KEY, temp_str_buf);
 			}
 			
 			simd_memcpy(temp_str_buf, v->value.b.data, v->value.b.length);

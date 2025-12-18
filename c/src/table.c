@@ -891,6 +891,7 @@ static const struct flintdb_row * table_one(const struct flintdb_table *me, i8 i
     struct flintdb_row *r = flintdb_row_from_argv(&priv->meta, argc, argv, e); // Row.create(meta, row)
     assert(r);
     i64 i = sorter->tree.compare_get(&sorter->tree, sorter, r, row_compare_get, e);
+    r->free(r);
     return i < 0 ? NULL : ((struct flintdb_table*)me)->read((struct flintdb_table*)me, i, e);
 }
 

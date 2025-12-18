@@ -9,6 +9,7 @@ extern void sql_exec_cleanup();
 extern void plugin_manager_cleanup();                                            // in plugin.c
 extern void sql_pool_cleanup();                                                  // in sql.c
 extern void variant_strpool_cleanup();                                           // in variant.c
+extern void variant_tempstr_cleanup();                                           // in variant.c
 
 void flintdb_cleanup(char **e) {
     DEBUG("FlintDB cleanup");
@@ -16,6 +17,7 @@ void flintdb_cleanup(char **e) {
     plugin_manager_cleanup();
     sql_pool_cleanup();
     variant_strpool_cleanup();
+    variant_tempstr_cleanup();
     sql_exec_cleanup();
 
     DEBUG("FlintDB cleanup completed");
