@@ -749,55 +749,70 @@ static long parse_long(const char *s) {
 }
 
 // Column type mapping (case-insensitive; accepts optional TYPE_ prefix)
-static enum flintdb_variant_type  parse_column_type(const char *typeName) {
+static enum flintdb_variant_type parse_column_type(const char *typeName) {
     if (strempty(typeName))
         return VARIANT_NULL;
     char up[64];
     s_copy(up, sizeof(up), typeName);
     for (char *p = up; *p; ++p)
         *p = (char)toupper((unsigned char)*p);
-    if (strncmp(up, "TYPE_", 5) != 0) {
-        // shift right to add TYPE_
-        char tmp[64];
-        s_copy(tmp, sizeof(tmp), up);
-        snprintf(up, sizeof(up), "TYPE_%s", tmp);
-    }
-    if (equals_ic(up, "TYPE_INT"))
+    if (equals_ic(up, "INT"))
         return VARIANT_INT32;
-    if (equals_ic(up, "TYPE_UINT"))
+    if (equals_ic(up, "UINT"))
         return VARIANT_UINT32;
-    if (equals_ic(up, "TYPE_INT8"))
+    if (equals_ic(up, "INT8"))
         return VARIANT_INT8;
-    if (equals_ic(up, "TYPE_UINT8"))
+    if (equals_ic(up, "UINT8"))
         return VARIANT_UINT8;
-    if (equals_ic(up, "TYPE_INT16"))
+    if (equals_ic(up, "INT16"))
         return VARIANT_INT16;
-    if (equals_ic(up, "TYPE_UINT16"))
+    if (equals_ic(up, "UINT16"))
         return VARIANT_UINT16;
-    if (equals_ic(up, "TYPE_INT64"))
+    if (equals_ic(up, "INT64"))
         return VARIANT_INT64;
-    if (equals_ic(up, "TYPE_DOUBLE"))
+    if (equals_ic(up, "DOUBLE"))
         return VARIANT_DOUBLE;
-    if (equals_ic(up, "TYPE_FLOAT"))
+    if (equals_ic(up, "FLOAT"))
         return VARIANT_FLOAT;
-    if (equals_ic(up, "TYPE_DATE"))
+    if (equals_ic(up, "DATE"))
         return VARIANT_DATE;
-    if (equals_ic(up, "TYPE_TIME"))
+    if (equals_ic(up, "TIME"))
         return VARIANT_TIME;
-    if (equals_ic(up, "TYPE_UUID"))
+    if (equals_ic(up, "UUID"))
         return VARIANT_UUID;
-    if (equals_ic(up, "TYPE_IPV6"))
+    if (equals_ic(up, "IPV6"))
         return VARIANT_IPV6;
-    if (equals_ic(up, "TYPE_STRING"))
+    if (equals_ic(up, "STRING"))
         return VARIANT_STRING;
-    if (equals_ic(up, "TYPE_DECIMAL"))
+    if (equals_ic(up, "DECIMAL"))
         return VARIANT_DECIMAL;
-    if (equals_ic(up, "TYPE_BYTES"))
+    if (equals_ic(up, "BYTES"))
         return VARIANT_BYTES;
-    if (equals_ic(up, "TYPE_BLOB"))
+    if (equals_ic(up, "BLOB"))
         return VARIANT_BLOB;
-    if (equals_ic(up, "TYPE_OBJECT"))
+    if (equals_ic(up, "OBJECT"))
         return VARIANT_OBJECT;
+
+    // 호환 파트
+    if (equals_ic(up, "VARCHAR"))
+        return VARIANT_STRING;
+    if (equals_ic(up, "CHAR"))
+        return VARIANT_STRING;
+    if (equals_ic(up, "TEXT"))
+        return VARIANT_STRING;
+    if (equals_ic(up, "NUMERIC"))
+        return VARIANT_DECIMAL;
+    if (equals_ic(up, "BINARY"))
+        return VARIANT_BYTES;
+    if (equals_ic(up, "VARBINARY"))
+        return VARIANT_BYTES;
+    if (equals_ic(up, "JSON"))
+        return VARIANT_OBJECT;
+    if (equals_ic(up, "DATETIME"))
+        return VARIANT_TIME;
+    if (equals_ic(up, "TIMESTAMP"))
+        return VARIANT_TIME;
+
     return VARIANT_NULL;
 }
 
@@ -1740,7 +1755,7 @@ int flintdb_sql_to_meta(struct flintdb_sql *in, struct flintdb_meta *out, char *
                 s_copy(preBytes, sizeof(preBytes), par);
                 *par = '\0';
             }
-            enum flintdb_variant_type  ctype = parse_column_type(tname);
+            enum flintdb_variant_type ctype = parse_column_type(tname);
             int bytes = -1, precision = -1;
             int i = 2;
             if (preBytes[0]) {
