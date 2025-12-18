@@ -793,7 +793,7 @@ static enum flintdb_variant_type parse_column_type(const char *typeName) {
     if (equals_ic(up, "OBJECT"))
         return VARIANT_OBJECT;
 
-    // 호환 파트
+    // Additional common SQL types
     if (equals_ic(up, "VARCHAR"))
         return VARIANT_STRING;
     if (equals_ic(up, "CHAR"))
