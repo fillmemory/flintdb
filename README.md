@@ -15,7 +15,7 @@ FlintDB is available in two implementations:
 - macOS
 - Windows (MSYS2)
 - iOS
-- Android
+- Android (planned)
 
 ### Compilers
 - clang

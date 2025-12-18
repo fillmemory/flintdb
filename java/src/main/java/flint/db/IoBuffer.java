@@ -67,6 +67,17 @@ final class IoBuffer {
     public static void free(final ByteBuffer cb) {
 		if (cb == null || !cb.isDirect())
 			return;
+        
+        // Android detection
+        boolean isAndroid = System.getProperty("java.vm.vendor", "").contains("Android") 
+                        || System.getProperty("java.vendor", "").contains("Android");
+        
+        if (isAndroid) {
+            // On Android, just let GC handle it
+            // Direct buffers are automatically cleaned up by the GC
+            return;
+        }
+
 		// we could use this type cast and call functions without reflection code,
 		// but static import from sun.* package is risky for non-SUN virtual machine.
 		// try { ((sun.nio.ch.DirectBuffer)cb).cleaner().clean(); } catch (Exception ex) { }
