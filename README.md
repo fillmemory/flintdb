@@ -8,6 +8,20 @@ FlintDB is available in two implementations:
 
 **Development Model**: Features are first implemented in Java, then selectively ported to C based on performance and use case requirements.
 
+## Supported Platforms
+
+### Operating Systems
+- Linux
+- macOS
+- Windows (MSYS2)
+- iOS
+- Android
+
+### Compilers
+- clang
+- gcc
+- mingw gcc
+
 ## File Format Support
 
 FlintDB provides native support for multiple file formats with automatic type inference and schema detection:
