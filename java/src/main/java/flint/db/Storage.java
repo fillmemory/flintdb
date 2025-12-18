@@ -113,7 +113,7 @@ public interface Storage extends Closeable {
 	static final String TYPE_MEMORY = "MEMORY"; // XX:MaxDirectMemorySize=20G
 	static final String TYPE_DEFAULT = TYPE_V1;
 
-	static final int HEADER_BYTES = (4096); // getpagesize()
+	static final int HEADER_BYTES = (16384); // getpagesize()
 	static final int COMMON_HEADER_BYTES = (8 + 8 + 8 + 2 + 4 + 24 + 2 + 8);
 	static final int CUSTOM_HEADER_BYTES = (HEADER_BYTES - COMMON_HEADER_BYTES);
 	static final int BLOCK_HEADER_BYTES = (1 + 1 + 2 + 4 + 8);

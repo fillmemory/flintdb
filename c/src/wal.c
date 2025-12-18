@@ -91,7 +91,7 @@ typedef void* HANDLE;
 
 
 
-#define HEADER_SIZE 4096  // Match filesystem block size for atomic writes
+#define HEADER_SIZE 16384  // Match filesystem block size for atomic writes
 #define DEFAULT_BATCH_SIZE 10000
 #define DEFAULT_BATCH_BUFFER_SIZE (4 * 1024 * 1024) // 4MB batch buffer
 #define DEFAULT_COMPRESSION_THRESHOLD 8192 // Compress if data > 8KB bytes
@@ -867,20 +867,21 @@ EXCEPTION:
 static void wal_flush_header(struct wal_impl *impl) {
     if (impl->fd <= 0) return;
     
-    char header[HEADER_SIZE];
-    memset(header, 0, HEADER_SIZE);
+    char header[HEADER_SIZE] = {0};
+    struct buffer h;
+    buffer_wrap(header, HEADER_SIZE, &h);
     
     // Write header fields
-    *(i32*)(header + 0) = 0x57414C21;  // Magic 'WAL!'
-    *(i16*)(header + 4) = 1;           // Version
-    *(i16*)(header + 6) = HEADER_SIZE; // Header size
-    *(i64*)(header + 8) = 0;           // Timestamp (placeholder)
-    *(i64*)(header + 16) = impl->transaction_id;
-    *(i64*)(header + 24) = impl->committed_offset;
-    *(i64*)(header + 32) = impl->checkpoint_offset;
-    *(i32*)(header + 40) = impl->total_count;
-    *(i32*)(header + 44) = impl->processed_count;
-    
+    h.array_put(&h, "WAL!", 4, NULL); // Magic 'WAL!'
+    h.i16_put(&h, 1, NULL);             // Version
+    h.i16_put(&h, HEADER_SIZE, NULL); // Header size
+    h.i64_put(&h, 0, NULL);           // Timestamp (placeholder)
+    h.i64_put(&h, impl->transaction_id, NULL); // Last transaction ID
+    h.i64_put(&h, impl->committed_offset, NULL); // Committed offset
+    h.i64_put(&h, impl->checkpoint_offset, NULL); // Checkpoint offset
+    h.i32_put(&h, impl->total_count, NULL); // Total transactions
+    h.i32_put(&h, impl->processed_count, NULL); // Processed transactions
+
     // Best-effort; header flush happens on checkpoint/close.
 #ifdef _WIN32
     wal_pwrite_all_fd(impl->fd, impl->fh, header, HEADER_SIZE, 0);
@@ -1712,11 +1713,15 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
         char header[HEADER_SIZE];
         lseek(impl->fd, 0, SEEK_SET);
         if (read(impl->fd, header, HEADER_SIZE) == HEADER_SIZE) {
-            impl->transaction_id = *(i64*)(header + 16);
-            impl->committed_offset = *(i64*)(header + 24);
-            impl->checkpoint_offset = *(i64*)(header + 32);
-            impl->total_count = *(i32*)(header + 40);
-            impl->processed_count = *(i32*)(header + 44);
+            struct buffer h;
+            buffer_wrap(header, HEADER_SIZE, &h);
+            h.skip(&h, 16); // Skip magic and version
+
+            impl->transaction_id = h.i64_get(&h, NULL);
+            impl->committed_offset = h.i64_get(&h, NULL);
+            impl->checkpoint_offset = h.i64_get(&h, NULL);
+            impl->total_count = h.i32_get(&h, NULL);
+            impl->processed_count = h.i32_get(&h, NULL);
             impl->current_position = st.st_size;
         } else {
             impl->current_position = HEADER_SIZE;

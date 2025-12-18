@@ -59,7 +59,7 @@ struct storage {
 
 int storage_open(struct storage * s, struct storage_opts opts, char **e);
 
-#define HEADER_BYTES 4096 
+#define HEADER_BYTES 16384 
 #define BLOCK_HEADER_BYTES (1 + 1 + 2 + 4 + 8) // 16 
 
 #define TYPE_V1 "MMAP"

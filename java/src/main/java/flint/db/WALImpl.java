@@ -210,7 +210,7 @@ final class WALImpl implements WAL {
  * WAL Log Storage implementation for storing WAL records.
  */
 final class WALLogStorage implements AutoCloseable {
-    private static final int HEADER_SIZE = 4096; // Match filesystem block size for atomic writes
+    private static final int HEADER_SIZE = 16384; // Match filesystem block size for atomic writes
     private static final int TRUNCATE_TOLERANCE = 64; // Tolerance in bytes for checkpoint truncation
 
     private final FileChannel channel;
@@ -282,11 +282,12 @@ final class WALLogStorage implements AutoCloseable {
         int pageData = Integer.getInteger("FLINTDB_WAL_PAGE_DATA", walPageData);
         this.logPageData = pageData != 0;
 
+        final byte[] MAGIC_NUMBER = new byte[] { 'W', 'A', 'L', '!' };
         if (channel.size() == 0) {
             this.HEADER = map(0, HEADER_SIZE);
             IoBuffer h = HEADER.slice();
             // Initialize header
-            h.putInt(0x57414C21); // Magic Number 'WAL!'
+            h.put(MAGIC_NUMBER); // Magic Number 'WAL!'
             h.putShort((short) 1); // Version 1
             h.putShort((short) HEADER_SIZE); // Header Size
             h.putLong(System.currentTimeMillis()); // Timestamp
@@ -296,8 +297,9 @@ final class WALLogStorage implements AutoCloseable {
             this.HEADER = map(0, HEADER_SIZE);
             IoBuffer h = HEADER.slice();
             // Load existing header
-            int magic = h.getInt();
-            if (magic != 0x57414C21) 
+            byte[] magic = new byte[4];
+            h.get(magic);
+            if (!java.util.Arrays.equals(magic, MAGIC_NUMBER)) 
                 throw new IOException("Invalid WAL file: incorrect magic number");
             short version = h.getShort();
             if (version != 1)

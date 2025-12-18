@@ -512,11 +512,15 @@ final class MMAPStorage implements Storage {
 
     @Override
     public IoBuffer head(final int size) throws IOException {
+        // if (HEADER != null) // already mapped
+        //     return HEADER.slice(0, size);
         return register(IoBuffer.wrap((MappedByteBuffer)channel.map(readOnly() ? MapMode.READ_ONLY : MapMode.READ_WRITE, 0, size).load()));
     }
 
     @Override
     public IoBuffer head(final int offset, final int size) throws IOException {
+        // if (HEADER != null) // already mapped
+        //     return HEADER.slice(offset, size);
         return register(IoBuffer.wrap((MappedByteBuffer)channel.map(readOnly() ? MapMode.READ_ONLY : MapMode.READ_WRITE, offset, size).load()));
     }
 
