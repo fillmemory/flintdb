@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# ./testcase.sh --build -c flint.db.tutorial.Examples
 # ./testcase.sh --build -c flint.db.TestcaseLargeRows
 # ./testcase.sh --build -c flint.db.TestcaseMultiThreads
+# ./testcase.sh -c flint.db.TestcaseMultiThreads
 
 JTEST=flint.db.tutorial.Examples
 JTEST=flint.db.TestcasePerfAll

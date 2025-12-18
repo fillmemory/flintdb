@@ -51,6 +51,16 @@ public final class Meta {
     public static final String META_NAME_SUFFIX = ".desc";
     public static final String TABLE_NAME_SUFFIX = ".".concat(PRODUCT_NAME_LC); 
 
+	/**
+	 * Read-only access mode for maximum performance
+	 */
+	public static final int OPEN_RDONLY = (0);
+	
+	/**
+	 * Read-write access mode for data modification
+	 */
+	public static final int OPEN_RDWR = (1);
+	
     public static final String WAL_OPT_OFF = "OFF";
     public static final String WAL_OPT_TRUNCATE = "TRUNCATE";
     public static final String WAL_OPT_LOG = "LOG";

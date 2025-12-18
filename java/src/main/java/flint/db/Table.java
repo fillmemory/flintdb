@@ -229,19 +229,6 @@ public interface Table extends Closeable {
 	 */
 	void drop() throws IOException;
 
-	// Table Open Mode Constants
-	
-	/**
-	 * Read-only access mode for maximum performance
-	 */
-	static final int OPEN_RDONLY = (0);
-	
-	/**
-	 * Read-write access mode for data modification
-	 */
-	static final int OPEN_RDWR = (1);
-	
-
 	// Index Algorithm Constants
 	/**
 	 * Hash-based indexing algorithm
@@ -288,7 +275,7 @@ public interface Table extends Closeable {
 	static Table open( //
 			final File file, //
 			final Meta meta, final Logger logger) throws IOException {
-		return new TableImpl(Meta.make(file, meta), meta, OPEN_RDWR, logger);
+		return new TableImpl(Meta.make(file, meta), meta, Meta.OPEN_RDWR, logger);
 	}
 
 	/**
@@ -299,7 +286,7 @@ public interface Table extends Closeable {
 	 * @throws IOException if table opening fails
 	 */
 	static Table open(final File file) throws IOException {
-		return open(file, OPEN_RDONLY, new Logger.NullLogger());
+		return open(file, Meta.OPEN_RDONLY, new Logger.NullLogger());
 	}
 
 	/**
@@ -393,7 +380,7 @@ public interface Table extends Closeable {
 	 */
 	public static long rows(final File tFile) throws IOException {
 		if (tFile.exists()) {
-			try (final Table table = open(tFile, OPEN_RDONLY, new Logger.NullLogger())) {
+			try (final Table table = open(tFile, Meta.OPEN_RDONLY, new Logger.NullLogger())) {
 				return table.rows();
 			}
 		}

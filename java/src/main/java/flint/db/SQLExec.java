@@ -226,7 +226,7 @@ public final class SQLExec {
      * Open or borrow table from pool (for binary tables)
      */
     static Table borrowTable(String path) throws IOException {
-        return borrowTable(path, Table.OPEN_RDWR);
+        return borrowTable(path, Meta.OPEN_RDWR);
     }
 
     /**
@@ -242,16 +242,16 @@ public final class SQLExec {
                 // Try to acquire lock (will succeed if same thread holds it - reentrant)
                 pt.lock.lock();
                 try {
-                    boolean needWrite = (Table.OPEN_RDWR & mode) > 0;
-                    boolean hasWrite = (Table.OPEN_RDWR & pt.mode) > 0;
+                    boolean needWrite = (Meta.OPEN_RDWR & mode) > 0;
+                    boolean hasWrite = (Meta.OPEN_RDWR & pt.mode) > 0;
                     if (needWrite && !hasWrite) {
                         try {
                             pt.table.close();
                         } catch (Exception ignore) {
                             // ignore close errors during upgrade
                         }
-                        pt.table = Table.open(new File(path), Table.OPEN_RDWR);
-                        pt.mode = Table.OPEN_RDWR;
+                        pt.table = Table.open(new File(path), Meta.OPEN_RDWR);
+                        pt.mode = Meta.OPEN_RDWR;
                     }
                     pt.refCount++;
                     pt.lastUsed = System.currentTimeMillis();
@@ -1008,7 +1008,7 @@ public final class SQLExec {
         Table table = null;
         
         try {
-            table = borrowTable(q.table(), Table.OPEN_RDWR);
+            table = borrowTable(q.table(), Meta.OPEN_RDWR);
             Meta meta = table.meta();
             
             // Fast path: SELECT COUNT(*) with no WHERE/GROUP/ORDER/DISTINCT
@@ -1815,7 +1815,7 @@ public final class SQLExec {
 
             Meta meta;
             if (Meta.PRODUCT_NAME_LC.equals(fmt)) {
-                try (Table table = Table.open(file, Table.OPEN_RDONLY)) {
+                try (Table table = Table.open(file, Meta.OPEN_RDONLY)) {
                     meta = table.meta();
                 }
             } else {
@@ -1882,7 +1882,7 @@ public final class SQLExec {
 
             Meta meta;
             if (Meta.PRODUCT_NAME_LC.equals(fmt)) {
-                try (Table table = Table.open(file, Table.OPEN_RDONLY)) {
+                try (Table table = Table.open(file, Meta.OPEN_RDONLY)) {
                     meta = table.meta();
                 }
             } else {

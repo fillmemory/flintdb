@@ -66,11 +66,11 @@ final class TableImpl implements Table {
 
 	private boolean open(final int mode) throws IOException { // , java.nio.channels.OverlappingFileLockException
 		if (this.storage == null) {
-			//this.cache = Cache.create((OPEN_RDWR & mode) > 0 ? meta.cacheSize() : 0);
-			this.cache = Cache.create((OPEN_RDWR & mode) > 0 ? meta.cacheSize() : meta.cacheSize() / 2);
+			//this.cache = Cache.create((Meta.OPEN_RDWR & mode) > 0 ? meta.cacheSize() : 0);
+			this.cache = Cache.create((Meta.OPEN_RDWR & mode) > 0 ? meta.cacheSize() : meta.cacheSize() / 2);
 
             // Initialize WAL based on meta configuration
-            if ((OPEN_RDWR & mode) > 0 && meta.walEnabled() && !Storage.TYPE_MEMORY.equalsIgnoreCase(meta.storage())) {
+            if ((Meta.OPEN_RDWR & mode) > 0 && meta.walEnabled() && !Storage.TYPE_MEMORY.equalsIgnoreCase(meta.storage())) {
                 final File walFile = new File(file.getParentFile(), file.getName() + ".wal");
                 this.wal = WAL.open(walFile, meta);
             } else {
@@ -79,8 +79,8 @@ final class TableImpl implements Table {
 			this.storage = WAL.wrap(wal, //
                     new Storage.Options() //
 					.file(file) //
-					.mutable((OPEN_RDWR & mode) > 0) //
-					.lock((OPEN_RDWR & mode) > 0) //
+					.mutable((Meta.OPEN_RDWR & mode) > 0) //
+					.lock((Meta.OPEN_RDWR & mode) > 0) //
 					// .headerBytes((short) 0) //
 					.blockBytes((short) meta.rowBytes()) //
 					.compact(meta.compact()) //
@@ -91,7 +91,7 @@ final class TableImpl implements Table {
                     offset -> cache.remove(offset)
 			);
 
-			if ((OPEN_RDWR & mode) > 0) {
+			if ((Meta.OPEN_RDWR & mode) > 0) {
 				// HEADER
 				final int HEAD_SZ = 4 + 4; // signature(4B) + version(4B)
 				final IoBuffer h = storage.head(HEAD_SZ); /* MappedIoBuffer */
@@ -108,7 +108,7 @@ final class TableImpl implements Table {
 
 			logger.log("open " // + file //
 					+ " format : " + format() //
-					+ ", mode : " + ((OPEN_RDWR & mode) > 0 ? "rw" : "r") //
+					+ ", mode : " + ((Meta.OPEN_RDWR & mode) > 0 ? "rw" : "r") //
 					+ ", row bytes : " + new DecimalFormat("#,##0").format(meta.rowBytes()) + "B" //
 					+ ", compact : " + new DecimalFormat("#,##0").format(meta.compact()) + "B" //
 					+ ", storage : " + meta.storage() + " " + IO.readableBytesSize(bytes()) //
@@ -663,7 +663,7 @@ final class TableImpl implements Table {
 
 			this.tree = Tree.newInstance( //
 					indexFile, //
-					(OPEN_RDWR & mode) > 0, //
+					(Meta.OPEN_RDWR & mode) > 0, //
 					Sorter.format(storage), //
 					DEFAULT_STORAGE_INCREMENT, //
 					Math.max((int) (meta.cacheSize() * 0.75f), DEFAULT_KEY_CACHE_SIZE), //
@@ -814,7 +814,7 @@ final class TableImpl implements Table {
 
 			this.tree = Tree.newInstance( //
 					indexFile, //
-					(OPEN_RDWR & mode) > 0, //
+					(Meta.OPEN_RDWR & mode) > 0, //
 					Sorter.format(storage), //
 					DEFAULT_STORAGE_INCREMENT, //
 					Math.max((int) (meta.cacheSize() * 0.75f), DEFAULT_KEY_CACHE_SIZE), //

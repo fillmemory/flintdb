@@ -50,7 +50,7 @@ public final class TestcaseTransactionRollback {
         }
 
         // 3) Reopen and verify persisted count
-        try (Table t = Table.open(file, Table.OPEN_RDONLY, new Logger.NullLogger())) {
+        try (Table t = Table.open(file, Meta.OPEN_RDONLY, new Logger.NullLogger())) {
             TRUE(t.rows() == 1L, "Expected rows=1 after reopen");
         }
 

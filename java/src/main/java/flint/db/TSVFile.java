@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 final class TSVFile implements GenericFile {
 
-    static final int OPEN_APPEND = (Table.OPEN_RDWR | (Table.OPEN_RDWR << 1));
+    static final int OPEN_APPEND = (Meta.OPEN_RDWR | (Meta.OPEN_RDWR << 1));
     static final int GZIP_BUFSZ = 8192;
     static final boolean TYPE_PREDICT = System.getProperty("FLINTDB_TYPE_PREDICT", "0").equals("1"); // experimental
 
@@ -45,7 +45,7 @@ final class TSVFile implements GenericFile {
      */
     static TSVFile open(final File file, final Format format, final Logger logger) throws IOException {
         final TSVFile f = new TSVFile(file, format, null, logger);
-        f.open(Table.OPEN_RDONLY);
+        f.open(Meta.OPEN_RDONLY);
         return f;
     }
 
@@ -118,7 +118,7 @@ final class TSVFile implements GenericFile {
             case APPEND:
                 final boolean exists = file.exists() && file.length() > 0;
                 final TSVFile f = new TSVFile(file, null, columns, logger);
-                f.open(OPEN_APPEND | Table.OPEN_RDWR);
+                f.open(OPEN_APPEND | Meta.OPEN_RDWR);
                 if (!exists)
                     f.write(columns);
                 return f;
@@ -140,7 +140,7 @@ final class TSVFile implements GenericFile {
      */
     public static TSVFile create(final File file, final Column[] columns, final Logger logger) throws IOException {
         final TSVFile f = new TSVFile(file, null, columns, logger);
-        f.open(Table.OPEN_RDWR);
+        f.open(Meta.OPEN_RDWR);
         f.write(columns);
         return f;
     }
@@ -883,10 +883,10 @@ final class TSVFile implements GenericFile {
      */
     private boolean open(final int mode) throws IOException {
         logger.log("open " // + file //
-                + "mode : " + ((Table.OPEN_RDWR & mode) > 0 ? "rw" : "r") //
+                + "mode : " + ((Meta.OPEN_RDWR & mode) > 0 ? "rw" : "r") //
                 + ", file size : " + IO.readableBytesSize(file.length()) //
         );
-        if (ostream == null && (Table.OPEN_RDWR & mode) > 0) {
+        if (ostream == null && (Meta.OPEN_RDWR & mode) > 0) {
             file.getParentFile().mkdirs();
             String name = file.getName();
             int p = name.lastIndexOf(".");

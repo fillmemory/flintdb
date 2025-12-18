@@ -125,7 +125,7 @@ public class TestcaseMemoryTable {
 
 	private static void testcase_from_transfer() throws Exception {
 		try (final IO.Closer CLOSER = new IO.Closer()) {
-			final Table ft = Table.open(transfer, Table.OPEN_RDONLY, new Logger.NullLogger());
+			final Table ft = Table.open(transfer, Meta.OPEN_RDONLY, new Logger.NullLogger());
 			final Cursor<Long> cursor = ft.find("USE INDEX (PRIMARY ASC) WHERE DT >= '2023-06-30' LIMIT 1, 2");
 			int max = 3;
 			for (long i; (i = cursor.next()) > -1;) {
