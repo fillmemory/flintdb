@@ -21,6 +21,9 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <assert.h>
+
+
 #define FLINTDB_TEMP_DIR "./temp"
 #define SQL_EXEC_SHARED_TABLES 1
 
@@ -1267,6 +1270,31 @@ EXCEPTION:
     return NULL;
 }
 
+// Comparison function for sorting SHOW TABLES results by path
+static int show_tables_compare_by_path(const void *a, const void *b) {
+    if (!a || !b) return 0;
+    const valtype *va = (const valtype *)a;
+    const valtype *vb = (const valtype *)b;
+    if (!va || !vb) return 0;
+    struct flintdb_row *r1 = (struct flintdb_row *)(uintptr_t)(*va);
+    struct flintdb_row *r2 = (struct flintdb_row *)(uintptr_t)(*vb);
+    if (!r1 || !r2 || !r1->array || !r2->array) return 0;
+    if (r1->length < 6 || r2->length < 6) return 0;
+    // Path is column 5 (0-indexed)
+    struct flintdb_variant *v1 = &r1->array[5];
+    struct flintdb_variant *v2 = &r2->array[5];
+    if (!v1 || !v2) return 0;
+    if (v1->type != VARIANT_STRING || v2->type != VARIANT_STRING) return 0;
+    if (!v1->value.b.data || !v2->value.b.data) return 0;
+    
+    // For string comparison, compare up to the length of the shorter string
+    u32 la = v1->value.b.length;
+    u32 lb = v2->value.b.length;
+    u32 lm = la < lb ? la : lb;
+    assert(lm > 0);
+    return strncmp(v1->value.b.data, v2->value.b.data, lm);
+}
+
 static struct flintdb_sql_result * sql_exec_show_tables(struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_cursor_array_priv *priv = NULL;
@@ -1545,6 +1573,11 @@ static struct flintdb_sql_result * sql_exec_show_tables(struct flintdb_sql *q, c
             }
         }
         closedir(d);
+    }
+
+    // Sort results by path (ascending order) using qsort
+    if (priv && priv->rows && priv->rows->a && priv->rows->length > 1) {
+        qsort(priv->rows->a, priv->rows->length, sizeof(valtype), show_tables_compare_by_path);
     }
 
     // Build cursor
