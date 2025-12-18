@@ -703,6 +703,10 @@ int main(int argc, char **argv) {
     if (tutorial_flintdb_sql_exec() != 0) return 1;
     
     printf("All tutorial steps completed successfully.\n");
+    
+    // Cleanup resources
+    flintdb_cleanup(NULL);
+    
     return 0;
 }
  

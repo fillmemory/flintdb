@@ -482,3 +482,9 @@ pub const VariantType = struct {
 
 pub const PRIMARY_KEY = c.PRIMARY_NAME;
 pub const MAX_COLUMN_NAME = c.MAX_COLUMN_NAME_LIMIT;
+
+/// Cleanup all FlintDB resources
+pub fn cleanup() void {
+    var e: ?*u8 = null;
+    c.flintdb_cleanup(&e);
+}

@@ -118,6 +118,9 @@ struct flintdb_cursor_row * flintdb_swift_genericfile_find(const struct flintdb_
 struct flintdb_row * flintdb_swift_cursor_row_next(struct flintdb_cursor_row *c, char **e);
 void flintdb_swift_cursor_row_close(struct flintdb_cursor_row *c);
 
+// Cleanup
+void flintdb_swift_cleanup(char **e);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

@@ -545,3 +545,8 @@ func (c *CursorRow) Close() {
 		C.cursor_row_close_wrapper(c.inner)
 	}
 }
+
+// Cleanup releases all FlintDB resources
+func Cleanup() {
+	C.flintdb_cleanup(nil)
+}

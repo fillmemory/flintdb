@@ -164,6 +164,8 @@ fn tutorialFilesort() !void {
 }
 
 pub fn main() !void {
+    defer flintdb.cleanup();
+
     // Ensure temp directory exists
     var cwd = std.fs.cwd();
     cwd.makeDir("temp") catch |err| switch (err) {

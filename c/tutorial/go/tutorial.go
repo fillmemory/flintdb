@@ -363,6 +363,8 @@ func tutorialFilesort() error {
 }
 
 func main() {
+	defer flintdb.Cleanup()
+
 	// Create temp directory if it doesn't exist
 	if _, err := os.Stat("./temp"); os.IsNotExist(err) {
 		os.Mkdir("./temp", 0755)

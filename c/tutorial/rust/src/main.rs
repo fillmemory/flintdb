@@ -3,6 +3,15 @@ mod flintdb;
 use flintdb::*;
 use std::fs;
 
+// RAII guard for automatic cleanup
+struct CleanupGuard;
+
+impl Drop for CleanupGuard {
+    fn drop(&mut self) {
+        flintdb::cleanup();
+    }
+}
+
 fn tutorial_table_create() -> Result<(), String> {
     println!("--- Running tutorial_table_create ---");
 
@@ -162,6 +171,9 @@ fn tutorial_filesort() -> Result<(), String> {
 }
 
 fn main() {
+    // Setup automatic cleanup on scope exit (like Go's defer)
+    let _cleanup = CleanupGuard;
+    
     // Create a temp directory for database files if it doesn't exist
     let _ = fs::create_dir_all("./temp");
 
@@ -196,4 +208,6 @@ fn main() {
     }
 
     println!("All tutorial steps completed successfully.");
+    
+    // Cleanup will be called automatically when _cleanup goes out of scope
 }

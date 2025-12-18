@@ -452,3 +452,10 @@ func flintPrintRow(_ r: OpaquePointer) {
 func flintPrintRowBorrowed(_ r: OpaquePointer) {
 	flintdb_swift_print_row(r)
 }
+
+/// Cleanup all FlintDB resources
+func flintCleanup() {
+	var e: UnsafeMutablePointer<CChar>? = nil
+	flintdb_swift_cleanup(&e)
+	_ = flintTakeError(&e)
+}

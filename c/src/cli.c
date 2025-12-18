@@ -39,14 +39,12 @@
 #define MAX_PRETTY_ROWS 10000
 #define MAX_PRETTY_COLS 100
 
-extern void print_memory_leak_info(); // in allocator.c
 extern int variant_to_string_fast(const struct flintdb_variant *v, char *out, u32 len); // in variant.c
 
 // Signal handler for graceful shutdown
 static void signal_handler(int signum) {
     // fprintf(stderr, "\nReceived signal %d, cleaning up...\n", signum);
     flintdb_cleanup(NULL);
-    print_memory_leak_info();
     exit(signum == SIGINT ? 130 : 1);
 }
 
@@ -145,11 +143,11 @@ int main(int argc, char *argv[]) {
         if (strncmp(argv[i], "-webui", 7) == 0) {
             // Pass remaining args (including -webui) to webui_run
             int rc = webui_run(argc - i, argv + i, &e);
+            flintdb_cleanup(NULL);
             if (e) {
                 fprintf(stderr, "Error: %s\n", e);
                 return 1;
             }
-            print_memory_leak_info();
             return rc;
         }
     }
@@ -165,11 +163,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error during cleanup: %s\n", e);
         return 1;
     }
-
-#ifdef MTRACE // Memory tracing enabled for leak detection
-    // pthread_exit(NULL); // Clean up threads
-    print_memory_leak_info();
-#endif
 
     return (result < 0) ? 1 : 0;
 }

@@ -5,16 +5,20 @@
 @description This tutorial demonstrates how to use FlintDB from Python
 """
 
+import atexit
 import os
 import sys
 from flintdb_cffi import (
     Meta, Table, Row, GenericFile, CursorI64, CursorRow,
     FileSort, Aggregate, groupby_new, func_count, func_sum, func_avg,
-    FlintDBError, print_row, sql_exec,
+    FlintDBError, print_row, sql_exec, cleanup,
     FLINTDB_RDONLY, FLINTDB_RDWR,
     VARIANT_INT32, VARIANT_INT64, VARIANT_DOUBLE, VARIANT_STRING, VARIANT_DECIMAL,
     SPEC_NOT_NULL, PRIMARY_NAME
 )
+
+# Register cleanup to run at exit
+atexit.register(cleanup)
 
 
 def ensure_temp_dir():

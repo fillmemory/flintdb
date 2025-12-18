@@ -7,7 +7,11 @@ import Darwin
 do {
 	try runTutorial()
 	print("All tutorial steps completed successfully.")
+	
+	// Cleanup resources
+	flintCleanup()
 } catch {
 	fputs("\(error)\n", stderr)
+	flintCleanup()
 	exit(1)
 }

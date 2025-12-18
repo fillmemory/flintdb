@@ -240,3 +240,8 @@ void flintdb_swift_cursor_row_close(struct flintdb_cursor_row *c) {
     if (!c) return;
     if (c->close) c->close(c);
 }
+
+// Cleanup
+void flintdb_swift_cleanup(char **e) {
+    flintdb_cleanup(e);
+}

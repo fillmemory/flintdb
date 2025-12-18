@@ -9,6 +9,13 @@
 
 using namespace flintdbcpp;
 
+// RAII guard for automatic cleanup (like Rust's Drop or Go's defer)
+struct CleanupGuard {
+    ~CleanupGuard() {
+        flintdb_cleanup(nullptr);
+    }
+};
+
 static int compare_by_value(const void* /*ctx*/, const flintdb_row* a, const flintdb_row* b) {
     char* err = nullptr;
     i32 va = a->i32_get(a, 0, &err);
@@ -331,6 +338,9 @@ int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
 
+    // Setup automatic cleanup on scope exit (RAII)
+    CleanupGuard cleanup_guard;
+
     try {
         ensure_temp_dir();
 
@@ -346,6 +356,9 @@ int main(int argc, char** argv) {
         if (tutorial_flintdb_sql_exec() != 0) return 1;
 
         std::cout << "All tutorial steps completed successfully.\n";
+        
+        // Cleanup will be called automatically when cleanup_guard goes out of scope
+        
         return 0;
     } catch (const std::exception& ex) {
         std::cerr << "Error: " << ex.what() << "\n";

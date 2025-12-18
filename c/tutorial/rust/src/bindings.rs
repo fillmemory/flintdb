@@ -6540,5 +6540,9 @@ unsafe extern "C" {
         e: *mut *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
+unsafe extern "C" {
+    #[doc = " @brief Clean up resources before shutting down the library"]
+    pub fn flintdb_cleanup(e: *mut *mut ::std::os::raw::c_char);
+}
 pub type __builtin_va_list = *mut ::std::os::raw::c_char;
 pub type __uint128_t = u128;

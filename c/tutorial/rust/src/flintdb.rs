@@ -481,3 +481,8 @@ fn check_error(err: *mut ::std::os::raw::c_char) -> Result<(), String> {
         Ok(())
     }
 }
+
+/// Cleanup all FlintDB resources
+pub fn cleanup() {
+    unsafe { flintdb_cleanup(ptr::null_mut()) };
+}

@@ -279,6 +279,8 @@ ffi.cdef(
                                                     struct flintdb_aggregate_condition cond, char **e);
 
     struct flintdb_sql_result* flintdb_sql_exec(const char *sql, const void *transaction, char **e);
+    
+    void flintdb_cleanup(char **e);
     """
 )
 
@@ -871,3 +873,12 @@ def sql_exec(sql: str) -> SqlResult:
 def print_row(r: Union[Row, "ffi.CData"]) -> None:
     ptr = r._ptr() if isinstance(r, Row) else r
     _lib.flintdb_print_row(ptr)
+
+
+def cleanup() -> None:
+    """Cleanup all FlintDB resources"""
+    err = _err_ptr()
+    _lib.flintdb_cleanup(err)
+    # Ignore errors during cleanup
+    if err[0] != ffi.NULL:
+        pass
