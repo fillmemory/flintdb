@@ -73,8 +73,8 @@ CFLAGS_SO  = -fPIC -DFLINTDB_SHARED -DFLINTDB_BUILD
 #LDFLAGS = -lc -lm -lpthread -lz -llz4 -lzstd -lsnappy -L/usr/local/lib -flto
 LDFLAGS = $(LDFLAGS_BASE)
 
-LIB_CURRENT_VERSION ?= 0.0.1
-LIB_COMPAT_VERSION  ?= 0.0.1
+LIB_CURRENT_VERSION ?= 0.1.0
+LIB_COMPAT_VERSION  ?= 0.1.0
 LIB_BASENAME ?= libflintdb.dylib
 LIB_INSTALL_NAME ?= @rpath/$(LIB_BASENAME)
 

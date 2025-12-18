@@ -3,7 +3,7 @@ apply plugin: "java"
 // gradle clean build jar -x test --no-daemon
 
 def NOW = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ").format(new Date())
-def VERSION = "1.0." + new java.text.SimpleDateFormat("yyMMdd").format(new Date())
+def VERSION = "0.1." + new java.text.SimpleDateFormat("yyMMdd").format(new Date())
 def REVISION = "1"
 
 project.group = "flintdb"

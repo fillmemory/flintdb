@@ -21,6 +21,7 @@
 
 static pthread_key_t sql_parser_POOL_KEY;
 static pthread_once_t sql_parser_POOL_KEY_ONCE = PTHREAD_ONCE_INIT;
+static _Thread_local struct flintdb_sql_pool *sql_parser_POOL_CACHED = NULL;
 
 struct flintdb_sql_pool {
     int capacity;
@@ -185,21 +186,25 @@ static void sql_pool_make_key(void) {
 }
 
 static inline struct flintdb_sql_pool *sql_pool_get(void) {
+    if (sql_parser_POOL_CACHED != NULL) {
+        return sql_parser_POOL_CACHED;
+    }
     (void)pthread_once(&sql_parser_POOL_KEY_ONCE, sql_pool_make_key);
     struct flintdb_sql_pool *pool = (struct flintdb_sql_pool *)pthread_getspecific(sql_parser_POOL_KEY);
     if (!pool) {
         pool = sql_pool_create(sql_parser_POOL_CAPACITY);
         (void)pthread_setspecific(sql_parser_POOL_KEY, pool);
     }
+    sql_parser_POOL_CACHED = pool;
     return pool;
 }
 
 // Cleanup function to explicitly free the main thread's SQL pool
 void sql_pool_cleanup(void) {
-    struct flintdb_sql_pool *pool = (struct flintdb_sql_pool *)pthread_getspecific(sql_parser_POOL_KEY);
-    if (pool) {
-        sql_pool_destroy(pool);
-        (void)pthread_setspecific(sql_parser_POOL_KEY, NULL);
+    if (sql_parser_POOL_CACHED != NULL) {
+        struct flintdb_sql_pool *pool = sql_parser_POOL_CACHED;
+        pool->free(pool);
+        sql_parser_POOL_CACHED = NULL;
     }
 }
 

@@ -68,8 +68,7 @@ void variant_strpool_cleanup(void) {
 	// Only cleanup if the pool was actually created
 	if (VARIANT_STRPOOL_CACHED != NULL) {
 		struct string_pool *pool = VARIANT_STRPOOL_CACHED;
-		variant__strpool_destroy(pool);
-		(void)pthread_setspecific(VARIANT_STRPOOL_KEY, NULL);
+		pool->free(pool);
 		VARIANT_STRPOOL_CACHED = NULL;
 	}
 }
@@ -158,8 +157,7 @@ static inline char * variant_error_set(const struct flintdb_variant *v, const ch
 // Cleanup function for temp string buffer (always available)
 void variant_tempstr_cleanup(void) {
 	if (temp_str_buf != NULL) {
-		variant__tempstr_destroy(temp_str_buf);
-		(void)pthread_setspecific(VARIANT_TEMPSTR_KEY, NULL);
+		FREE(temp_str_buf);
 		temp_str_buf = NULL;
 		temp_str_capacity = 0;
 	}
