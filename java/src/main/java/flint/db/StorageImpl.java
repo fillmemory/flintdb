@@ -7,10 +7,8 @@ import java.io.PrintStream;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
-import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -40,8 +38,8 @@ final class MMAPStorage implements Storage {
 
     private final File file;
     private final FileChannel channel;
-    private final List<IoBuffer> HEADERS = new java.util.ArrayList<>();
-    private final IoBuffer HEADER;
+    private final IoBuffer HEADER; // storage + implementation header
+    private final IoBuffer header; // storage header only
     private final Options options;
 
     // private volatile long blocks = 0;
@@ -68,9 +66,6 @@ final class MMAPStorage implements Storage {
     		return false;
     	}
     };
-
-    // private final Lock lock = new java.util.concurrent.locks.ReentrantLock();
-    private FLock flock;
 
     MMAPStorage(final Options options) throws IOException {
         Storage.validate(options);
@@ -102,13 +97,13 @@ final class MMAPStorage implements Storage {
             lock();
 
         if (channel.size() == 0) {
-            // HEADER = (IoBuffer) head(COMMON_HEADER_BYTES, CUSTOM_HEADER_BYTES);
-            HEADER = (IoBuffer) head(CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES);
+            HEADER = HEAD();
+            header = head(CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES);
             commit(true);
         } else {
-            // HEADER = (IoBuffer) head(COMMON_HEADER_BYTES, CUSTOM_HEADER_BYTES);
-            HEADER = (IoBuffer) head(CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES);
-            final IoBuffer bb = HEADER.slice();
+            HEADER = HEAD();
+            header = head(CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES);
+            final IoBuffer bb = header.slice();
 
             /* this.blocks = */ bb.getLong();
             free = (bb.getLong()); // The front of deleted blocks
@@ -153,7 +148,7 @@ final class MMAPStorage implements Storage {
         dirty = 0;
 
 
-        final IoBuffer bb = HEADER.slice();
+        final IoBuffer bb = header.slice();
         bb.putLong(0L); // reserverd bb.putLong(blocks);
         bb.putLong(free); // The front of deleted blocks
         bb.putLong(0); // The tail of deleted blocks => not used in mmap
@@ -168,29 +163,20 @@ final class MMAPStorage implements Storage {
     public void close() throws IOException {
         // System.out.printf("MMAPStorage.close(): file=%s, count=%d, free=%d \n", file.getAbsolutePath(), count, free);
         if (channel != null && channel.isOpen()) {
-            if (options.mutable)
-                commit(true);
-
-            final Set<Entry<Integer, IoBuffer>> entrySet = mbb.entrySet();
-            for (final Entry<Integer, IoBuffer> e : entrySet) {
-                final IoBuffer buffer = e.getValue();
-                buffer.free();
+            try (channel) {
+                if (options.mutable)
+                    commit(true);
+                final Set<Entry<Integer, IoBuffer>> entrySet = mbb.entrySet();
+                for (final Entry<Integer, IoBuffer> e : entrySet) {
+                    final IoBuffer buffer = e.getValue();
+                    buffer.free();
+                }   entrySet.clear();
+                HEADER.free();
+                // Clear buffer pool
+                bufferPool.clear();
+                // channel = null;
+                // System.err.println("close " + file);
             }
-            entrySet.clear();
-
-            for (final IoBuffer buffer : HEADERS) {
-                buffer.free();
-            }
-            
-            // Clear buffer pool
-            bufferPool.clear();
-
-            if (flock != null)
-                flock.close();
-
-            channel.close();
-            // channel = null;
-            // System.err.println("close " + file);
         }
     }
 
@@ -512,69 +498,33 @@ final class MMAPStorage implements Storage {
 
     @Override
     public IoBuffer head(final int size) throws IOException {
-        // if (HEADER != null) // already mapped
-        //     return HEADER.slice(0, size);
-        return register(IoBuffer.wrap((MappedByteBuffer)channel.map(readOnly() ? MapMode.READ_ONLY : MapMode.READ_WRITE, 0, size).load()));
+        assert(size > 0);
+        return HEAD().slice(0, size);
     }
 
     @Override
     public IoBuffer head(final int offset, final int size) throws IOException {
-        // if (HEADER != null) // already mapped
-        //     return HEADER.slice(offset, size);
-        return register(IoBuffer.wrap((MappedByteBuffer)channel.map(readOnly() ? MapMode.READ_ONLY : MapMode.READ_WRITE, offset, size).load()));
+        assert(offset >= 0);
+        assert(size > 0);
+        return HEAD().slice(offset, size);
     }
 
-    private IoBuffer register(final IoBuffer mbb) {
-        HEADERS.add(mbb);
-        return mbb;
-    }
-
-    static final class FLock {
-        FileChannel ch;
-        FileLock lock;
-        File f;
-
-        FLock(final File f) {
-            this.f = f;
-        }
-
-        public void lock() throws IOException {
-            try {
-                ch = FileChannel.open(Paths.get(f.toURI()), //
-                        (f.exists() ? java.nio.file.StandardOpenOption.CREATE : java.nio.file.StandardOpenOption.CREATE_NEW),  //
-                        java.nio.file.StandardOpenOption.READ, //
-                        java.nio.file.StandardOpenOption.WRITE //
-                );
-
-                lock = ch.tryLock(); // java.nio.channels.OverlappingFileLockException
-                if (lock == null)
-                    throw new IOException("FileLock - " + f.getAbsolutePath());
-            } catch (java.nio.channels.OverlappingFileLockException ex) {
-                throw new IOException("FileLock OverlappingFileLockException - " + f.getAbsolutePath(), ex);
-            } catch (IOException ex) {
-                if (ex.getMessage().equals("Operation not supported")) { // NAS
-                    // System.err.println("FileLock Operation not supported");
-                } else {
-                    throw new IOException("FileLock - " + f.getAbsolutePath(), ex);
-                }
-            }
-        }
-
-        public void close() throws IOException {
-            if (lock != null)
-                lock.close();
-            if (ch != null)
-                ch.close();
-            f.delete();
-        }
+    /**
+     * HEAD mapping
+     * @param offset
+     * @param size
+     * @return
+     * @throws IOException
+     */
+    private IoBuffer HEAD() throws IOException {
+        if (HEADER != null)
+            return HEADER;
+        return IoBuffer.wrap((MappedByteBuffer)channel.map(readOnly() ? MapMode.READ_ONLY : MapMode.READ_WRITE, 0, HEADER_BYTES).load());
     }
 
     @Override
     public void lock() throws IOException {
-        if (flock == null) {
-            // lock = new Lock(new File(file.getParentFile(), file.getName() + ".lock"));
-            // lock.lock();
-        }
+        // for future use, not implemented yet
     }
 
     @Override
