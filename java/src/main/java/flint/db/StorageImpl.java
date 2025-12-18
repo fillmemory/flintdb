@@ -38,8 +38,8 @@ final class MMAPStorage implements Storage {
 
     private final File file;
     private final FileChannel channel;
-    private final IoBuffer HEADER; // storage + implementation header
-    private final IoBuffer header; // storage header only
+    private final IoBuffer HEADER; // 0 .. HEADER_BYTES mapping
+    private final IoBuffer cmheader; // CUSTOM_HEADER_BYTES .. COMMON_HEADER_BYTES mapping
     private final Options options;
 
     // private volatile long blocks = 0;
@@ -98,12 +98,12 @@ final class MMAPStorage implements Storage {
 
         if (channel.size() == 0) {
             HEADER = HEAD();
-            header = head(CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES);
+            cmheader = head(CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES);
             commit(true);
         } else {
             HEADER = HEAD();
-            header = head(CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES);
-            final IoBuffer bb = header.slice();
+            cmheader = head(CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES);
+            final IoBuffer bb = cmheader.slice();
 
             /* this.blocks = */ bb.getLong();
             free = (bb.getLong()); // The front of deleted blocks
@@ -148,7 +148,7 @@ final class MMAPStorage implements Storage {
         dirty = 0;
 
 
-        final IoBuffer bb = header.slice();
+        final IoBuffer bb = cmheader.slice();
         bb.putLong(0L); // reserverd bb.putLong(blocks);
         bb.putLong(free); // The front of deleted blocks
         bb.putLong(0); // The tail of deleted blocks => not used in mmap
