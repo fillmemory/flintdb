@@ -281,8 +281,18 @@ static void bufio_close(struct bufio *b) {
         char *e = NULL;
         bufio_flush(b, &e); // best-effort flush
         struct bufio_priv *p = (struct bufio_priv *)b->priv;
-        if (p->underlying && p->underlying->close) {
-            p->underlying->close(p->underlying);
+        if (p->underlying) {
+            if (p->underlying->close) {
+                // close() will free both the stream and its priv
+                p->underlying->close(p->underlying);
+            } else {
+                // No close function, we need to free manually
+                if (p->underlying->priv) {
+                    FREE(p->underlying->priv);
+                    p->underlying->priv = NULL;
+                }
+                FREE(p->underlying);
+            }
             p->underlying = NULL;
         }
         if (p->buffer) {

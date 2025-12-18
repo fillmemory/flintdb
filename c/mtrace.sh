@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Exit on error, undefined var, and fail on pipe errors
+
+# Important: Makefile  -DMTRACE=1 must be set to enable mtrace
+# Example: make CFLAGS="-DMTRACE=1" all
+
 set -euo pipefail
 
 # Always operate from the script's directory

@@ -107,30 +107,30 @@ void sql_exec_cleanup() {
  */
 
 // Forward declarations for functions referenced by sql_exec
-static struct flintdb_sql_result * sql_exec_begin_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
-static struct flintdb_sql_result * sql_exec_commit_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
-static struct flintdb_sql_result * sql_exec_rollback_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
-static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
-static struct flintdb_sql_result * sql_exec_gf_select(struct flintdb_sql *q, char **e);
-static int sql_exec_insert(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
-static int sql_exec_update(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
-static int sql_exec_delete(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
-static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
-static int sql_exec_select_into(struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
-static int sql_exec_create(struct flintdb_sql *q, char **e);
-static int sql_exec_drop(struct flintdb_sql *q, char **e);
-static int sql_exec_alter(struct flintdb_sql *q, char **e);
-static struct flintdb_sql_result * sql_exec_describe(struct flintdb_sql *q, char **e);
-static struct flintdb_sql_result * sql_exec_meta(struct flintdb_sql *q, char **e);
-static struct flintdb_sql_result * sql_exec_show_tables(struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_begin_transaction(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static struct flintdb_sql_result * sql_exec_commit_transaction(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static struct flintdb_sql_result * sql_exec_rollback_transaction(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static struct flintdb_sql_result * sql_exec_select(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static struct flintdb_sql_result * sql_exec_gf_select(const struct flintdb_sql *q, char **e);
+static int sql_exec_insert(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static int sql_exec_update(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static int sql_exec_delete(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static int sql_exec_insert_from(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static int sql_exec_select_into(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
+static int sql_exec_create(const struct flintdb_sql *q, char **e);
+static int sql_exec_drop(const struct flintdb_sql *q, char **e);
+static int sql_exec_alter(const struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_describe(const struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_meta(const struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql *q, char **e);
 // helper forward decls used before definition
-static struct flintdb_sql_result * sql_exec_fast_count(struct flintdb_sql *q, struct flintdb_table *table, char **e);
+static struct flintdb_sql_result * sql_exec_fast_count(const struct flintdb_sql *q, struct flintdb_table *table, char **e);
 
 // Other helpers used before their definitions
 static struct flintdb_table * sql_exec_table_borrow(const char *table, char **e);
-static int has_aggregate_function(struct flintdb_sql *q);
-static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e);
-static struct flintdb_sql_result * sql_exec_select_groupby_i64(struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_i64 *cr, char **e);
+static int has_aggregate_function(const struct flintdb_sql *q);
+static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e);
+static struct flintdb_sql_result * sql_exec_select_groupby_i64(const struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_i64 *cr, char **e);
 static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, const char *orderby, const char *limit, char **e);
 
 extern const char * flintdb_variant_type_name(enum flintdb_variant_type  t);
@@ -360,7 +360,7 @@ static void sql_result_close(struct flintdb_sql_result*me) {
     FREE(me);
 }
 
-static inline void sql_exec_indexable_where(const struct flintdb_meta *meta, struct flintdb_sql *q, char *out, size_t cap) {
+static inline void sql_exec_indexable_where(const struct flintdb_meta *meta, const struct flintdb_sql *q, char *out, size_t cap) {
     int has_where = !strempty(q->where);
 
     if (!strempty(q->index)) {
@@ -376,40 +376,20 @@ static inline void sql_exec_indexable_where(const struct flintdb_meta *meta, str
 }
 
 // SQL execution entry point
-struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flintdb_transaction *transaction, char **e) {
-    struct flintdb_sql *q = NULL;
-
-    if (sql == NULL || strlen(sql) == 0)
-        THROW(e, "SQL statement is empty");
-
-    q = flintdb_sql_parse(sql, e);
-    if (e && *e)
-        THROW_S(e);
-
-    DEBUG("Executing SQL\n statement: %s \n table: %s \n object: %s \n from: %s \n where: %s \n limit: %s", 
-        q->statement, q->table, q->object, q->from, q->where, q->limit
-    );
+static struct flintdb_sql_result * sql_exec(const struct flintdb_sql *q, const struct flintdb_transaction *transaction, char **e) {
+    if (!q) THROW(e, "SQL query is NULL");
 
     // SHOW TABLES does not operate on a single table file; skip format detection
     if (strncasecmp(q->statement, "SHOW", 4) == 0 && strncasecmp(q->object, "TABLES", 6) == 0) {
-        struct flintdb_sql_result*sr = sql_exec_show_tables(q, e);
-        if (e && *e)
-            THROW_S(e);
-        // sql_context freed inside sql_exec_show_tables result close path? We free here after obtaining result
-        flintdb_sql_free(q);
-        return sr;
+        return sql_exec_show_tables(q, e);
     }
 
     // COMMIT/ROLLBACK do not require table format detection (they operate on transaction objects)
     if (strncasecmp(q->statement, "COMMIT", 6) == 0) {
-        struct flintdb_sql_result*sr = sql_exec_commit_transaction(q, (struct flintdb_transaction *)transaction, e);
-        flintdb_sql_free(q);
-        return sr;
+        return sql_exec_commit_transaction(q, (struct flintdb_transaction *)transaction, e);
     }
     if (strncasecmp(q->statement, "ROLLBACK", 8) == 0) {
-        struct flintdb_sql_result*sr = sql_exec_rollback_transaction(q, (struct flintdb_transaction *)transaction, e);
-        flintdb_sql_free(q);
-        return sr;
+        return sql_exec_rollback_transaction(q, (struct flintdb_transaction *)transaction, e);
     }
 
     enum fileformat fmt = detect_file_format(q->table);
@@ -427,7 +407,8 @@ struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flint
     if (strncasecmp(q->statement, "SELECT", 6) == 0 && strempty(q->into)) {
         if (FORMAT_BIN == fmt)
             return sql_exec_select(q, (struct flintdb_transaction *)transaction, e);
-        return sql_exec_gf_select(q, e);
+        else
+            return sql_exec_gf_select(q, e);
     } else if (strncasecmp(q->statement, "SELECT", 6) == 0 && !strempty(q->into)) {
         affected = sql_exec_select_into(q, (struct flintdb_transaction *)transaction, e);
     } else if ((strncasecmp(q->statement, "INSERT", 6) == 0 || strncasecmp(q->statement, "REPLACE", 7) == 0) && strempty(q->from)) {
@@ -462,8 +443,6 @@ struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flint
         THROW(e, "Unsupported SQL statement: %s", q->statement);
     }
 
-    flintdb_sql_free(q);
-
     struct flintdb_sql_result*result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
     result->affected = affected;
     result->transaction = (struct flintdb_transaction *)transaction; // Preserve transaction for next statement
@@ -471,12 +450,30 @@ struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flint
     return result;
 
 EXCEPTION:
-    if (q)
-        flintdb_sql_free(q);
     return NULL;
 }
 
-static int sql_exec_insert(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+struct flintdb_sql_result * flintdb_sql_exec(const char *sql, const struct flintdb_transaction *transaction, char **e) {
+    struct flintdb_sql *q = NULL;
+
+    if (sql == NULL || strlen(sql) == 0) THROW(e, "SQL statement is empty");
+    q = flintdb_sql_parse(sql, e);
+    if (e && *e) THROW_S(e);
+
+    DEBUG("Executing SQL\n statement: %s \n table: %s \n object: %s \n from: %s \n where: %s \n limit: %s", 
+        q->statement, q->table, q->object, q->from, q->where, q->limit
+    );
+
+    struct flintdb_sql_result *result = sql_exec(q, (struct flintdb_transaction *)transaction, e);
+    flintdb_sql_free(q);
+    return result;
+
+EXCEPTION:
+    if (q) flintdb_sql_free(q);
+    return NULL;
+}
+
+static int sql_exec_insert(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_table *table = NULL;
     struct flintdb_row *r = NULL;
     i8 upsert = strncasecmp(q->statement, "REPLACE", 7) == 0 ? 1 : 0; // 0=insert only, 1=insert or update
@@ -557,7 +554,7 @@ EXCEPTION:
     return -1;
 }
 
-static int sql_exec_update(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+static int sql_exec_update(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_table *table = NULL;
     struct flintdb_cursor_i64 *cursor = NULL;
     struct flintdb_row *r = NULL;
@@ -636,7 +633,7 @@ EXCEPTION:
     return -1;
 }
 
-static int sql_exec_delete(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+static int sql_exec_delete(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_table *table = NULL;
     struct flintdb_cursor_i64 *cursor = NULL;
     int affected = 0;
@@ -683,7 +680,7 @@ EXCEPTION:
     return -1;
 }
 
-static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+static int sql_exec_insert_from(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     int affected = 0;
     struct flintdb_meta meta = { .priv = NULL, };
     struct flintdb_table *table = NULL;
@@ -914,7 +911,11 @@ static int sql_exec_insert_from(struct flintdb_sql *q, struct flintdb_transactio
 // Cleanup and return
     if (tx && t == NULL) {
         tx->commit(tx, e);
-        if (e && *e) THROW_S(e);
+        if (e && *e) {
+            tx->close(tx); // Close transaction on commit error
+            THROW_S(e);
+        }
+        tx->close(tx); // Close transaction after successful commit
     }
     if (col_mapping) FREE(col_mapping);
     if (src_result) src_result->close(src_result);
@@ -933,7 +934,7 @@ EXCEPTION:
     return -1;
 }
 
-static int sql_exec_select_into(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+static int sql_exec_select_into(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     // TODO: Implement SELECT ... INTO functionality
     THROW(e, "SELECT ... INTO not yet implemented, use INSERT ... FROM instead");
 EXCEPTION:
@@ -955,7 +956,7 @@ static inline int is_valid_tablepath(const char *path) {
     return 1;
 }
 
-static int sql_exec_create(struct flintdb_sql *q, char **e) {
+static int sql_exec_create(const struct flintdb_sql *q, char **e) {
     const char *path = q->table;
     struct flintdb_meta meta = { .priv = NULL, };
     struct flintdb_table *table = NULL;
@@ -968,7 +969,7 @@ static int sql_exec_create(struct flintdb_sql *q, char **e) {
     enum fileformat fmt = detect_file_format(path);
     if (FORMAT_BIN != fmt) THROW(e, "CREATE operation not yet supported for non-binary file formats, %s", path);
 
-    flintdb_sql_to_meta(q, &meta, e);
+    flintdb_sql_to_meta((struct flintdb_sql *)q, &meta, e);
     if (e && *e) THROW_S(e);
 
     table = flintdb_table_open(path, FLINTDB_RDWR, &meta, e);
@@ -990,7 +991,7 @@ EXCEPTION:
     return -1;
 }
 
-static int sql_exec_drop(struct flintdb_sql *q, char **e) {
+static int sql_exec_drop(const struct flintdb_sql *q, char **e) {
     enum fileformat fmt = detect_file_format(q->table);
 
     if (FORMAT_BIN == fmt) 
@@ -1052,7 +1053,7 @@ static void array_cursor_close(struct flintdb_cursor_row *c) {
     FREE(c);
 }
 
-static struct flintdb_sql_result * sql_exec_describe(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_describe(const struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_cursor_array_priv *priv = NULL;
     struct flintdb_cursor_row *c = NULL;
@@ -1183,7 +1184,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result * sql_exec_meta(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_meta(const struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_cursor_array_priv *priv = NULL;
     struct flintdb_cursor_row *c = NULL;
@@ -1295,7 +1296,7 @@ static int show_tables_compare_by_path(const void *a, const void *b) {
     return strncmp(v1->value.b.data, v2->value.b.data, lm);
 }
 
-static struct flintdb_sql_result * sql_exec_show_tables(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_cursor_array_priv *priv = NULL;
     struct flintdb_cursor_row *c = NULL;
@@ -1622,7 +1623,7 @@ EXCEPTION:
     return NULL;
 }
 
-static int sql_exec_alter(struct flintdb_sql *q, char **e) {
+static int sql_exec_alter(const struct flintdb_sql *q, char **e) {
     // ALTER TABLE syntax would need to be parsed from q->statement
     // Altering table structure requires careful index rebuilding
     THROW(e, "ALTER TABLE not yet supported. Please modify .desc file manually and rebuild indexes");
@@ -1739,7 +1740,7 @@ static void distinct_cursor_close(struct flintdb_cursor_row *c) {
     FREE(c);
 }
 
-static struct flintdb_cursor_row *distinct_cursor_wrap(struct flintdb_sql *q, struct flintdb_cursor_row *inner, struct limit limit, char **e) {
+static struct flintdb_cursor_row *distinct_cursor_wrap(const struct flintdb_sql *q, struct flintdb_cursor_row *inner, struct limit limit, char **e) {
     if (!inner) THROW(e, "DISTINCT requires an input cursor");
     if (!q) THROW(e, "Invalid SQL context for DISTINCT");
 
@@ -1884,9 +1885,9 @@ static void gf_cursor_close(struct flintdb_cursor_row *c) {
 
 #define GF_FAST_PATH 1
 
-static struct flintdb_sql_result * sql_exec_gf_fast_count(struct flintdb_sql *q, char **e);
+static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_sql *q, char **e);
 
-static struct flintdb_sql_result * sql_exec_gf_select(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_gf_select(const struct flintdb_sql *q, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_genericfile *gf = NULL;
     struct flintdb_cursor_row *c = NULL;
@@ -2012,7 +2013,7 @@ EXCEPTION:
 }
 
 // Helper: fast COUNT(*) for text/gz files without decoding rows
-static struct flintdb_sql_result * sql_exec_gf_fast_count(struct flintdb_sql *q, char **e) {
+static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_sql *q, char **e) {
     if (!q) return NULL;
     if (!(q->columns.length == 1 && strempty(q->where) && strempty(q->groupby) && strempty(q->orderby) && !q->distinct))
         return NULL;
@@ -2334,7 +2335,7 @@ static void sql_table_cursor_close(struct flintdb_cursor_row *c) {
 }
 
 // Fast path: handle SELECT COUNT(*) [alias] FROM <table> with no WHERE/GROUP/ORDER/DISTINCT
-static struct flintdb_sql_result * sql_exec_fast_count(struct flintdb_sql *q, struct flintdb_table *table, char **e) {
+static struct flintdb_sql_result * sql_exec_fast_count(const struct flintdb_sql *q, struct flintdb_table *table, char **e) {
     if (!q || !table) return NULL;
     if (q->columns.length != 1) return NULL;
     if (!strempty(q->where) || !strempty(q->groupby) || !strempty(q->orderby) || q->distinct)
@@ -2437,7 +2438,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result * sql_exec_select(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+static struct flintdb_sql_result * sql_exec_select(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_cursor_i64 *cr = NULL;
     struct flintdb_cursor_row *c = NULL;
@@ -2580,7 +2581,7 @@ EXCEPTION:
 
 typedef struct flintdb_aggregate_func *(*aggregate_func_factory)(const char *, const char *, enum flintdb_variant_type , struct flintdb_aggregate_condition, char **);
 
-static int has_aggregate_function(struct flintdb_sql *q) {
+static int has_aggregate_function(const struct flintdb_sql *q) {
     for (int i = 0; i < q->columns.length; i++) {
         const char *col = q->columns.name[i];
         // Remove spaces for comparison
@@ -2875,7 +2876,7 @@ static int apply_having_filter(struct flintdb_row **rows, int row_count, const c
 }
 
 // New implementation using aggregate API from aggregate.c
-static struct flintdb_sql_result * sql_exec_select_groupby_i64(struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_i64 *cr, char **e) {
+static struct flintdb_sql_result * sql_exec_select_groupby_i64(const struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_i64 *cr, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_aggregate *agg = NULL;
     struct flintdb_aggregate_groupby **groupbys = NULL;
@@ -3172,7 +3173,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e);
+static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e);
 
 // (GROUP BY implementation moved earlier; duplicate wrapper & comparator removed)
 /* forward declaration updated above */
@@ -3181,7 +3182,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sq
 // parse_groupby_columns moved to sql.c (sql_parse_groupby_columns)
 
 // GROUP BY implementation for generic cursor_row (generic files) using new aggregate API
-static struct flintdb_sql_result * sql_exec_select_groupby_row(struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e) {
+static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flintdb_sql *q, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e) {
     (void)table;
     struct flintdb_sql_result*result = NULL;
     struct flintdb_aggregate *agg = NULL;
@@ -3568,7 +3569,7 @@ EXCEPTION:
 }
 
 
-static struct flintdb_sql_result * sql_exec_begin_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+static struct flintdb_sql_result * sql_exec_begin_transaction(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_table *table = NULL;
     struct flintdb_sql_result *result = NULL;
 
@@ -3588,11 +3589,14 @@ static struct flintdb_sql_result * sql_exec_begin_transaction(struct flintdb_sql
     
     return result;
 EXCEPTION:
-    if (result) FREE(result);
+    if (result) {
+        if (result->transaction) result->transaction->close(result->transaction);
+        result->transaction = NULL;
+    }
     return NULL;
 }
 
-static struct flintdb_sql_result * sql_exec_commit_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+static struct flintdb_sql_result * sql_exec_commit_transaction(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_sql_result *result = NULL;
 
     if (!t) THROW(e, "No active transaction to commit");
@@ -3611,7 +3615,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result * sql_exec_rollback_transaction(struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
+static struct flintdb_sql_result * sql_exec_rollback_transaction(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e) {
     struct flintdb_sql_result *result = NULL;
 
     if (!t) THROW(e, "No active transaction to rollback");

@@ -39,16 +39,13 @@
 #define MAX_PRETTY_ROWS 10000
 #define MAX_PRETTY_COLS 100
 
-extern void print_memory_leak_info();                                           // in debug.c
+extern void print_memory_leak_info(); // in allocator.c
 extern int variant_to_string_fast(const struct flintdb_variant *v, char *out, u32 len); // in variant.c
-extern void sql_exec_cleanup();
-extern void plugin_manager_cleanup();                                            // in plugin.c
 
 // Signal handler for graceful shutdown
 static void signal_handler(int signum) {
     // fprintf(stderr, "\nReceived signal %d, cleaning up...\n", signum);
-    sql_exec_cleanup();
-    plugin_manager_cleanup();
+    flintdb_cleanup(NULL);
     print_memory_leak_info();
     exit(signum == SIGINT ? 130 : 1);
 }
@@ -163,7 +160,11 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    sql_exec_cleanup();
+    flintdb_cleanup(&e);
+    if (e) {
+        fprintf(stderr, "Error during cleanup: %s\n", e);
+        return 1;
+    }
 
 #ifdef MTRACE // Memory tracing enabled for leak detection
     // pthread_exit(NULL); // Clean up threads

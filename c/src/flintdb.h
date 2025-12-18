@@ -560,6 +560,12 @@ FLINTDB_API void flintdb_sql_free(struct flintdb_sql *s);
 FLINTDB_API int flintdb_sql_to_string(struct flintdb_sql *in, char *s, int len, char **e);
 FLINTDB_API int flintdb_sql_to_meta(struct flintdb_sql *in, struct flintdb_meta *out, char **e);
 
+
+/**
+ * @brief Clean up resources before shutting down the library
+ */
+FLINTDB_API void flintdb_cleanup(char **e);
+
 FLINTDB_END_DECLS
 
 #endif // FLINTDB_H

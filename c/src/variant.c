@@ -46,6 +46,17 @@ static void variant__strpool_make_key(void) {
 // Thread-local cached pool pointer to avoid repeated pthread_getspecific calls
 static _Thread_local struct string_pool *VARIANT_STRPOOL_CACHED = NULL;
 
+// Cleanup function to explicitly free the main thread's variant string pool
+void variant_strpool_cleanup(void) {
+	// Only cleanup if the pool was actually created
+	if (VARIANT_STRPOOL_CACHED != NULL) {
+		struct string_pool *pool = VARIANT_STRPOOL_CACHED;
+		variant__strpool_destroy(pool);
+		(void)pthread_setspecific(VARIANT_STRPOOL_KEY, NULL);
+		VARIANT_STRPOOL_CACHED = NULL;
+	}
+}
+
 static inline struct string_pool * variant__pool(void) {
 	if (LIKELY(VARIANT_STRPOOL_CACHED != NULL)) {
 		return VARIANT_STRPOOL_CACHED;

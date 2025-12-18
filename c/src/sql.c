@@ -117,7 +117,36 @@ static void sql_pool_free(struct flintdb_sql_pool *pool) {
         return;
     if (pool->items) {
         for (int i = 0; i < pool->top; i++) {
-            FREE(pool->items[i]);
+            struct flintdb_sql *q = pool->items[i];
+            if (q) {
+                // Free all dynamically allocated string fields
+                if (q->object) FREE(q->object);
+                if (q->index) FREE(q->index);
+                if (q->ignore) FREE(q->ignore);
+                if (q->limit) FREE(q->limit);
+                if (q->orderby) FREE(q->orderby);
+                if (q->groupby) FREE(q->groupby);
+                if (q->having) FREE(q->having);
+                if (q->from) FREE(q->from);
+                if (q->into) FREE(q->into);
+                if (q->where) FREE(q->where);
+                if (q->connect) FREE(q->connect);
+                if (q->dictionary) FREE(q->dictionary);
+                if (q->directory) FREE(q->directory);
+                if (q->compressor) FREE(q->compressor);
+                if (q->compact) FREE(q->compact);
+                if (q->cache) FREE(q->cache);
+                if (q->date) FREE(q->date);
+                if (q->storage) FREE(q->storage);
+                if (q->header) FREE(q->header);
+                if (q->delimiter) FREE(q->delimiter);
+                if (q->quote) FREE(q->quote);
+                if (q->nullString) FREE(q->nullString);
+                if (q->format) FREE(q->format);
+                if (q->wal) FREE(q->wal);
+                if (q->option) FREE(q->option);
+                FREE(q);
+            }
         }
         FREE(pool->items);
     }
@@ -163,6 +192,15 @@ static inline struct flintdb_sql_pool *sql_pool_get(void) {
         (void)pthread_setspecific(sql_parser_POOL_KEY, pool);
     }
     return pool;
+}
+
+// Cleanup function to explicitly free the main thread's SQL pool
+void sql_pool_cleanup(void) {
+    struct flintdb_sql_pool *pool = (struct flintdb_sql_pool *)pthread_getspecific(sql_parser_POOL_KEY);
+    if (pool) {
+        sql_pool_destroy(pool);
+        (void)pthread_setspecific(sql_parser_POOL_KEY, NULL);
+    }
 }
 
 // --- small string helpers
