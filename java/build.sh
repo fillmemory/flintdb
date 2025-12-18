@@ -78,18 +78,18 @@ pack_artifacts() {
   if compgen -G "./lib/*.sh" > /dev/null; then cp -R ./lib/*.sh "$PACK_DIR/lib/"; fi
   if compgen -G "./build/*.jar" > /dev/null; then cp -R ./build/*.jar "$PACK_DIR/lib/"; fi
 
-  find ./src/tutorial -type f -name '*.java' -exec cp {} "$PACK_DIR/tutorial/src/" \;
-  find ./src/tutorial -type f -name 'tutorial.sh'       -exec cp {} "$PACK_DIR" \;
-  find ./src/tutorial -type f -name 'tutorial.bat'      -exec cp {} "$PACK_DIR" \;
-  find ./src/tutorial -type f -name 'flintdb_cli.sh'   -exec cp {} "$PACK_DIR" \;
+  find ./tutorial -type f -name '*.java' -exec cp {} "$PACK_DIR/tutorial/src/" \;
+  find ./tutorial -type f -name 'tutorial.sh'       -exec cp {} "$PACK_DIR" \;
+  find ./tutorial -type f -name 'tutorial.bat'      -exec cp {} "$PACK_DIR" \;
 
-  cp LICENSE "$PACK_DIR/"
-  cp NOTICE "$PACK_DIR/"
-  cp README.md "$PACK_DIR/"
+  cp ../LICENSE "$PACK_DIR/"
+  cp ../README.md "$PACK_DIR/"
 
   find "$PACK_DIR" -type f -name '*.sh' -exec chmod a+x {} +
-
   find "$PACK_DIR" -type f -name ".DS_Store" -exec rm -f {} \;
+
+  # Remove main and test scripts
+  rm -rf "$PACK_DIR/bin/main" "$PACK_DIR/bin/test" 
 
   # Create tarball
   ( cd "$PACK_DIR" && tar -czf ../flintdb.tar.gz ./* )

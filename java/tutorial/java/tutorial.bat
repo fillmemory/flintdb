@@ -5,9 +5,12 @@ set SCRIPT_DIR=%~dp0
 cd /d "%SCRIPT_DIR%"
 echo PWD: %cd%
 
-set LIB_DIRS=./lib
+set LIB_DIRS=..\..\lib ..\..\build\classes\java\main
 
-set CP=./tutorial/classes
+REM Create classes directory if it doesn't exist
+if not exist ".\classes" mkdir ".\classes"
+
+set CP=.\classes
 for %%d in (%LIB_DIRS%) do (
   if exist "%%d" (
     for /r "%%d" %%i in (*.jar) do (
@@ -18,6 +21,6 @@ for %%d in (%LIB_DIRS%) do (
 
 echo CP: %CP%
 
-javac -cp "%CP%" tutorial/src/Tutorial.java -d tutorial/classes
+javac -cp "%CP%" Tutorial.java -d .\classes
 REM java -cp "%CP%" Tutorial --help
 java -cp "%CP%" Tutorial --customers=10000 --avg-orders=10 --avg-items=30

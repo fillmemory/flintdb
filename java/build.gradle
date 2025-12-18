@@ -100,7 +100,7 @@ sourceSets {
 		java {
 			srcDirs = [
 				"src/test/java",
-				"src/tutorial/java" // Tutorial tests
+				"tutorial/java" // Tutorial tests
 			]
 		}
 		resources {

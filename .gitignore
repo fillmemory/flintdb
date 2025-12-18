@@ -32,3 +32,5 @@ java/.gradle/
 java/.idea/
 java/hs_err_pid*.log
 java/transformer-rules/
+java/tutorial/java/classes/
+java/tutorial/java/tutorial/
