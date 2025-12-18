@@ -125,7 +125,7 @@ OBJ_CLI_DIR = ./build/obj_cli
 OBJ_SO_DIR  = ./build/obj_so
 BIN_DIR = ./bin
 LIB_DIR = ./lib
-WEBUI_HTML = ./webui/webui.html
+WEBUI_HTML = ../webui/webui.html
 WEBUI_EMBEDDED_H = $(SRC_DIR)/webui_embedded.h
 
 SOURCES = $(wildcard $(SRC_DIR)/*.c)
@@ -204,9 +204,9 @@ endif
 
 # Generate embedded HTML header from webui.html (only if EMBED_HTML=1)
 ifeq ($(EMBED_HTML),1)
-$(WEBUI_EMBEDDED_H): $(WEBUI_HTML) webui/embed_html.sh
+$(WEBUI_EMBEDDED_H): $(WEBUI_HTML) ../webui/embed_html.sh
 	@echo "Generating embedded HTML header..."
-	@./webui/embed_html.sh $(WEBUI_HTML) $(WEBUI_EMBEDDED_H)
+	@../webui/embed_html.sh $(WEBUI_HTML) $(WEBUI_EMBEDDED_H)
 endif
 
 $(TARGET_CLI): $(TARGET_SO)

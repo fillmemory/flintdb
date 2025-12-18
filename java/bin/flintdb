@@ -1,31 +1,30 @@
 #!/bin/bash
 
 SCRIPT="${BASH_SOURCE[0]}"
-SCRIPTDIR=$(dirname $SCRIPT)
-SCRIPTDIR=$(realpath ${SCRIPTDIR})
-SCRIPTDIR=$(dirname ${SCRIPTDIR})
+SCRIPTDIR=$(dirname "$SCRIPT")
+SCRIPTDIR=$(realpath "${SCRIPTDIR}")
+SCRIPTDIR=$(dirname "${SCRIPTDIR}")
 
-JLIB_PATHS=(${SCRIPTDIR}/lib ${SCRIPTDIR}/build)
+JLIB_PATHS=("${SCRIPTDIR}/lib" "${SCRIPTDIR}/build")
 JMAIN=flint.db.CLI
 
 # Allow environment variables to override defaults
 WAL_BATCH_SIZE="${FLINTDB_WAL_BATCH_SIZE:-20000}"
 WAL_CHECKPOINT_INTERVAL="${FLINTDB_WAL_CHECKPOINT_INTERVAL:-10000}"
 WAL_RECOVERY_TRACE="${FLINTDB_WAL_RECOVERY_TRACE:-0}"
-XMXOPT="-Xmx16G"
+XMXOPT="-Xmx4G"
 
-JVMOPT="-Dfile.encoding=UTF-8 ${XMXOPT} -Dorg.slf4j.simpleLogger.defaultLogLevel=error -DFLINTDB_FILEFORMAT_GZ=tsv -DFLINTDB_WAL_BATCH_SIZE=${WAL_BATCH_SIZE} -DFLINTDB_WAL_CHECKPOINT_INTERVAL=${WAL_CHECKPOINT_INTERVAL} -DFLINTDB_WAL_RECOVERY_TRACE=${WAL_RECOVERY_TRACE} -DFLINTDB_WAL_RECOVERY_TRACE=off"
+JVMOPT="-Dfile.encoding=UTF-8 ${XMXOPT} -Dorg.slf4j.simpleLogger.defaultLogLevel=error -DFLINTDB_FILEFORMAT_GZ=tsv -DFLINTDB_WAL_BATCH_SIZE=${WAL_BATCH_SIZE} -DFLINTDB_WAL_CHECKPOINT_INTERVAL=${WAL_CHECKPOINT_INTERVAL} -DFLINTDB_WAL_RECOVERY_TRACE=${WAL_RECOVERY_TRACE}"
 #
 CP=.
-for i in ${JLIB_PATHS[@]}
+for i in "${JLIB_PATHS[@]}"
 do
-  JLIB_PATH=$i
-  if [ -d ${JLIB_PATH} ]; then
-    for j in `find ${JLIB_PATH} -type f -name "*.jar"`
-    do
-      CP=${CP}:${j}
-    done
+  JLIB_PATH="$i"
+  if [ -d "${JLIB_PATH}" ]; then
+    while IFS= read -r -d '' j; do
+      CP="${CP}:${j}"
+    done < <(find "${JLIB_PATH}" -type f -name "*.jar" -print0)
   fi
 done
 
-java -cp $CP $JVMOPT $JMAIN "$@"
+java -cp "$CP" $JVMOPT "$JMAIN" "$@"

@@ -869,6 +869,26 @@ public final class Meta {
      */
     private static Map<String, String> getManifestInfo() {
         try {
+            // Try to read from the JAR file containing this class
+            java.net.URL classUrl = Meta.class.getProtectionDomain().getCodeSource().getLocation();
+            if (classUrl != null) {
+                try (java.util.jar.JarInputStream jis = new java.util.jar.JarInputStream(classUrl.openStream())) {
+                    java.util.jar.Manifest mf = jis.getManifest();
+                    if (mf != null) {
+                        final java.util.jar.Attributes atts = mf.getMainAttributes();
+                        final Map<String, String> map = new java.util.HashMap<>();
+                        final Iterator<Object> it = atts.keySet().iterator();
+                        while (it.hasNext()) {
+                            final Object key = it.next();
+                            final Object value = atts.get(key);
+                            map.put(key.toString(), value.toString());
+                        }
+                        return map;
+                    }
+                }
+            }
+            
+            // Fallback to classpath search (original method)
             final java.util.jar.Manifest mf = new java.util.jar.Manifest(
                     Meta.class.getClassLoader().getResourceAsStream("META-INF/MANIFEST.MF"));
             final java.util.jar.Attributes atts = mf.getMainAttributes();

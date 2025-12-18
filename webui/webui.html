@@ -316,7 +316,7 @@
 						$icon.className = "table-icon";
 						
 						var isTextFormat  = tableFormat && (tableFormat.includes("tsv") || tableFormat.includes("csv"));
-						var isTableFormat = tableFormat && tableFormat.includes("table");
+						var isTableFormat = tableFormat && (tableFormat.includes("table") || tableFormat.includes("flintdb") || tableFormat.includes("litedb"));
 						
 						if (isTextFormat) {
 							$icon.innerHTML = "📄"; // 텍스트 파일 아이콘
@@ -410,7 +410,7 @@
 			|| tableFormat.includes("jsonl")
 			|| tableFormat.includes("union")
 		);
-		var isTableFormat = tableFormat && tableFormat.includes("table");
+		var isTableFormat = tableFormat && (tableFormat.includes("table") || tableFormat.includes("flintdb") || tableFormat.includes("litedb"));
 		
 		if (isTextFormat || isTableFormat) {
 			// DESC 메뉴 항목
@@ -426,7 +426,7 @@
 			$menu.appendChild($descItem);
 		}
 		
-		if (isTextFormat || isFlintFormat) {
+		if (isTextFormat || isTableFormat) {
 			// META 메뉴 항목
 			var $metaItem = document.createElement("div");
 			$metaItem.className = "menu-item";

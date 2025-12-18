@@ -202,7 +202,7 @@ public final class SQLExec {
             return "jsonl";
         if (n.endsWith(".union"))
             return "union";
-        if (n.endsWith(Meta.TABLE_NAME_SUFFIX) || n.endsWith(".flintdb"))
+        if (n.endsWith(Meta.TABLE_NAME_SUFFIX))
             return Meta.PRODUCT_NAME_LC;
 
         String fmt = System.getProperty("FLINTDB_FILEFORMAT_GZ", "").toLowerCase();

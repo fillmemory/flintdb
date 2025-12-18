@@ -90,9 +90,11 @@ sourceSets {
 			]
 		}
 		resources {
-			srcDirs = [
-                "src/webui/java"
-            ]
+			// srcDirs = [
+            //     "src/webui/java",
+            // ]
+            srcDir("../webui")
+            include("webui.html")
 		}
 	}
 

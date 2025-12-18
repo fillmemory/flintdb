@@ -89,7 +89,7 @@ public final class WebUI {
 					final File html = new File("temp/webui.html");
 					System.out.println(exchange.getRemoteAddress().getAddress().getHostAddress() + "	" + path);
 					// Load HTML from file or embedded resource
-					final InputStream instream = CLOSER.register(html.exists() ? new java.io.FileInputStream(html) : getClass().getResourceAsStream("webui.html"));
+					final InputStream instream = CLOSER.register(html.exists() ? new java.io.FileInputStream(html) : getClass().getResourceAsStream("/webui.html"));
 
 					exchange.sendResponseHeaders(200, html.length());
 					IO.pipe(instream, out);
