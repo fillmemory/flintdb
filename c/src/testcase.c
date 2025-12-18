@@ -1156,8 +1156,34 @@ int main(int argc, char **argv) {
     PRINT_MEMORY_LEAK_INFO();
     return 0;
 }
-
 #endif
+
+#ifdef TESTCASE_VARIANT_STRING_REF
+// ./testcase.sh TESTCASE_VARIANT_STRING_REF --mtrace
+int main(int argc, char **argv) {
+    char *e = NULL;
+
+    struct flintdb_variant v1;
+    flintdb_variant_init(&v1);
+    struct flintdb_variant v2;
+    flintdb_variant_init(&v2);
+
+    const char *s = "Hello, String Ref!";
+    flintdb_variant_string_set(&v1, s, (u32)strlen(s));
+    flintdb_variant_string_ref_set(&v1, s, (u32)strlen(s), 0);
+    flintdb_variant_string_ref_set(&v2, v1.value.b.data, v1.value.b.length, v1.value.b.sflag);
+
+    printf("v1 string ref: '%s' (len=%u, sflag=%d)\n", flintdb_variant_string_get(&v1), v1.value.b.length, v1.value.b.sflag);
+    printf("v2 string ref: '%s' (len=%u, sflag=%d)\n", flintdb_variant_string_get(&v2), v2.value.b.length, v2.value.b.sflag);
+    flintdb_variant_free(&v1);
+    flintdb_variant_free(&v2);
+
+    printf("TESTCASE_VARIANT_STRING_REF: OK\n");
+    PRINT_MEMORY_LEAK_INFO();
+
+    return 0;
+}
+#endif // TESTCASE_VARIANT_STRING_REF
 
 #ifdef TESTCASE_STRUCT_META
 // ./testcase.sh TESTCASE_STRUCT_META

@@ -615,18 +615,21 @@ const char * flintdb_variant_string_get(const struct flintdb_variant *v) {
 	if (v->type == VARIANT_STRING) {
 		// If string is not null-terminated (sflag=1), create a temporary null-terminated copy
 		if (v->value.b.sflag) {
-			static __thread char *temp_buf = NULL;
-			static __thread size_t temp_buf_size = 0;
+			// Use thread-local buffer for non-null-terminated strings
+			static __thread char *temp_str_buf = NULL;
+			static __thread size_t temp_str_capacity = 0;
+			
 			size_t needed = (size_t)v->value.b.length + 1;
-			if (temp_buf_size < needed) {
-				char *new_buf = (char *)realloc(temp_buf, needed);
+			if (needed > temp_str_capacity) {
+				char *new_buf = (char*)REALLOC(temp_str_buf, needed);
 				if (!new_buf) return NULL;
-				temp_buf = new_buf;
-				temp_buf_size = needed;
+				temp_str_buf = new_buf;
+				temp_str_capacity = needed;
 			}
-			memcpy(temp_buf, v->value.b.data, v->value.b.length);
-			temp_buf[v->value.b.length] = '\0';
-			return temp_buf;
+			
+			simd_memcpy(temp_str_buf, v->value.b.data, v->value.b.length);
+			temp_str_buf[v->value.b.length] = '\0';
+			return temp_str_buf;
 		}
 		return v->value.b.data;
 	}

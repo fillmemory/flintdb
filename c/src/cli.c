@@ -166,7 +166,7 @@ int main(int argc, char *argv[]) {
     sql_exec_cleanup();
 
 #ifdef MTRACE // Memory tracing enabled for leak detection
-    pthread_exit(NULL); // Clean up threads
+    // pthread_exit(NULL); // Clean up threads
     print_memory_leak_info();
 #endif
 

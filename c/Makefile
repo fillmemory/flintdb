@@ -44,7 +44,7 @@ else
 	AR = ar
 	STD = c2x  # Use c2x for native compilation (Linux/macOS)
 	# Native compilation flags
-	CFLAGS_BASE = -Wall -Wextra -I./c -I/usr/local/include -O3 -march=native -flto=auto -std=$(STD) -Wformat=0 -Wno-unused-parameter -Wno-strict-aliasing -D_GNU_SOURCE
+	CFLAGS_BASE = -Wall -Wextra -I./c -I/usr/local/include -O3 -march=native -flto=auto -std=$(STD) -Wformat=0 -Wno-unused-parameter -Wno-strict-aliasing -D_GNU_SOURCE -DMTRACE=1
 	LDFLAGS_BASE = -lc -lm -lpthread -lz -L/usr/local/lib -flto
 	
 	# Check for liburing on Linux (optional for async io_uring support)
