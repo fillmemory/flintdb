@@ -359,6 +359,8 @@ FLINTDB_API int  flintdb_meta_compare(const struct flintdb_meta *a, const struct
 FLINTDB_API void flintdb_meta_columns_add(struct flintdb_meta *m, const char *name, enum flintdb_variant_type  type, i32 bytes, i16 precision, enum flintdb_null_spec nullspec, const char *value, const char *comment, char **e);
 FLINTDB_API void flintdb_meta_indexes_add(struct flintdb_meta *m, const char *name, const char *algorithm, const char keys[][MAX_COLUMN_NAME_LIMIT], u16 key_count, char **e);
 
+FLINTDB_API void flintdb_meta_wal_set(struct flintdb_meta *m, const char *wal_mode, i32 checkpoint_interval, i32 batch_size, i32 compression_threshold, i32 sync_mode, i32 buffer_size, i32 page_data, char **e);
+
 FLINTDB_API int flintdb_column_at(struct flintdb_meta *m, const char *name); // Get column index by name
 
 

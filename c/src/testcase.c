@@ -4035,7 +4035,6 @@ int main(int argc, char **argv) {
 
 
     const char *tablename = "temp/tx_test"TABLE_NAME_SUFFIX;
-    const char *walname = "temp/tx_test"TABLE_NAME_SUFFIX".wal";
     
     struct flintdb_meta mt = flintdb_meta_new("tx_test"TABLE_NAME_SUFFIX, &e);
     // NOTE: meta.wal is empty by default, which disables WAL (WAL_NONE).
@@ -4047,9 +4046,11 @@ int main(int argc, char **argv) {
     char keys_arr[1][MAX_COLUMN_NAME_LIMIT] = {"customer_id"};
     flintdb_meta_indexes_add(&mt, PRIMARY_NAME, NULL, (const char (*)[MAX_COLUMN_NAME_LIMIT])keys_arr, 1, &e);
     if (e) THROW_S(e);
+    
+    flintdb_meta_wal_set(&mt, WAL_OPT_TRUNCATE, 0, 0, 0, 0, 0, 0, &e);
+    if (e) THROW_S(e);
 
     flintdb_table_drop(tablename, NULL); // ignore error
-    (void)unlink(walname); // ignore error
 
     tbl = flintdb_table_open(tablename, FLINTDB_RDWR, &mt, &e);
     if (e) THROW_S(e);
@@ -4070,10 +4071,10 @@ int main(int argc, char **argv) {
 
     i64 rows = tbl->rows(tbl, &e);
     if (e) THROW_S(e);
-    TRACE("rows after commit=%lld", rows);
+    LOG("rows after commit=%lld", rows);
     assert(rows == 2);
 
-    TRACE("before one(customer_id=1)");
+    LOG("before one(customer_id=1)");
 
     const char *argv1[] = {"customer_id", "1"};
     const struct flintdb_row *r1 = tbl->one(tbl, 0, 2, argv1, &e);
@@ -4082,10 +4083,10 @@ int main(int argc, char **argv) {
     assert(strcmp(r1->string_get(r1, 1, &e), "Name-1") == 0);
     if (e) THROW_S(e);
 
-    TRACE("after one(customer_id=1)");
+    LOG("after one(customer_id=1)");
 
     // 2) Rollback path: begin -> apply(1 row) -> rollback
-    TRACE("before begin #2");
+    LOG("before begin #2");
     tx = flintdb_transaction_begin(tbl, &e);
     if (e) THROW_S(e);
     if (!tx) THROW(&e, "transaction_begin failed");
@@ -4107,11 +4108,11 @@ int main(int argc, char **argv) {
     tx->close(tx);
     tx = NULL;
 
-    TRACE("after rollback #2");
+    LOG("after rollback #2");
 
     rows = tbl->rows(tbl, &e);
     if (e) THROW_S(e);
-    TRACE("rows after rollback=%lld", rows);
+    LOG("rows after rollback=%lld", rows);
     assert(rows == 2);
 
     const char *argv3[] = {"customer_id", "3"};

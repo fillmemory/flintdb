@@ -260,6 +260,38 @@ EXCEPTION:
     return;
 }
 
+void flintdb_meta_wal_set(struct flintdb_meta *m, const char *wal_mode, i32 checkpoint_interval, i32 batch_size, i32 compression_threshold, i32 sync_mode, i32 buffer_size, i32 page_data, char **e) {
+    if (!m) THROW(e, "meta is NULL");
+    
+    if (wal_mode) {
+        if (strncasecmp(WAL_OPT_OFF, wal_mode, sizeof(WAL_OPT_OFF)) == 0) {
+            strncpy(m->wal, "off", sizeof(m->wal) - 1);
+        } else if (strncasecmp(WAL_OPT_LOG, wal_mode, sizeof(WAL_OPT_LOG)) == 0) {
+            strncpy(m->wal, "log", sizeof(m->wal) - 1);
+        } else if (strncasecmp(WAL_OPT_TRUNCATE, wal_mode, sizeof(WAL_OPT_TRUNCATE)) == 0) {
+            strncpy(m->wal, "truncate", sizeof(m->wal) - 1);
+        } else {
+            THROW(e, "invalid WAL mode: %s", wal_mode);
+        }
+    }
+
+    if (checkpoint_interval < 0 || batch_size < 0 || compression_threshold < 0 || sync_mode < 0 || buffer_size < 0 || page_data < 0) {
+        THROW(e, "invalid WAL parameters");
+    }
+
+    m->wal_checkpoint_interval = checkpoint_interval;
+    m->wal_batch_size = batch_size;
+    m->wal_compression_threshold = compression_threshold;
+    m->wal_sync = sync_mode;
+    m->wal_buffer_size = buffer_size;
+    m->wal_page_data = page_data;
+
+    return;
+
+EXCEPTION:
+    return;
+}
+
 void meta_column_cache_free(keytype k, valtype v) {
     if (k) FREE((void*)(uintptr_t)k);
     // v is an integer index, no need to free
