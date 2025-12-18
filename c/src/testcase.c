@@ -24,7 +24,7 @@
 extern void print_memory_leak_info(); // in debug.c
 
 #define PRINT_MEMORY_LEAK_INFO() \
-    pthread_exit(NULL);          \
+    flintdb_cleanup(NULL);        \
     print_memory_leak_info()
 
 #ifdef CPU_FEATURE_DETECT
@@ -3925,6 +3925,212 @@ EXCEPTION:
     return -1;
 }
 #endif
+
+
+#ifdef TESTCASE_MULTI_THREAD
+// ./testcase.sh TESTCASE_MULTI_THREAD
+
+struct thread_info {
+	pthread_t thread_id;
+    int thread_num;
+    struct flintdb_table *tbl;
+};
+
+static void * thread_writer_run(void *arg) {
+    struct thread_info *tinfo = arg;
+    struct flintdb_table *tbl = tinfo->tbl;
+    struct flintdb_meta *mt = NULL;
+    struct flintdb_transaction *tx = NULL;
+    char *e = NULL;
+
+    mt = (struct flintdb_meta *) tbl->meta(tbl, NULL);
+    // 1) Commit path: begin -> apply(2 rows) -> commit
+    tx = flintdb_transaction_begin(tbl, &e);
+    if (e) THROW_S(e);
+    if (!tx) THROW(&e, "transaction_begin failed");
+
+    int customer_id = tinfo->thread_num + 1;
+    TRACE("thread %d: inserting customer_id=%d", tinfo->thread_num, customer_id);
+    
+    struct flintdb_row *r = flintdb_row_new(mt, &e);
+    if (e) THROW_S(e);
+    r->i64_set(r, 0, customer_id, &e);
+    if (e) THROW_S(e);
+    char name[64];
+    snprintf(name, sizeof(name), "Name-%d", customer_id);
+    r->string_set(r, 1, name, &e);
+    if (e) THROW_S(e);
+
+    i64 rowid = tx->apply(tx, r, 1, &e);
+    if (e) THROW_S(e);
+    if (rowid < 0) THROW(&e, "tx apply failed");
+    TRACE("tx apply: customer_id=%d => rowid=%lld", customer_id, rowid);
+    r->free(r);
+
+    tx->commit(tx, &e);
+    if (e) THROW_S(e);
+    tx->close(tx);
+    tx = NULL;
+
+    return NULL;
+
+EXCEPTION:
+    if (e) WARN("EXC: %s", e);
+    if (tx) tx->close(tx);
+    return NULL;
+}
+
+static void * thread_reader_run(void *arg) {
+    struct thread_info *tinfo = arg;
+    struct flintdb_table *tbl = tinfo->tbl;
+    struct flintdb_cursor_i64 *cursor = NULL;
+    i64 rowid = -1;
+    char *e = NULL;
+
+    TRACE("thread %d: reading rows", tinfo->thread_num);
+    for (int i = 1; i <= 100; i++) {
+        cursor = tbl->find(tbl, "USE INDEX(PRIMARY DESC) LIMIT 1", &e);
+        if (e) THROW_S(e);
+        while((rowid = cursor->next(cursor, &e)) >= 0) {
+            const struct flintdb_row *r = tbl->read(tbl, rowid, &e);
+            if (e) {
+                WARN("thread %d: read failed for rowid=%lld: %s", tinfo->thread_num, rowid, e);
+                break;
+            }
+            i64 customer_id = r->i64_get(r, 0, &e);
+            const char *customer_name = r->string_get(r, 1, &e);
+            if (i == 100) { // Only trace the last iteration
+                TRACE("thread %d: read rowid=%lld => customer_id=%lld, customer_name=%s",
+                      tinfo->thread_num, rowid, customer_id, customer_name);
+            }
+        }
+        if (cursor) cursor->close(cursor);
+        cursor = NULL;
+    }
+
+    if (cursor) cursor->close(cursor);
+
+    return NULL;
+
+EXCEPTION:
+    if (e) WARN("EXC: %s", e);
+    if (cursor) cursor->close(cursor);
+    return NULL;
+}
+
+int main(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+
+    char *e = NULL;
+    struct flintdb_table *tbl = NULL;
+    struct flintdb_transaction *tx = NULL;
+	struct thread_info tinfo[] = {
+        {0, 0},
+        {0, 1},
+        {0, 2},
+        {0, 3},
+    };
+    size_t num_threads = sizeof(tinfo) / sizeof(tinfo[0]);
+
+
+    const char *tablename = "temp/tx_test"TABLE_NAME_SUFFIX;
+    const char *walname = "temp/tx_test"TABLE_NAME_SUFFIX".wal";
+    
+    struct flintdb_meta mt = flintdb_meta_new("tx_test"TABLE_NAME_SUFFIX, &e);
+    // NOTE: meta.wal is empty by default, which disables WAL (WAL_NONE).
+    // For this testcase, we need WAL enabled so rollback is meaningful.
+    strncpy(mt.wal, WAL_OPT_LOG, sizeof(mt.wal) - 1);
+    flintdb_meta_columns_add(&mt, "customer_id", VARIANT_INT64, 0, 0, SPEC_NULLABLE, "0", "int64 primary key", &e);
+    flintdb_meta_columns_add(&mt, "customer_name", VARIANT_STRING, 255, 0, SPEC_NULLABLE, "0", "", &e);
+
+    char keys_arr[1][MAX_COLUMN_NAME_LIMIT] = {"customer_id"};
+    flintdb_meta_indexes_add(&mt, PRIMARY_NAME, NULL, (const char (*)[MAX_COLUMN_NAME_LIMIT])keys_arr, 1, &e);
+    if (e) THROW_S(e);
+
+    flintdb_table_drop(tablename, NULL); // ignore error
+    (void)unlink(walname); // ignore error
+
+    tbl = flintdb_table_open(tablename, FLINTDB_RDWR, &mt, &e);
+    if (e) THROW_S(e);
+    if (!tbl) THROW(&e, "table_open failed");
+
+    // THREAD
+    for(int i=0; i<num_threads; i++)
+        tinfo[i].tbl = tbl;
+    pthread_create(&tinfo[0].thread_id, NULL, &thread_writer_run, &tinfo[0]);
+    pthread_create(&tinfo[1].thread_id, NULL, &thread_writer_run, &tinfo[1]);
+    pthread_create(&tinfo[2].thread_id, NULL, &thread_reader_run, &tinfo[2]);
+    pthread_create(&tinfo[3].thread_id, NULL, &thread_reader_run, &tinfo[3]);
+
+    for(int i=0; i<num_threads; i++)
+        pthread_join(tinfo[i].thread_id, NULL);
+    // END THREAD
+
+
+    i64 rows = tbl->rows(tbl, &e);
+    if (e) THROW_S(e);
+    TRACE("rows after commit=%lld", rows);
+    assert(rows == 2);
+
+    TRACE("before one(customer_id=1)");
+
+    const char *argv1[] = {"customer_id", "1"};
+    const struct flintdb_row *r1 = tbl->one(tbl, 0, 2, argv1, &e);
+    if (e) THROW_S(e);
+    assert(r1);
+    assert(strcmp(r1->string_get(r1, 1, &e), "Name-1") == 0);
+    if (e) THROW_S(e);
+
+    TRACE("after one(customer_id=1)");
+
+    // 2) Rollback path: begin -> apply(1 row) -> rollback
+    TRACE("before begin #2");
+    tx = flintdb_transaction_begin(tbl, &e);
+    if (e) THROW_S(e);
+    if (!tx) THROW(&e, "transaction_begin failed");
+
+    {
+        struct flintdb_row *r = flintdb_row_new(&mt, &e);
+        if (e) THROW_S(e);
+        r->i64_set(r, 0, 3, &e);
+        if (e) THROW_S(e);
+        r->string_set(r, 1, "Name-3", &e);
+        if (e) THROW_S(e);
+        (void)tx->apply(tx, r, 1, &e);
+        if (e) THROW_S(e);
+        r->free(r);
+    }
+
+    tx->rollback(tx, &e);
+    if (e) THROW_S(e);
+    tx->close(tx);
+    tx = NULL;
+
+    TRACE("after rollback #2");
+
+    rows = tbl->rows(tbl, &e);
+    if (e) THROW_S(e);
+    TRACE("rows after rollback=%lld", rows);
+    assert(rows == 2);
+
+    const char *argv3[] = {"customer_id", "3"};
+    const struct flintdb_row *r3 = tbl->one(tbl, 0, 2, argv3, &e);
+    if (e) THROW_S(e);
+    assert(r3 == NULL);
+
+EXCEPTION:
+    if (e) WARN("EXC: %s", e);
+    if (tx) tx->close(tx);
+    if (tbl) tbl->close(tbl);
+    flintdb_meta_close(&mt);
+
+    PRINT_MEMORY_LEAK_INFO();
+    return 0;
+}
+
+#endif // TESTCASE_MULTI_THREAD
+
 
 #ifdef TESTCASE_SQLITE_TPCH_LINEITEM_WRITE
 // ./testcase.sh TESTCASE_SQLITE_TPCH_LINEITEM_WRITE
