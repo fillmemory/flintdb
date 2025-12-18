@@ -2167,14 +2167,15 @@ static inline void buffer_put_zero(struct buffer *b, u32 len, char **e) {
         return;
     buffer_ensure(b, len);
     // write in chunks
-    const u32 CH = 64;
-    char zero[CH];
-    memset(zero, 0, CH);
+    #define ZERO_CHUNK_SIZE 64
+    char zero[ZERO_CHUNK_SIZE];
+    memset(zero, 0, ZERO_CHUNK_SIZE);
     while (len > 0) {
-        u32 w = (len > CH) ? CH : len;
+        u32 w = (len > ZERO_CHUNK_SIZE) ? ZERO_CHUNK_SIZE : len;
         b->array_put(b, zero, w, e);
         len -= w;
     }
+    #undef ZERO_CHUNK_SIZE
 }
 
 // --- Binary encode/decode ---

@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <pthread.h>
 
 
 // Optional small-string pooling for variants
@@ -18,35 +19,8 @@
 static const char VARIANT_EMPTY_STR[] = "";
 #define VARIANT_EMPTY_STR_DEFINED 1
 #endif
-#ifdef VARIANT_USE_STRPOOL
-// Tunables: sized for common short strings like column values, UUID text, etc.
-#ifndef VARIANT_STRPOOL_STR_SIZE
-#define VARIANT_STRPOOL_STR_SIZE 256u
-#endif
-#ifndef VARIANT_STRPOOL_CAPACITY
-#define VARIANT_STRPOOL_CAPACITY 4096u
-#endif
-#ifndef VARIANT_STRPOOL_PRELOAD
-#define VARIANT_STRPOOL_PRELOAD 16u
-#endif
 
-// Thread-local string pool with cleanup on thread exit (POSIX pthread TLS).
-// This path works with MinGW (pthread-win32) as well.
-#include <pthread.h>
-static pthread_key_t VARIANT_STRPOOL_KEY;
-static pthread_once_t VARIANT_STRPOOL_KEY_ONCE = PTHREAD_ONCE_INIT;
-static void variant__strpool_destroy(void *p) {
-	if (p) ((struct string_pool*)p)->free((struct string_pool*)p);
-	DEBUG("Variant string pool destroyed");
-}
-static void variant__strpool_make_key(void) {
-	(void)pthread_key_create(&VARIANT_STRPOOL_KEY, variant__strpool_destroy);
-	DEBUG("Variant string pool created");
-}
-// Thread-local cached pool pointer to avoid repeated pthread_getspecific calls
-static _Thread_local struct string_pool *VARIANT_STRPOOL_CACHED = NULL;
-
-// Thread-local temporary string buffer cleanup
+// Thread-local temporary string buffer (always enabled for flintdb_variant_string_get)
 static pthread_key_t VARIANT_TEMPSTR_KEY;
 static pthread_once_t VARIANT_TEMPSTR_KEY_ONCE = PTHREAD_ONCE_INIT;
 static _Thread_local char *temp_str_buf = NULL;
@@ -62,6 +36,33 @@ static void variant__tempstr_make_key(void) {
 	DEBUG("Variant temp string buffer key created");
 }
 
+#ifdef VARIANT_USE_STRPOOL
+// Tunables: sized for common short strings like column values, UUID text, etc.
+#ifndef VARIANT_STRPOOL_STR_SIZE
+#define VARIANT_STRPOOL_STR_SIZE 256u
+#endif
+#ifndef VARIANT_STRPOOL_CAPACITY
+#define VARIANT_STRPOOL_CAPACITY 4096u
+#endif
+#ifndef VARIANT_STRPOOL_PRELOAD
+#define VARIANT_STRPOOL_PRELOAD 16u
+#endif
+
+// Thread-local string pool with cleanup on thread exit (POSIX pthread TLS).
+// This path works with MinGW (pthread-win32) as well.
+static pthread_key_t VARIANT_STRPOOL_KEY;
+static pthread_once_t VARIANT_STRPOOL_KEY_ONCE = PTHREAD_ONCE_INIT;
+static void variant__strpool_destroy(void *p) {
+	if (p) ((struct string_pool*)p)->free((struct string_pool*)p);
+	DEBUG("Variant string pool destroyed");
+}
+static void variant__strpool_make_key(void) {
+	(void)pthread_key_create(&VARIANT_STRPOOL_KEY, variant__strpool_destroy);
+	DEBUG("Variant string pool created");
+}
+// Thread-local cached pool pointer to avoid repeated pthread_getspecific calls
+static _Thread_local struct string_pool *VARIANT_STRPOOL_CACHED = NULL;
+
 // Cleanup function to explicitly free the main thread's variant string pool
 void variant_strpool_cleanup(void) {
 	// Only cleanup if the pool was actually created
@@ -70,16 +71,6 @@ void variant_strpool_cleanup(void) {
 		variant__strpool_destroy(pool);
 		(void)pthread_setspecific(VARIANT_STRPOOL_KEY, NULL);
 		VARIANT_STRPOOL_CACHED = NULL;
-	}
-}
-
-// Cleanup function to explicitly free the main thread's temp string buffer
-void variant_tempstr_cleanup(void) {
-	if (temp_str_buf != NULL) {
-		variant__tempstr_destroy(temp_str_buf);
-		(void)pthread_setspecific(VARIANT_TEMPSTR_KEY, NULL);
-		temp_str_buf = NULL;
-		temp_str_capacity = 0;
 	}
 }
 
@@ -151,12 +142,27 @@ static inline void variant__free_owned(char *p, i8 owned) {
 		FREE(p);
 	}
 }
+#else
+// Stub function when VARIANT_USE_STRPOOL is not defined
+void variant_strpool_cleanup(void) {
+	// No-op when string pool is not enabled
+}
 #endif // VARIANT_USE_STRPOOL
 
 static inline char * variant_error_set(const struct flintdb_variant *v, const char *msg) {
     if (!v) return NULL;
     snprintf(TL_ERROR, ERROR_BUFSZ - 1, "%s", msg);
     return TL_ERROR;
+}
+
+// Cleanup function for temp string buffer (always available)
+void variant_tempstr_cleanup(void) {
+	if (temp_str_buf != NULL) {
+		variant__tempstr_destroy(temp_str_buf);
+		(void)pthread_setspecific(VARIANT_TEMPSTR_KEY, NULL);
+		temp_str_buf = NULL;
+		temp_str_capacity = 0;
+	}
 }
 
 // Free only when current variant owns a heap buffer

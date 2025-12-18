@@ -227,6 +227,8 @@
 "		$btnGo.disabled = true;\n"
 "		$btnGo.textContent = \"Running...\";\n"
 "		$btnGo.classList.add(\"running\");\n"
+"\n"
+"		// console.log(\"run\", u, q);\n"
 "		\n"
 "		var xhr = new XMLHttpRequest();\n"
 "		xhr.open(\"POST\", document.location.pathname, true);\n"

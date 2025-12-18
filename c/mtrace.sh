@@ -13,8 +13,7 @@ set -euo pipefail
 cd "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # Clean and recompile the project with mtrace enabled
-make clean
-make CFLAGS="-DMTRACE=1" all
+./build.sh --mtrace
 
 # Compile the Java memory leak detector
 mkdir -p temp/java

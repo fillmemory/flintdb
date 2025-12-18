@@ -224,6 +224,8 @@
 		$btnGo.disabled = true;
 		$btnGo.textContent = "Running...";
 		$btnGo.classList.add("running");
+
+		// console.log("run", u, q);
 		
 		var xhr = new XMLHttpRequest();
 		xhr.open("POST", document.location.pathname, true);

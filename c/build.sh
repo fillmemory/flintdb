@@ -19,11 +19,25 @@
 
 set -e
 
-# Check if -all option is provided
+# Parse command line options
 BUILD_PLUGINS=0
-if [ "$1" = "-all" ]; then
-    BUILD_PLUGINS=1
+ENABLE_MTRACE=0
+
+for arg in "$@"; do
+    case "$arg" in
+        -all|--all)
+            BUILD_PLUGINS=1
+            ;;
+        -mtrace|--mtrace)
+            ENABLE_MTRACE=1
+            ;;
+    esac
+done
+
+if [ $BUILD_PLUGINS -eq 1 ]; then
     echo "=== FlintDB Plugin System Build (with plugins) ==="
+elif [ $ENABLE_MTRACE -eq 1 ]; then
+    echo "=== FlintDB Build (with memory tracing) ==="
 else
     echo "=== FlintDB Core Build ==="
 fi
@@ -80,7 +94,11 @@ echo ""
 # 1. Build main FlintDB library
 echo "[2/3] Building FlintDB core library..."
 make clean
-make BUILD_SO=1 ALLOCATOR=$ALLOCATOR NDEBUG=1
+if [ $ENABLE_MTRACE -eq 1 ]; then
+    make BUILD_SO=1 ALLOCATOR=$ALLOCATOR CFLAGS="-DMTRACE=1"
+else
+    make BUILD_SO=1 ALLOCATOR=$ALLOCATOR NDEBUG=1
+fi
 # make clean
 
 if [ $BUILD_PLUGINS -eq 1 ]; then
