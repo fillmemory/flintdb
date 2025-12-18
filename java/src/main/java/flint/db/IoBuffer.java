@@ -117,9 +117,23 @@ final class IoBuffer {
     public IoBuffer slice() {
         return new IoBuffer(buffer.slice());
     }
+    
+    // public IoBuffer slice(int index, int length) {
+    //     return new IoBuffer(buffer.slice(index, length));
+    // }
 
     public IoBuffer slice(int index, int length) {
-        return new IoBuffer(buffer.slice(index, length));
+        // Java 11 compatible implementation (slice(int, int) added in Java 13)
+        int oldPos = buffer.position();
+        int oldLimit = buffer.limit();
+        try {
+            buffer.position(index);
+            buffer.limit(index + length);
+            return new IoBuffer(buffer.slice());
+        } finally {
+            buffer.position(oldPos);
+            buffer.limit(oldLimit);
+        }
     }
 
     public IoBuffer duplicate() {

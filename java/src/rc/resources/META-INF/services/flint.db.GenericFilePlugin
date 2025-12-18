@@ -1,0 +1,4 @@
+flint.db.ParquetFilePlugin
+flint.db.JsonlFilePlugin
+flint.db.UnionFilePlugin
+flint.db.TSVFilePlugin

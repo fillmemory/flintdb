@@ -76,8 +76,8 @@ dependencies {
 	// Use slf4j-simple which doesn't require log4j.properties
 	compileOnly 'org.slf4j:slf4j-simple:1.7.36'
 
-	// Test-only JDBC driver (H2 in-memory) for JdbcAdapter tests
-	testImplementation 'com.h2database:h2:2.2.224'
+	// // Test-only JDBC driver (H2 in-memory) for JdbcAdapter tests
+	// testImplementation 'com.h2database:h2:2.2.224'
 }
 
 sourceSets {
@@ -144,7 +144,7 @@ task javadocjar(type: Jar, dependsOn: 'javadoc') {
 jar {
 	manifest {
 		attributes(
-				"Implementation-Author" : "Y",
+				"Implementation-Author" : "Yongho Kim",
 				"Implementation-Title" : "FlintDB",
 				"Implementation-Version" : project.version,
 				"Implementation-Date" : NOW,

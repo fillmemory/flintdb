@@ -5,11 +5,56 @@ package flint.db;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.ServiceLoader;
 
 /**
  * Interface for handling record files in various formats.
  */
 public interface GenericFile extends AutoCloseable {
+    
+    /**
+     * Plugin registry for file format handlers.
+     * Plugins are loaded dynamically via ServiceLoader.
+     */
+    class PluginRegistry {
+        private static final List<GenericFilePlugin> plugins = new ArrayList<>();
+        private static volatile boolean initialized = false;
+        
+        static {
+            loadPlugins();
+        }
+        
+        private static synchronized void loadPlugins() {
+            if (initialized) return;
+            
+            // Load plugins via ServiceLoader
+            ServiceLoader<GenericFilePlugin> loader = ServiceLoader.load(GenericFilePlugin.class);
+            for (GenericFilePlugin plugin : loader) {
+                plugins.add(plugin);
+            }
+            
+            // Sort by priority (descending)
+            plugins.sort(Comparator.comparingInt(GenericFilePlugin::priority).reversed());
+            
+            initialized = true;
+        }
+        
+        static GenericFilePlugin findPlugin(File file) {
+            for (GenericFilePlugin plugin : plugins) {
+                if (plugin.supports(file)) {
+                    return plugin;
+                }
+            }
+            return null;
+        }
+        
+        static List<GenericFilePlugin> getPlugins() {
+            return new ArrayList<>(plugins);
+        }
+    }
 
     /**
      * Get the metadata for this record file.
@@ -85,21 +130,19 @@ public interface GenericFile extends AutoCloseable {
     }
 
     /**
-     * Open a record file.
+     * Open a record file from File.
      * @param file The record file.
      * @return The opened record file.
      * @throws IOException
      */
     static GenericFile open(final File file) throws IOException {
-        if (file.getName().endsWith(".parquet")) {
-            return ParquetFile.open(file);
+        // Try to find a plugin that supports this file
+        GenericFilePlugin plugin = PluginRegistry.findPlugin(file);
+        if (plugin != null) {
+            return plugin.open(file);
         }
-        if (file.getName().endsWith(".jsonl") || file.getName().endsWith(".jsonl.gz")) {
-            return JsonlFile.open(file);
-        }
-        if (file.getName().endsWith(".union")) {
-            return Union.open(file);
-        }
+        
+        // Fallback to TSVFile as default
         return TSVFile.open(file);
     }
 
@@ -171,12 +214,13 @@ public interface GenericFile extends AutoCloseable {
      * @throws IOException
      */
     static GenericFile create(final File file, final Column[] columns, final Logger logger) throws IOException {
-        if (file.getName().endsWith(".parquet")) {
-            return ParquetFile.create(file, columns, logger);
+        // Try to find a plugin that supports this file
+        GenericFilePlugin plugin = PluginRegistry.findPlugin(file);
+        if (plugin != null) {
+            return plugin.create(file, columns, logger);
         }
-        if (file.getName().endsWith(".jsonl") || file.getName().endsWith(".jsonl.gz")) {
-            return JsonlFile.create(file, columns, logger);
-        }
+        
+        // Fallback to TSVFile as default
         return TSVFile.create(file, columns, logger);
     }
 
@@ -200,15 +244,13 @@ public interface GenericFile extends AutoCloseable {
      * @throws IOException
      */
     static GenericFile create(final File file, final Meta meta, final Logger logger) throws IOException {
-        if (file.getName().endsWith(".parquet")) {
-            return ParquetFile.create(file, meta.columns(), logger);
+        // Try to find a plugin that supports this file
+        GenericFilePlugin plugin = PluginRegistry.findPlugin(file);
+        if (plugin != null) {
+            return plugin.create(file, meta, logger);
         }
-        if (file.getName().endsWith(".jsonl") || file.getName().endsWith(".jsonl.gz")) {
-            return JsonlFile.create(file, meta.columns(), logger);
-        }
-        if (file.getName().endsWith(Meta.TABLE_NAME_SUFFIX)) {
-            return Union.TableAdapter.create(file, meta, logger);
-        }
+        
+        // Fallback to TSVFile as default
         return TSVFile.create(file, meta.columns(), logger);
     }
 

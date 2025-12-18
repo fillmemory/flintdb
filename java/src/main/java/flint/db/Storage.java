@@ -71,13 +71,26 @@ public interface Storage extends Closeable {
 		// 	return new V2Storage(options);
 		//#ifndef EXCLUDE (Do not remove this block. Internal use)
 		case TYPE_Z:
-			return new ZStreamStorage(options);
 		case TYPE_LZ4:
-			return new LZ4Storage(options);
 		case TYPE_ZSTD:
-			return new ZSTDStorage(options);
 		case TYPE_SNAPPY:
-			return new SnappyStorage(options);
+			// Use reflection to avoid hard dependency on compression classes (Android compatibility)
+			try {
+				String className;
+				switch (options.storage) {
+					case TYPE_Z:      className = "flint.db.ZStreamStorage"; break;
+					case TYPE_LZ4:    className = "flint.db.LZ4Storage"; break;
+					case TYPE_ZSTD:   className = "flint.db.ZSTDStorage"; break;
+					case TYPE_SNAPPY: className = "flint.db.SnappyStorage"; break;
+					default: throw new RuntimeException("Unknown storage type: " + options.storage);
+				}
+				Class<?> clazz = Class.forName(className);
+				return (Storage) clazz.getConstructor(Options.class).newInstance(options);
+			} catch (ClassNotFoundException e) {
+				throw new RuntimeException("Storage type not available: " + options.storage + " (missing dependency)", e);
+			} catch (Exception e) {
+				throw new RuntimeException("Failed to create storage: " + options.storage, e);
+			}
 		//#endif
 		}
 		throw new RuntimeException("STORAGE.TYPE : " + options.storage);
