@@ -220,12 +220,10 @@ final class TSVFile implements GenericFile {
          */
         public static Format valueOf(String name) {
             switch (name) {
-                case "TSV" -> {
+                case "TSV":
                     return TSV;
-                }
-                case "CSV" -> {
+                case "CSV":
                     return CSV;
-                }
             }
             return null;
         }
@@ -406,15 +404,19 @@ final class TSVFile implements GenericFile {
                 }
 
                 switch (columns[i].type()) {
-                    case Column.TYPE_DATE ->
+                    case Column.TYPE_DATE:
                         sb.append((v instanceof java.util.Date) ? DATE_ISO.format((java.util.Date) v) : v.toString());
-                    case Column.TYPE_TIME -> sb.append(
-                            (v instanceof java.util.Date) ? DATETIME_ISO.format((java.util.Date) v) : v.toString());
-                    case Column.TYPE_STRING -> {
+                        break;
+                    case Column.TYPE_TIME:
+                        sb.append((v instanceof java.util.Date) ? DATETIME_ISO.format((java.util.Date) v) : v.toString());
+                        break;
+                    case Column.TYPE_STRING:
                         final String str = v.toString();
                         appendEscaped(sb, str);
-                    }
-                    default -> sb.append(v.toString());
+                        break;
+                    default:
+                        sb.append(v.toString());
+                        break;
                 }
             }
             sb.append('\n');
@@ -864,13 +866,18 @@ final class TSVFile implements GenericFile {
      * @return Appropriate byte length for the type
      */
     private short getTypeLength(final short type) {
-        return switch (type) {
-            case Column.TYPE_INT64 -> 8;
-            case Column.TYPE_DECIMAL -> 20;
-            case Column.TYPE_DATE -> 10;
-            case Column.TYPE_TIME -> 19;
-            default -> Short.MAX_VALUE;
-        }; // DECIMAL(20,5) - 20 total digits
+        switch (type) {
+            case Column.TYPE_INT64:
+                return 8;
+            case Column.TYPE_DECIMAL:
+                return 20;
+            case Column.TYPE_DATE:
+                return 10;
+            case Column.TYPE_TIME:
+                return 19;
+            default:
+                return Short.MAX_VALUE;
+        } // DECIMAL(20,5) - 20 total digits
         // For strings and others
     }
 

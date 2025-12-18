@@ -192,12 +192,16 @@ public final class HyperLogLog {
     }
     
     private static double getAlpha(int m) {
-        return switch (m) {
-            case 16 -> 0.673;
-            case 32 -> 0.697;
-            case 64 -> 0.709;
-            default -> 0.7213 / (1 + 1.079 / m);
-        };
+        switch (m) {
+            case 16:
+                return 0.673;
+            case 32:
+                return 0.697;
+            case 64:
+                return 0.709;
+            default:
+                return 0.7213 / (1 + 1.079 / m);
+        }
     }
     
     private static long hash(Object obj) {

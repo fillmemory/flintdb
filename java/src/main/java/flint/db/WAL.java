@@ -84,8 +84,10 @@ interface WAL extends AutoCloseable {
         if (wal == null) 
             throw new IllegalArgumentException("WAL instance cannot be null");
 
-        if (wal instanceof WALImpl walImpl) 
+        if (wal instanceof WALImpl) {
+            WALImpl walImpl = (WALImpl) wal;
             return walImpl.wrap(options, callback);
+        }
 
         assert wal == WAL.NONE;
         return Storage.create(options);

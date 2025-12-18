@@ -283,68 +283,52 @@ public final class Column {
      */
     public static String typename(int type) {
         switch (type) {
-            case Column.TYPE_INT -> {
+            case Column.TYPE_INT:
                 return "TYPE_INT";
-            }
-            case Column.TYPE_UINT -> {
+            case Column.TYPE_UINT:
                 return "TYPE_UINT";
-            }
 
-            case Column.TYPE_INT8 -> {
+            case Column.TYPE_INT8:
                 return "TYPE_INT8";
-            }
-            case Column.TYPE_UINT8 -> {
+            case Column.TYPE_UINT8:
                 return "TYPE_UINT8";
-            }
 
-            case Column.TYPE_INT16 -> {
+            case Column.TYPE_INT16:
                 return "TYPE_INT16";
-            }
-            case Column.TYPE_UINT16 -> {
+            case Column.TYPE_UINT16:
                 return "TYPE_UINT16";
-            }
 
-            case Column.TYPE_INT64 -> {
+            case Column.TYPE_INT64:
                 return "TYPE_INT64";
-            }
-            case Column.TYPE_DOUBLE -> {
+            case Column.TYPE_DOUBLE:
                 return "TYPE_DOUBLE";
-            }
-            case Column.TYPE_FLOAT -> {
+            case Column.TYPE_FLOAT:
                 return "TYPE_FLOAT";
-            }
 
-            case Column.TYPE_DATE -> {
+            case Column.TYPE_DATE:
                 return "TYPE_DATE";
-            }
-            case Column.TYPE_TIME -> {
+            case Column.TYPE_TIME:
                 return "TYPE_TIME";
-            }
-            case Column.TYPE_UUID -> {
+            case Column.TYPE_UUID:
                 return "TYPE_UUID";
-            }
-            case Column.TYPE_IPV6 -> {
+            case Column.TYPE_IPV6:
                 return "TYPE_IPV6";
-            }
 
-            case Column.TYPE_STRING -> {
+            case Column.TYPE_STRING:
                 return "TYPE_STRING";
-            }
-            case Column.TYPE_DECIMAL -> {
-                return "TYPE_DECIMAL";
-            }
-            case Column.TYPE_BYTES -> {
-                return "TYPE_BYTES";
-            }
 
-            case Column.TYPE_BLOB -> {
+            case Column.TYPE_DECIMAL:
+                return "TYPE_DECIMAL";
+            case Column.TYPE_BYTES:
+                return "TYPE_BYTES";
+
+            case Column.TYPE_BLOB:
                 return "TYPE_BLOB";
-            }
-            case Column.TYPE_OBJECT -> {
+            case Column.TYPE_OBJECT:
                 return "TYPE_OBJECT";
-            }
+            default:
+                return "unknown";
         }
-        return "unknown";
     }
 
     /**
@@ -356,60 +340,42 @@ public final class Column {
      */
     public static short valueOf(final String type) {
         switch ("TYPE_".concat(type.toUpperCase())) {
-            case "TYPE_INT" -> {
+            case "TYPE_INT":
                 return TYPE_INT;
-            }
-            case "TYPE_UINT" -> {
+            case "TYPE_UINT":
                 return TYPE_UINT;
-            }
-            case "TYPE_INT8" -> {
+            case "TYPE_INT8":
                 return TYPE_INT8;
-            }
-            case "TYPE_UINT8" -> {
+            case "TYPE_UINT8":
                 return TYPE_UINT8;
-            }
-            case "TYPE_INT16" -> {
+            case "TYPE_INT16":
                 return TYPE_INT16;
-            }
-            case "TYPE_UINT16" -> {
+            case "TYPE_UINT16":
                 return TYPE_UINT16;
-            }
-            case "TYPE_INT64" -> {
+            case "TYPE_INT64":
                 return TYPE_INT64;
-            }
-            case "TYPE_DOUBLE" -> {
+            case "TYPE_DOUBLE":
                 return TYPE_DOUBLE;
-            }
-            case "TYPE_FLOAT" -> {
+            case "TYPE_FLOAT":
                 return TYPE_FLOAT;
-            }
-            case "TYPE_DATE" -> {
+            case "TYPE_DATE":
                 return TYPE_DATE;
-            }
-            case "TYPE_TIME" -> {
+            case "TYPE_TIME":
                 return TYPE_TIME;
-            }
-            case "TYPE_UUID" -> {
+            case "TYPE_UUID":
                 return TYPE_UUID;
-            }
-            case "TYPE_IPV6" -> {
+            case "TYPE_IPV6":
                 return TYPE_IPV6;
-            }
-            case "TYPE_STRING" -> {
+            case "TYPE_STRING":
                 return TYPE_STRING;
-            }
-            case "TYPE_DECIMAL" -> {
+            case "TYPE_DECIMAL":
                 return TYPE_DECIMAL;
-            }
-            case "TYPE_BYTES" -> {
+            case "TYPE_BYTES":
                 return TYPE_BYTES;
-            }
-            case "TYPE_BLOB" -> {
+            case "TYPE_BLOB":
                 return TYPE_BLOB;
-            }
-            case "TYPE_OBJECT" -> {
+            case "TYPE_OBJECT":
                 return TYPE_OBJECT;
-            }
         }
         // try {
         // return Short.parseShort(type);
@@ -428,58 +394,51 @@ public final class Column {
      */
     static short bytes(final short type, final short bytes) {
         switch (type) {
-            case Column.TYPE_STRING -> {
+            case Column.TYPE_STRING:
                 if (bytes <= 0)
                     throw new java.lang.IllegalArgumentException("TYPE_STRING");
                 return (short) (bytes);
-            }
-            case Column.TYPE_DATE -> {
+            case Column.TYPE_DATE:
                 return 3;
-            }
-            case Column.TYPE_TIME -> {
+            case Column.TYPE_TIME:
                 return 8;
-            }
 
-            case Column.TYPE_INT, Column.TYPE_UINT -> {
+            case Column.TYPE_INT:
+            case Column.TYPE_UINT:
                 return Integer.BYTES;
-            }
-            case Column.TYPE_INT8, Column.TYPE_UINT8 -> {
+            case Column.TYPE_INT8:
+            case Column.TYPE_UINT8:
                 return Byte.BYTES;
-            }
 
-            case Column.TYPE_INT16, Column.TYPE_UINT16 -> {
+            case Column.TYPE_INT16:
+            case Column.TYPE_UINT16:
                 return Short.BYTES;
-            }
-            case Column.TYPE_INT64 -> {
+
+            case Column.TYPE_INT64:
                 return Long.BYTES;
-            }
 
-            case Column.TYPE_DOUBLE -> {
+            case Column.TYPE_DOUBLE:
                 return Double.BYTES;
-            }
-            case Column.TYPE_FLOAT -> {
+            case Column.TYPE_FLOAT:
                 return Float.BYTES;
-            }
 
-            case Column.TYPE_UUID -> {
+            case Column.TYPE_UUID:
                 return 16;
-            }
-            case Column.TYPE_IPV6 -> {
+            case Column.TYPE_IPV6:
                 return 16;
-            }
-            case Column.TYPE_DECIMAL -> {
+            case Column.TYPE_DECIMAL:
                 if (bytes <= 0)
                     return 8 + 1;
                 return (short) (bytes);
-            }
 
-            case Column.TYPE_BYTES -> {
+            case Column.TYPE_BYTES:
                 return (short) (bytes);
-            }
-            case Column.TYPE_BLOB, Column.TYPE_OBJECT -> throw new RuntimeException("NOT SUPPORTED YET " + Column.typename(type));
+            case Column.TYPE_BLOB:
+            case Column.TYPE_OBJECT:
+                throw new RuntimeException("NOT SUPPORTED YET " + Column.typename(type));
+            default:
+                throw new java.lang.IllegalArgumentException("Column.TYPE_UNKNOWN : " + type);
         }
-
-        throw new java.lang.IllegalArgumentException("Column.TYPE_UNKNOWN : " + type);
     }
 
     /**

@@ -7,8 +7,9 @@ def VERSION = "0.1." + new java.text.SimpleDateFormat("yyMMdd").format(new Date(
 def REVISION = "1"
 
 project.group = "flintdb"
-project.archivesBaseName = "flintdb"
+project.archivesBaseName = "flintdb-java11"
 project.version = VERSION
+project.buildDir = file("./build/java-android")
 
 configurations {
 	compileOnlyResolved {
@@ -24,7 +25,7 @@ configurations {
     }
 }
 
-sourceCompatibility = 11 // Minimum for modern Java features (private interface methods, switch expressions, pattern matching)
+sourceCompatibility = 11 // Android compatible Java version
 targetCompatibility = sourceCompatibility
 
 // Prefer Gradle Java toolchain to ensure a consistent Java 21 compile/runtime

@@ -1009,11 +1009,20 @@ final class SQL {
 		if (s == null || s.isEmpty())
 			return 0;
 		final String a = s.trim().toUpperCase();
-		return switch (a) {
-			case "0", "OFF", "FALSE", "NO" -> 0;
-			case "1", "ON", "TRUE", "YES" -> 1;
-			default -> parseInt(a);
-		};
+		switch (a) {
+			case "0":
+			case "OFF":
+			case "FALSE":
+			case "NO":
+				return 0;
+			case "1":
+			case "ON":
+			case "TRUE":
+			case "YES":
+				return 1;
+			default:
+				return parseInt(a);
+		}
 	}
 
 	/**

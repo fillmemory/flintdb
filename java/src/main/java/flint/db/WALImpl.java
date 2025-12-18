@@ -806,7 +806,8 @@ final class WALStorage implements Storage {
     
     void replay(WALLogStorage.WALRecord record) throws IOException {
         switch (record.operation) {
-            case WAL.OP_WRITE, WAL.OP_UPDATE -> {
+            case WAL.OP_WRITE:
+            case WAL.OP_UPDATE:
                 if (record.data != null) {
                     IoBuffer buffer = IoBuffer.wrap(java.nio.ByteBuffer.wrap(record.data));
                     if (record.operation == WAL.OP_WRITE) {
@@ -815,13 +816,13 @@ final class WALStorage implements Storage {
                         origin.write(record.pageOffset, buffer);
                     }
                 }
-            }
-            case WAL.OP_DELETE -> {
+                break;
+            case WAL.OP_DELETE:
                 origin.delete(record.pageOffset);
                 if (callback != null) {
                     callback.refresh(record.pageOffset);
                 }
-            }
+                break;
         }
     }
 
