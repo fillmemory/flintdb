@@ -234,13 +234,15 @@ static char *build_json_object(struct flintdb_sql_result*result, i64 elapsed_us,
 
         // Data rows
         struct flintdb_row *r;
-        char buf[256];
+        char buf[65536];
+        size_t buf_len = sizeof(buf);
+
         while ((r = result->row_cursor->next(result->row_cursor, NULL)) != NULL) {
             cJSON *row_arr = p_cJSON_CreateArray();
             for (int i = 0; i < result->column_count; i++) {
                 struct flintdb_variant *v = r->get(r, i, NULL);
                 if (v) {
-                    flintdb_variant_to_string(v, buf, sizeof(buf));
+                    flintdb_variant_to_string(v, buf, buf_len);
                     p_cJSON_AddItemToArray(row_arr, p_cJSON_CreateString(buf));
                 } else {
                     p_cJSON_AddItemToArray(row_arr, p_cJSON_CreateString("\\N"));
