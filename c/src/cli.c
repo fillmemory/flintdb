@@ -227,7 +227,7 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
     struct flintdb_transaction *transaction = NULL;
     i64 affected = 0;
 
-    char buf[256]; // General purpose buffer
+    char buf[65536]; // General purpose buffer (increased for large SQL output like META)
     size_t buf_len = sizeof(buf);
     char num_buf[64], time_buf[64]; // For formatting numbers and time
 
