@@ -3927,8 +3927,8 @@ EXCEPTION:
 #endif
 
 
-#ifdef TESTCASE_MULTI_THREAD
-// ./testcase.sh TESTCASE_MULTI_THREAD
+#ifdef TESTCASE_MULTI_THREADS
+// ./testcase.sh TESTCASE_MULTI_THREADS
 
 struct thread_info {
 	pthread_t thread_id;
@@ -4129,7 +4129,7 @@ EXCEPTION:
     return 0;
 }
 
-#endif // TESTCASE_MULTI_THREAD
+#endif // TESTCASE_MULTI_THREADS
 
 
 #ifdef TESTCASE_SQLITE_TPCH_LINEITEM_WRITE
