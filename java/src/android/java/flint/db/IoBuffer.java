@@ -78,38 +78,7 @@ final class IoBuffer {
             return;
         }
 
-		// we could use this type cast and call functions without reflection code,
-		// but static import from sun.* package is risky for non-SUN virtual machine.
-		// try { ((sun.nio.ch.DirectBuffer)cb).cleaner().clean(); } catch (Exception ex) { }
-
-		// JavaSpecVer: 1.6, 1.7, 1.8, 9, 10
-		boolean isOldJDK = System.getProperty("java.specification.version", "99").startsWith("1.");
-		try {
-			if (isOldJDK) {
-				java.lang.reflect.Method cleaner = cb.getClass().getMethod("cleaner");
-				cleaner.setAccessible(true);
-				java.lang.reflect.Method clean = Class.forName("sun.misc.Cleaner").getMethod("clean");
-				clean.setAccessible(true);
-				clean.invoke(cleaner.invoke(cb));
-			} else {
-				Class<?> unsafeClass;
-				try {
-					unsafeClass = Class.forName("sun.misc.Unsafe");
-				} catch (Exception ex) {
-					// jdk.internal.misc.Unsafe doesn't yet have an invokeCleaner() method,
-					// but that method should be added if sun.misc.Unsafe is removed.
-					unsafeClass = Class.forName("jdk.internal.misc.Unsafe");
-				}
-				java.lang.reflect.Method clean = unsafeClass.getMethod("invokeCleaner", ByteBuffer.class);
-				clean.setAccessible(true);
-				java.lang.reflect.Field theUnsafeField = unsafeClass.getDeclaredField("theUnsafe");
-				theUnsafeField.setAccessible(true);
-				Object theUnsafe = theUnsafeField.get(null);
-				clean.invoke(theUnsafe, cb);
-			}
-		} catch (Exception ex) {
-			ex.printStackTrace();
-		}
+        // Use Cleaner to free direct ByteBuffer
 	}
 
 
@@ -118,23 +87,23 @@ final class IoBuffer {
         return new IoBuffer(buffer.slice());
     }
     
-    public IoBuffer slice(int index, int length) {
-        return new IoBuffer(buffer.slice(index, length));
-    }
-
     // public IoBuffer slice(int index, int length) {
-    //     // Java 11 compatible implementation (slice(int, int) added in Java 13)
-    //     int oldPos = buffer.position();
-    //     int oldLimit = buffer.limit();
-    //     try {
-    //         buffer.position(index);
-    //         buffer.limit(index + length);
-    //         return new IoBuffer(buffer.slice());
-    //     } finally {
-    //         buffer.position(oldPos);
-    //         buffer.limit(oldLimit);
-    //     }
+    //     return new IoBuffer(buffer.slice(index, length));
     // }
+
+    public IoBuffer slice(int index, int length) {
+        // Java 11 compatible implementation (slice(int, int) added in Java 13)
+        int oldPos = buffer.position();
+        int oldLimit = buffer.limit();
+        try {
+            buffer.position(index);
+            buffer.limit(index + length);
+            return new IoBuffer(buffer.slice());
+        } finally {
+            buffer.position(oldPos);
+            buffer.limit(oldLimit);
+        }
+    }
 
     public IoBuffer duplicate() {
         return new IoBuffer(buffer.duplicate());
