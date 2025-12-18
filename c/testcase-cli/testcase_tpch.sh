@@ -106,4 +106,4 @@ FLINTDB_BULK_INSERT_COMMIT_INTERVAL=20000 ./bin/flintdb "INSERT INTO ../temp/c/t
 
 #  LIMIT 300000
 
-ls -l ../temp/c/tpch_lineitem*
+# ls -l ../temp/c/tpch_lineitem*
