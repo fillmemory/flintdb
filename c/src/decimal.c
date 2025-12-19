@@ -106,6 +106,7 @@ int flintdb_decimal_from_string(const char *s, i16 scale, struct flintdb_decimal
     memset(out, 0, sizeof(*out));
     out->sign = neg ? 1 : 0;
     out->scale = (u8)target;
+    out->raw = 0; // BCD encoded
     out->length = outbytes;
     simd_memcpy(out->data, outb, outbytes);
     return 0;
@@ -114,6 +115,107 @@ int flintdb_decimal_from_string(const char *s, i16 scale, struct flintdb_decimal
 int flintdb_decimal_to_string(const struct flintdb_decimal  *d, char *buf, size_t buflen) {
     if (!d || !buf || buflen == 0)
         return -1;
+    
+    // Fast path: if raw=2, it's already a string
+    if (d->raw == 2) {
+        size_t len = d->length;
+        if (len >= buflen) len = buflen - 1;
+        simd_memcpy(buf, d->data, len);
+        buf[len] = '\0';
+        return 0;
+    }
+    
+    // If raw=1, convert to BCD first
+    struct flintdb_decimal bcd = {0};
+    if (d->raw == 1) {
+        // Convert two's-complement bytes to BCD
+        // Reuse the conversion logic from row.c's decimal_from_twos_bytes
+        if (d->length == 0) {
+            bcd.scale = d->scale;
+            bcd.sign = 0;
+            bcd.raw = 0;
+            bcd.length = 1;
+            bcd.data[0] = 0;
+        } else {
+            // Use external helper or inline conversion
+            // For now, use a simplified approach assuming we can call the function
+            // This requires exposing decimal_from_twos_bytes or duplicating the logic
+            // Since we can't easily call row.c functions from decimal.c, we'll need to handle this differently
+            // Best approach: create a shared helper in a common file or expose via internal.h
+            // For now, let's inline a minimal version
+            
+            // Determine sign from MSB (two's complement)
+            const u8 *p = (const u8 *)d->data;
+            u32 n = d->length;
+            int neg = (p[n - 1] & 0x80) ? 1 : 0;
+            
+            u8 mag[16];
+            simd_memcpy(mag, p, n);
+            if (neg) {
+                // two's complement inversion
+                for (u32 i = 0; i < n; i++)
+                    mag[i] = (u8)(~mag[i]);
+                for (u32 i = 0; i < n; i++) {
+                    unsigned int v = (unsigned int)mag[i] + 1u;
+                    mag[i] = (u8)(v & 0xFFu);
+                    if ((v & 0x100u) == 0)
+                        break;
+                }
+            }
+            
+            // Convert to decimal digits via division by 10
+            u8 rev[64];
+            int nd = 0;
+            u32 end = n;
+            while (end > 1 && mag[end - 1] == 0)
+                end--;
+            
+            if (end == 1 && mag[0] == 0) {
+                rev[nd++] = 0;
+            } else {
+                u32 len = end;
+                int nonzero = 1;
+                while (nonzero && nd < (int)sizeof(rev)) {
+                    // Divide by 10
+                    unsigned int carry = 0;
+                    for (int i = (int)len - 1; i >= 0; i--) {
+                        unsigned int cur = (carry << 8) | mag[i];
+                        mag[i] = (u8)(cur / 10);
+                        carry = cur % 10;
+                    }
+                    rev[nd++] = (u8)carry;
+                    while (len > 1 && mag[len - 1] == 0)
+                        len--;
+                    nonzero = !(len == 1 && mag[0] == 0);
+                }
+                if (nd == 0)
+                    rev[nd++] = 0;
+            }
+            
+            // Pack to BCD
+            bcd.sign = neg ? 1 : 0;
+            bcd.scale = d->scale;
+            bcd.raw = 0;
+            int bi = 0;
+            int msd = nd - 1;
+            int maxDigits = 32;
+            if (nd > maxDigits)
+                msd = maxDigits - 1;
+            int used = (msd + 1);
+            if ((used & 1) != 0) {
+                u8 dgt = (msd >= 0) ? rev[msd--] : 0;
+                bcd.data[bi++] = (u8)((0u << 4) | (dgt & 0x0F));
+            }
+            while (msd >= 0 && bi < (int)sizeof(bcd.data)) {
+                u8 hi = rev[msd--] & 0x0F;
+                u8 lo = (msd >= 0) ? (rev[msd--] & 0x0F) : 0;
+                bcd.data[bi++] = (u8)((hi << 4) | lo);
+            }
+            bcd.length = (u32)bi;
+        }
+        d = &bcd; // Use converted BCD
+    }
+    
     // extract digits MSB-first from BCD (digit order is high-to-low, independent of binary endianness)
     int digits = (int)d->length * 2;
     // avoid buffer overflow; allocate temp digits

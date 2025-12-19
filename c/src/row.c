@@ -10,6 +10,9 @@
 #include <math.h>
 #include <stdatomic.h>
 
+// Forward declarations for DECIMAL helper functions
+static inline void decimal_from_twos_bytes(const u8 *p, u32 n, int scale, struct flintdb_decimal  *out);
+
 // Optional row pooling to reduce per-row malloc/free churn in hot paths (e.g. table scans).
 // Pool stores up to ROW_POOL_MAX reusable row objects per meta schema. Rows are cleaned
 // (variants freed + reinitialized) before reuse. Only structure/array allocation is reused.
@@ -188,53 +191,6 @@ static inline int row_i64_to_bytes_opt(i64 value, u8 *tmp, int *start_out) {
     
     *start_out = 0;  // Always start at 0 for little endian
     return end;
-}
-
-// Optimized bytes to i64 conversion for DECIMAL decoding - Little Endian native
-static inline i64 row_bytes_to_i64_opt(const char *p, u32 n) {
-    i64 x = 0;
-    
-#if defined(SIMD_HAS_AVX2) || defined(SIMD_HAS_SSE2) || defined(SIMD_HAS_NEON)
-    // For small byte arrays (≤8 bytes), vectorization overhead exceeds benefit
-    // Use optimized scalar path
-#endif
-    
-    // Optimized scalar with unrolled cases for common sizes (little-endian)
-    switch (n) {
-        case 1:
-            x = (i64)(i8)p[0];
-            break;
-        case 2:
-            x = (i64)(u8)p[0] | ((i64)(i8)p[1] << 8);
-            break;
-        case 3:
-            x = (i64)(u8)p[0] | ((i64)(u8)p[1] << 8) | ((i64)(i8)p[2] << 16);
-            break;
-        case 4:
-            x = (i64)(u8)p[0] | ((i64)(u8)p[1] << 8) | 
-                ((i64)(u8)p[2] << 16) | ((i64)(i8)p[3] << 24);
-            break;
-        case 8:
-            // Full 8-byte load with proper sign extension (little-endian)
-            x = (i64)(u8)p[0] | ((i64)(u8)p[1] << 8) |
-                ((i64)(u8)p[2] << 16) | ((i64)(u8)p[3] << 24) |
-                ((i64)(u8)p[4] << 32) | ((i64)(u8)p[5] << 40) |
-                ((i64)(u8)p[6] << 48) | ((i64)(i8)p[7] << 56);
-            break;
-        default:
-            // General case for other sizes (5, 6, 7 bytes) - little endian
-            for (u32 j = 0; j < n; j++) {
-                x |= ((i64)(u8)p[j]) << (j * 8);
-            }
-            // Sign extend if needed (check last byte)
-            if (n < 8 && (p[n - 1] & 0x80)) {
-                u64 mask = (~(u64)0) << (n * 8);
-                x |= (i64)mask;
-            }
-            break;
-    }
-    
-    return x;
 }
 
 // Fast time_t to date components conversion (avoiding localtime_r)
@@ -1245,7 +1201,27 @@ static struct flintdb_decimal  row_decimal_get(const struct flintdb_row *r, u16 
             *e = "row_decimal_get: index out of bounds";
         return d;
     }
-    return flintdb_variant_decimal_get(&r->array[i], e);
+    d = flintdb_variant_decimal_get(&r->array[i], e);
+    
+    // Lazy conversion: convert to BCD if needed
+    if (d.raw == 1 && d.length > 0) {
+        // raw=1: two's-complement bytes to BCD
+        struct flintdb_decimal  bcd = {0};
+        decimal_from_twos_bytes((const u8 *)d.data, d.length, d.scale, &bcd);
+        return bcd;
+    } else if (d.raw == 2 && d.length > 0) {
+        // raw=2: string to BCD
+        struct flintdb_decimal  bcd = {0};
+        if (flintdb_decimal_from_string(d.data, d.scale, &bcd) == 0) {
+            return bcd;
+        }
+        // If conversion fails, return zero
+        memset(&bcd, 0, sizeof(bcd));
+        bcd.scale = d.scale;
+        return bcd;
+    }
+    
+    return d;
 }
 
 static const char *row_bytes_get(const struct flintdb_row *r, u16 i, u32 *length, char **e) {
@@ -1977,39 +1953,6 @@ static inline i64 days_from_civil_fast(int y, int m, int d) {
     return (i64)(era * 146097 + (int)doe - 719468);
 }
 
-// --- DECIMAL helpers ---
-// Build BCD from signed 64-bit unscaled integer
-static inline void decimal_from_unscaled_i64(i64 x, int scale, struct flintdb_decimal  *out) {
-    struct flintdb_decimal  d = {0};
-    d.scale = (u8)((scale > 0) ? scale : 0);
-    if (x < 0) {
-        d.sign = 1;
-        x = -x;
-    }
-    // Collect digits in reverse
-    u8 rev[32];
-    int nd = 0;
-    if (x == 0)
-        rev[nd++] = 0;
-    while (x > 0 && nd < (int)sizeof(rev)) {
-        rev[nd++] = (u8)(x % 10);
-        x /= 10;
-    }
-    int bi = 0;
-    int msd = nd - 1;
-    if ((nd & 1) != 0) {
-        u8 dgt = (msd >= 0) ? rev[msd--] : 0;
-        d.data[bi++] = (u8)((0u << 4) | (dgt & 0x0F));
-    }
-    while (msd >= 0 && bi < (int)sizeof(d.data)) {
-        u8 hi = rev[msd--] & 0x0F;
-        u8 lo = (msd >= 0) ? (rev[msd--] & 0x0F) : 0;
-        d.data[bi++] = (u8)((hi << 4) | lo);
-    }
-    d.length = (u32)bi;
-    *out = d;
-}
-
 // Divide little-endian magnitude by 10 in-place; return remainder. 'a' length is n bytes.
 static inline u8 le_div10(u8 *a, u32 n) {
     unsigned int carry = 0; // < 10 always
@@ -2085,6 +2028,7 @@ static inline void decimal_from_twos_bytes(const u8 *p, u32 n, int scale, struct
     struct flintdb_decimal  d = {0};
     d.sign = neg ? 1 : 0;
     d.scale = (u8)((scale > 0) ? scale : 0);
+    d.raw = 0; // BCD encoded
     // Pack BCD MSB-first with possible high-nibble pad when odd number of digits
     int bi = 0;
     int msd = nd - 1; // most significant digit index in rev
@@ -2245,24 +2189,30 @@ static int bin_encode(struct formatter *me, struct flintdb_row *r, struct buffer
             }
             case VARIANT_DECIMAL: {
                 // Java BIN formatter encodes DECIMAL as unscaled two's-complement integer bytes
-                // with scale provided by column.precision. Compute unscaled from internal BCD directly
-                // while ignoring the possible padding nibble for odd digit counts.
+                // with scale provided by column.precision. 
                 struct flintdb_decimal  d = r->decimal_get(r, i, e);
                 
-                // Optimized BCD to i64 conversion
-                int skipLeadingHi = (d.length > 0 && ((unsigned char)d.data[0] >> 4) == 0);
-                i64 unscaled = row_bcd_to_i64_opt((const u8 *)d.data, d.length, skipLeadingHi);
-                
-                if (d.sign)
-                    unscaled = -unscaled;
+                // Fast path: if raw=1, output bytes directly without BCD conversion
+                if (d.raw == 1 && d.length > 0) {
+                    out->i16_put(out, (i16)d.length, e);
+                    buffer_put_bytes(out, d.data, d.length, e);
+                } else {
+                    // Slow path: convert BCD to unscaled integer bytes
+                    // Optimized BCD to i64 conversion
+                    int skipLeadingHi = (d.length > 0 && ((unsigned char)d.data[0] >> 4) == 0);
+                    i64 unscaled = row_bcd_to_i64_opt((const u8 *)d.data, d.length, skipLeadingHi);
+                    
+                    if (d.sign)
+                        unscaled = -unscaled;
 
-                // Optimized i64 to bytes conversion
-                unsigned char tmp[8];
-                int start = 0;
-                int blen = row_i64_to_bytes_opt(unscaled, tmp, &start);
-                
-                out->i16_put(out, (i16)blen, e);
-                buffer_put_bytes(out, (const char *)(tmp + start), (u32)blen, e);
+                    // Optimized i64 to bytes conversion
+                    unsigned char tmp[8];
+                    int start = 0;
+                    int blen = row_i64_to_bytes_opt(unscaled, tmp, &start);
+                    
+                    out->i16_put(out, (i16)blen, e);
+                    buffer_put_bytes(out, (const char *)(tmp + start), (u32)blen, e);
+                }
                 break;
             }
             case VARIANT_BYTES:
@@ -2484,21 +2434,29 @@ static int bin_decode(struct formatter *me, struct buffer *in, struct flintdb_ro
                 break;
             }
             case VARIANT_DECIMAL: {
+                // Store raw two's-complement bytes for lazy conversion (performance optimization)
+                // raw=1: stores unscaled integer bytes directly (BCD conversion deferred)
                 int scale = (c->precision > 0) ? c->precision : 0;
                 struct flintdb_decimal  d = {0};
-                if (n <= 8) {
-                    // Optimized fast path: up to 8 bytes -> sign-extended i64
-                    i64 x = 0;
-                    if (n > 0 && p) {
-                        x = row_bytes_to_i64_opt(p, n);
-                    }
-                    decimal_from_unscaled_i64(x, scale, &d);
-                } else if (n <= 16) {
-                    // 16-byte (128-bit) path: two's-complement big-int division by 10
-                    decimal_from_twos_bytes((const u8 *)p, n, scale, &d);
+                d.raw = 1; // Mark as raw binary (not BCD)
+                d.scale = (u8)scale;
+                
+                // Store bytes directly in data field (up to 16 bytes)
+                if (n > 0 && p && n <= 16) {
+                    simd_memcpy(d.data, p, n);
+                    d.length = n;
+                    // Sign is in MSB of last byte (two's complement)
+                    d.sign = (p[n-1] & 0x80) ? 1 : 0;
+                } else if (n > 16) {
+                    // Clamp to 16 bytes, taking least significant bytes
+                    simd_memcpy(d.data, p, 16);
+                    d.length = 16;
+                    d.sign = (p[15] & 0x80) ? 1 : 0;
                 } else {
-                    // Fallback: attempt big-int conversion up to 32 bytes, else NIL
-                    decimal_from_twos_bytes((const u8 *)p, (n > 32 ? 32 : n), scale, &d);
+                    // n == 0 or p == NULL: zero value
+                    d.length = 1;
+                    d.data[0] = 0;
+                    d.sign = 0;
                 }
                 flintdb_variant_decimal_set(&r->array[i], d.sign, d.scale, d);
                 break;
@@ -3055,9 +3013,17 @@ static int text_encode(struct formatter *me, struct flintdb_row *r, struct buffe
             break;
         }
         case VARIANT_DECIMAL: {
-            struct flintdb_decimal  d = r->decimal_get(r, i, e);
-            flintdb_decimal_to_string(&d, buf, sizeof(buf));
-            text_escape(priv, buf, (u32)strlen(buf), out, e);
+            // Get raw decimal value (before conversion)
+            struct flintdb_variant *v = r->get(r, i, e);
+            if (v && v->type == VARIANT_DECIMAL && v->value.d.raw == 2) {
+                // Fast path: already in string format, output directly
+                text_escape(priv, v->value.d.data, v->value.d.length, out, e);
+            } else {
+                // Need conversion to string
+                struct flintdb_decimal  d = r->decimal_get(r, i, e);
+                flintdb_decimal_to_string(&d, buf, sizeof(buf));
+                text_escape(priv, buf, (u32)strlen(buf), out, e);
+            }
             break;
         }
         case VARIANT_BYTES:
@@ -3195,12 +3161,24 @@ static int text_decode(struct formatter *me, struct buffer *in, struct flintdb_r
                     flintdb_variant_null_set(&r->array[i]);
                 }
             }
-            // DECIMAL parsing - parse directly to decimal struct
+            // DECIMAL parsing - store as string for lazy conversion (raw=2)
             else if (ctype == VARIANT_DECIMAL) {
                 int scale = col->precision;
                 struct flintdb_decimal  d = {0};
+                d.raw = 2; // string format (optimized for text I/O)
+                d.scale = (u8)scale;
                 
-                if (flintdb_decimal_from_string(fv, scale, &d) == 0) {
+                // Store string directly (max 15 chars + null terminator)
+                u32 len = fl;
+                if (len >= sizeof(d.data)) {
+                    len = sizeof(d.data) - 1; // leave room for null terminator
+                }
+                if (len > 0 && fv) {
+                    simd_memcpy(d.data, fv, len);
+                    d.data[len] = '\0';
+                    d.length = len;
+                    // Determine sign from first character
+                    d.sign = (fv[0] == '-') ? 1 : 0;
                     flintdb_variant_decimal_set(&r->array[i], d.sign, d.scale, d);
                 } else {
                     flintdb_variant_null_set(&r->array[i]);

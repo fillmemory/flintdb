@@ -145,12 +145,13 @@ enum flintdb_variant_type  {
 	VARIANT_OBJECT = 31 // reserved for future
 };
 
-struct flintdb_decimal  {
+struct flintdb_decimal {
     u8 sign; // 0: positive, 1: negative
     u8 scale; // number of digits to right of decimal point
-    u8 reserved[2];
+    u8 raw; // 0: BCD encoded, 1: raw binary (two's complement), 2: string (null-terminated)
+    u8 reserved[1];
     u32 length; // length of data
-    char data[16]; // BCD encoded digits, not null-terminated
+    char data[16]; // BCD/binary/string data (for raw=2: null-terminated string, max 15 chars)
 };
 
 int flintdb_decimal_from_string(const char *s, i16 scale, struct flintdb_decimal *out);
