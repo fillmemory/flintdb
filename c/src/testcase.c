@@ -1185,8 +1185,8 @@ int main(int argc, char **argv) {
 }
 #endif // TESTCASE_VARIANT_STRING_REF
 
-#ifdef TESTCASE_STRUCT_META
-// ./testcase.sh TESTCASE_STRUCT_META
+#ifdef TESTCASE_SIZEOF_STRUCT
+// ./testcase.sh TESTCASE_SIZEOF_STRUCT
 int main(int argc, char **argv) {
     printf("sizeof(struct flintdb_meta) = %zu\n", sizeof(struct flintdb_meta));
     printf("sizeof(struct flintdb_column) = %zu\n", sizeof(struct flintdb_column));
@@ -1195,10 +1195,11 @@ int main(int argc, char **argv) {
     printf("sizeof(struct flintdb_variant) = %zu\n", sizeof(struct flintdb_variant));
     printf("sizeof(struct flintdb_decimal ) = %zu\n", sizeof(struct flintdb_decimal ));
     printf("sizeof(struct flintdb_sql) = %zu\n", sizeof(struct flintdb_sql));
+    printf("sizeof(enum flintdb_variant_sflag) = %zu\n", sizeof(enum flintdb_variant_sflag));
 
     return 0;
 }
-#endif // TESTCASE_STRUCT_META
+#endif // TESTCASE_SIZEOF_STRUCT
 
 #ifdef TESTCASE_COLUMN_AT
 // ./testcase.sh TESTCASE_COLUMN_AT

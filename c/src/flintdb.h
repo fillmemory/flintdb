@@ -161,15 +161,21 @@ int flintdb_decimal_plus(const struct flintdb_decimal *a, const struct flintdb_d
 int flintdb_decimal_divide(const struct flintdb_decimal *numerator, const struct flintdb_decimal *denominator, i16 scale, struct flintdb_decimal *out);
 int flintdb_decimal_divide_by_int(const struct flintdb_decimal *numerator, int denominator, struct flintdb_decimal *out);
 
+
+enum flintdb_variant_sflag {
+    VARIANT_SFLAG_NULL_TERMINATED = 0, // flintdb_variant_type type; == VARIANT_STRING => string is null-terminated
+    VARIANT_SFLAG_NOT_NULL_TERMINATED = 1, // flintdb_variant_type type; == VARIANT_STRING => string is NOT null-terminated
+};
+
 struct flintdb_variant {
-    enum flintdb_variant_type  type;
+    enum flintdb_variant_type type;
     union {
         i64 i;
         f64 f;
-        struct flintdb_decimal  d;
+        struct flintdb_decimal d;
         struct {
             u8 owned; // 0: not owned, 1: owned (free on destroy), 2: string pool
-            u8 sflag; // type == VARIANT_STRING => 0: null-terminated, 1: not null-terminated
+            enum flintdb_variant_sflag sflag; // enum flintdb_variant_sflag (VARIANT_SFLAG_NULL_TERMINATED, VARIANT_SFLAG_NOT_NULL_TERMINATED)
             u8 reserved[2];
             u32 length;
             char *data; // not null-terminated
@@ -317,7 +323,7 @@ FLINTDB_API int flintdb_variant_u16_set(struct flintdb_variant *v, u16 val);
 FLINTDB_API int flintdb_variant_i64_set(struct flintdb_variant *v, i64 val);
 FLINTDB_API int flintdb_variant_f64_set(struct flintdb_variant *v, f64 val);
 FLINTDB_API int flintdb_variant_string_set(struct flintdb_variant *v, const char *str, u32 length);
-FLINTDB_API int flintdb_variant_string_ref_set(struct flintdb_variant *v, const char *str, u32 length, u8 sflag); // sflag: 0=null-terminated, 1=not null-terminated
+FLINTDB_API int flintdb_variant_string_ref_set(struct flintdb_variant *v, const char *str, u32 length, enum flintdb_variant_sflag sflag); // sflag: 0=null-terminated, 1=not null-terminated
 FLINTDB_API int flintdb_variant_decimal_set(struct flintdb_variant *v, u8 sign, u8 scale, struct flintdb_decimal  data);
 FLINTDB_API int flintdb_variant_bytes_set(struct flintdb_variant *v, const char *data, u32 length);
 FLINTDB_API int flintdb_variant_date_set(struct flintdb_variant *v, time_t val);

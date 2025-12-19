@@ -4875,6 +4875,9 @@ unsafe extern "C" {
         out: *mut flintdb_decimal,
     ) -> ::std::os::raw::c_int;
 }
+pub const flintdb_variant_sflag_VARIANT_SFLAG_NULL_TERMINATED: flintdb_variant_sflag = 0;
+pub const flintdb_variant_sflag_VARIANT_SFLAG_NOT_NULL_TERMINATED: flintdb_variant_sflag = 1;
+pub type flintdb_variant_sflag = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct flintdb_variant {
@@ -4894,7 +4897,7 @@ pub union flintdb_variant__bindgen_ty_1 {
 #[derive(Debug, Copy, Clone)]
 pub struct flintdb_variant__bindgen_ty_1__bindgen_ty_1 {
     pub owned: u8_,
-    pub sflag: u8_,
+    pub sflag: flintdb_variant_sflag,
     pub reserved: [u8_; 2usize],
     pub length: u32_,
     pub data: *mut ::std::os::raw::c_char,
@@ -4902,19 +4905,19 @@ pub struct flintdb_variant__bindgen_ty_1__bindgen_ty_1 {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of flintdb_variant__bindgen_ty_1__bindgen_ty_1"]
-        [::std::mem::size_of::<flintdb_variant__bindgen_ty_1__bindgen_ty_1>() - 16usize];
+        [::std::mem::size_of::<flintdb_variant__bindgen_ty_1__bindgen_ty_1>() - 24usize];
     ["Alignment of flintdb_variant__bindgen_ty_1__bindgen_ty_1"]
         [::std::mem::align_of::<flintdb_variant__bindgen_ty_1__bindgen_ty_1>() - 8usize];
     ["Offset of field: flintdb_variant__bindgen_ty_1__bindgen_ty_1::owned"]
         [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, owned) - 0usize];
     ["Offset of field: flintdb_variant__bindgen_ty_1__bindgen_ty_1::sflag"]
-        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, sflag) - 1usize];
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, sflag) - 4usize];
     ["Offset of field: flintdb_variant__bindgen_ty_1__bindgen_ty_1::reserved"]
-        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, reserved) - 2usize];
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, reserved) - 8usize];
     ["Offset of field: flintdb_variant__bindgen_ty_1__bindgen_ty_1::length"]
-        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, length) - 4usize];
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, length) - 12usize];
     ["Offset of field: flintdb_variant__bindgen_ty_1__bindgen_ty_1::data"]
-        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, data) - 8usize];
+        [::std::mem::offset_of!(flintdb_variant__bindgen_ty_1__bindgen_ty_1, data) - 16usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -5571,7 +5574,7 @@ unsafe extern "C" {
         v: *mut flintdb_variant,
         str_: *const ::std::os::raw::c_char,
         length: u32_,
-        sflag: u8_,
+        sflag: flintdb_variant_sflag,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {

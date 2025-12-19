@@ -337,14 +337,14 @@ int flintdb_variant_string_set(struct flintdb_variant *v, const char *str, u32 l
 	v->value.b.length = length;
 	v->value.b.data = buf;
 	v->value.b.owned = 1;
-	v->value.b.sflag = 0; // null-terminated
+	v->value.b.sflag = VARIANT_SFLAG_NULL_TERMINATED; // null-terminated
 	simd_memcpy(buf, str, length);
 	buf[length] = '\0';
 #endif
 	return 0;
 }
 
-int flintdb_variant_string_ref_set(struct flintdb_variant *v, const char *str, u32 length, u8 sflag) {
+int flintdb_variant_string_ref_set(struct flintdb_variant *v, const char *str, u32 length, enum flintdb_variant_sflag sflag) {
 	if (!v) return -1;
 	variant_release_if_owned(v);
 	v->type = VARIANT_STRING;
@@ -655,7 +655,7 @@ const char * flintdb_variant_string_get(const struct flintdb_variant *v) {
 	if (!v) return NULL;
 	if (v->type == VARIANT_STRING) {
 		// If string is not null-terminated (sflag=1), create a temporary null-terminated copy
-		if (v->value.b.sflag) {
+		if (VARIANT_SFLAG_NOT_NULL_TERMINATED == v->value.b.sflag) {
 			// Use thread-local buffer for non-null-terminated strings
 			// Initialize pthread key for cleanup on thread exit
 			(void)pthread_once(&VARIANT_TEMPSTR_KEY_ONCE, variant__tempstr_make_key);
