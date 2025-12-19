@@ -57,6 +57,6 @@ cd "${BUILD_DIR}/classes"
 jar cfe "../${JAR_NAME}" flint.db.CLI \
     -C . .
 
-cd ../..
+cd ../../..
 echo "Build successful: ${BUILD_DIR}/${JAR_NAME}"
-ls -lh "${BUILD_DIR}/${JAR_NAME}"
+ls -lh "${BUILD_DIR}"/*.jar
