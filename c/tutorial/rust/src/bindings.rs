@@ -5774,6 +5774,19 @@ unsafe extern "C" {
     );
 }
 unsafe extern "C" {
+    pub fn flintdb_meta_wal_set(
+        m: *mut flintdb_meta,
+        wal_mode: *const ::std::os::raw::c_char,
+        checkpoint_interval: i32_,
+        batch_size: i32_,
+        compression_threshold: i32_,
+        sync_mode: i32_,
+        buffer_size: i32_,
+        page_data: i32_,
+        e: *mut *mut ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
     pub fn flintdb_column_at(
         m: *mut flintdb_meta,
         name: *const ::std::os::raw::c_char,
