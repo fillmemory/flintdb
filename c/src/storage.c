@@ -106,7 +106,9 @@ static struct buffer * storage_mmap(struct storage *me, i64 offset, i32 length, 
 
     struct buffer *mbb = NULL;
     i64 limit = length + offset;
-    if (limit > file_length(me->opts.file)) {
+    struct stat st;
+    fstat(me->fd, &st);
+    if (limit > st.st_size) {
         ftruncate(me->fd, limit);
     }
 
@@ -168,12 +170,17 @@ static void storage_mmap_buffer_get(struct storage *me, i64 index, struct buffer
         return;
     }
 
+
+    struct stat st;
+    fstat(me->fd, &st);
+
     i64 offset = HEADER_BYTES + me->opts.extra_header_bytes + (i * me->mmap_bytes);
-    i64 before = file_length(me->opts.file);
+    i64 before = st.st_size;
     struct buffer *mbb = storage_mmap(me, offset, me->mmap_bytes, NULL);
     me->cache->put(me->cache, i, (valtype)mbb, storage_cache_free);
 
-    if (me->opts.mode == FLINTDB_RDWR && before < file_length(me->opts.file)) {
+    fstat(me->fd, &st);
+    if (me->opts.mode == FLINTDB_RDWR && before < st.st_size) {
         i32 blocks = me->mmap_bytes / me->block_bytes;
         i64 next = 1 + (i * blocks);
         struct buffer bb = {0};
@@ -424,9 +431,10 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
         THROW(e, "Cannot open file %s: %s", me->opts.file, strerror(errno));
     }
 
-    int bytes = file_length(me->opts.file);
-    if (bytes < HEADER_BYTES)
-        ftruncate(me->fd, HEADER_BYTES);
+    struct stat st;
+    fstat(me->fd, &st);
+    if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES)
+        ftruncate(me->fd, (off_t)HEADER_BYTES);
 
     // Map the file header with MAP_SHARED so updates (e.g., magic, counts) are persisted to disk
     // Using MAP_PRIVATE here would create a private COW mapping and header writes wouldn't be visible
@@ -452,7 +460,7 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
     me->mmap = storage_mmap;
     me->head = storage_head;
 
-    if (bytes < HEADER_BYTES) {
+    if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES) {
         // Fresh file: initialize free-list head to first block index (1)
         me->free = 0;
         me->count = 0;
@@ -790,6 +798,25 @@ static inline struct buffer_pool *storage_dio_read_pool(void) {
 static inline i64 storage_dio_file_offset(struct storage *me, i64 index);
 static void storage_dio_file_inflate(struct storage *me, i64 index, struct buffer *out);
 
+static void storage_dio_commit(struct storage *me, u8 force, char **e) {
+    //LOG("storage_dio_commit: enter, force=%d, count=%lld, free=%lld", force, me->count, me->free);
+    storage_commit(me, force, e);
+    //LOG("storage_dio_commit: after storage_commit, count=%lld", me->count);
+    
+    // Force header to disk even if storage_commit had errors
+    // (critical for DIO mode durability)
+    if (me->h->mapped.addr != NULL && force) {
+        //LOG("storage_dio_commit: calling msync");
+        if (msync(me->h->mapped.addr, HEADER_BYTES, MS_SYNC) == -1) {
+            //LOG("storage_dio_commit msync failed: %s", strerror(errno));
+        } else {
+            //LOG("storage_dio_commit: msync success");
+        }
+    }
+    // LOG("storage_dio_commit: exit");
+}
+
+
 static inline void storage_dio_flush_wbatch(struct storage *me, char **e) {
     if (!me || me->opts.mode != FLINTDB_RDWR) return;
     if (!me->dio_wbatch || me->dio_wbatch_count == 0) return;
@@ -807,13 +834,17 @@ static inline void storage_dio_flush_wbatch(struct storage *me, char **e) {
 
     i64 file_offset = storage_dio_file_offset(me, me->dio_wbatch_base);
     size_t nbytes = (size_t)me->dio_wbatch_count * (size_t)me->block_bytes;
+    //LOG("flush_wbatch: writing %zu bytes at file_offset=%lld, base=%lld, count=%u", nbytes, file_offset, me->dio_wbatch_base, me->dio_wbatch_count);
     ssize_t written = pwrite(me->fd, me->dio_wbatch, nbytes, file_offset);
     if (written < 0) {
+        //LOG("flush_wbatch: pwrite FAILED: %s", strerror(errno));
         THROW(e, "pwrite(batch) failed at offset %lld: %s", file_offset, strerror(errno));
     }
     if ((size_t)written != nbytes) {
+        //LOG("flush_wbatch: pwrite incomplete: wrote %zd of %zu", written, nbytes);
         THROW(e, "pwrite(batch) incomplete: wrote %zd of %zu bytes at offset %lld", written, nbytes, file_offset);
     }
+    // LOG("flush_wbatch: pwrite SUCCESS: %zd bytes", written);
 
     me->dio_wbatch_count = 0;
     return;
@@ -928,9 +959,15 @@ static void storage_dio_file_inflate(struct storage *me, i64 index, struct buffe
     i64 chunk_off = HEADER_BYTES + me->opts.extra_header_bytes + (i * me->mmap_bytes);
     i64 chunk_end = chunk_off + me->mmap_bytes;
 
-    // Ensure file is large enough to include this chunk.
-    i64 before = file_length(me->opts.file);
+    struct stat st;
+    if (fstat(me->fd, &st) < 0) {
+        WARN("fstat() failed during inflate: %s", strerror(errno));
+        return;
+    }
+    i64 before = st.st_size;
+    // LOG("inflate: chunk=%lld, chunk_end=%lld, file_size=%lld", i, chunk_end, before);
     if (before < chunk_end) {
+        // LOG("inflate: extending file from %lld to %lld", before, chunk_end);
         if (ftruncate(me->fd, chunk_end) < 0) {
             WARN("ftruncate() failed during inflate at offset %lld: %s", chunk_off, strerror(errno));
             return;
@@ -980,7 +1017,7 @@ static void storage_dio_file_inflate(struct storage *me, i64 index, struct buffe
 
     me->dio_last_inflated_chunk = i;
 
-    storage_commit(me, 1, &e);
+    storage_dio_commit(me, 1, &e);
     if (e && *e) THROW_S(e);
 
     return;
@@ -1018,7 +1055,8 @@ static struct buffer * storage_dio_read(struct storage *me, i64 offset, char **e
         if (++steps > max_steps) {
             THROW(e, "DIO read chain too long (possible cycle/corruption) at offset %lld", offset);
         }
-        storage_dio_file_inflate(me, curr, NULL);
+        // Don't call inflate during read - file should already be properly initialized
+        // storage_dio_file_inflate(me, curr, NULL);
         storage_dio_pread_into(me, curr, scratch, e);
         if (e && *e) THROW_S(e);
 
@@ -1118,7 +1156,8 @@ static i32 storage_dio_delete(struct storage *me, i64 offset, char **e) {
         if (max_steps > 0 && ++steps > max_steps) {
             THROW(e, "DIO delete chain too long (possible cycle/corruption) at offset %lld", offset);
         }
-        storage_dio_file_inflate(me, curr, NULL);
+        // Don't call inflate during read operations
+        // storage_dio_file_inflate(me, curr, NULL);
         storage_dio_pread_into(me, curr, scratch, e);
         if (e && *e) THROW_S(e);
 
@@ -1341,10 +1380,10 @@ EXCEPTION:
 }
 
 static i64 storage_dio_write(struct storage *me, struct buffer *in, char **e) {
-    // DEBUG("enter, me=%p, in=%p, free=%lld", (void*)me, (void*)in, me ? me->free : -1);
+    // LOG("DIO WRITE: enter, me=%p, in=%p, free=%lld, count=%lld", (void*)me, (void*)in, me ? me->free : -1, me ? me->count : -1);
     i64 offset = me->free;
     storage_dio_write_priv(me, offset, MARK_AS_DATA, in, e);
-    // DEBUG("exit, offset=%lld, e=%s", offset, e?*e?*e:"NULL":"NULL");
+    // LOG("DIO WRITE: exit, offset=%lld, count=%lld, e=%s", offset, me->count, e?*e?*e:"NULL":"NULL");
     return offset;
 }
 
@@ -1354,17 +1393,20 @@ static i64 storage_dio_write_at(struct storage *me, i64 offset, struct buffer *i
 }
 
 static void storage_dio_close(struct storage *me) {
-        // Flush any pending sequential writes before closing.
-        storage_dio_flush_wbatch(me, NULL);
     assert(me != NULL);
     if (me->fd <= 0) return;
+
+    DEBUG("DIO CLOSE: file=%s, count=%lld, free=%lld, wbatch_count=%u", me->opts.file, me->count, me->free, me->dio_wbatch_count);
+
+    // Flush any pending sequential writes before closing.
+    storage_dio_flush_wbatch(me, NULL);
 
     // LOG("%p: begin file=%s, count=%lld, free=%lld", me, me->opts.file, me->count, me->free);
 
     // Force commit any pending changes before closing
-    storage_commit(me, 1, NULL);
+    storage_dio_commit(me, 1, NULL);
 
-    if (me->cache) {
+    if (me->cache) { // should not be used in DIO mode
         DEBUG("freeing cache %p", me->cache);
         me->cache->free(me->cache);
         me->cache = NULL;
@@ -1416,6 +1458,8 @@ static void storage_dio_close(struct storage *me) {
 static int storage_dio_open(struct storage * me, struct storage_opts opts, char **e) {
     if (!me)
         return -1;
+
+    DEBUG("DIO OPEN: file=%s, mode=%d, block_bytes=%d", opts.file, opts.mode, opts.block_bytes);
 
     // DIO requires alignment to sector size (typically 512 bytes)
     #define DIO_SECTOR_SIZE 512
@@ -1469,7 +1513,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     #ifdef __linux__
         // Advise kernel about sequential write pattern for better I/O scheduling
         posix_fadvise(me->fd, 0, 0, POSIX_FADV_SEQUENTIAL);
-        fcntl(me->fd, F_SETFL, O_DIRECT);
+        // fcntl(me->fd, F_SETFL, O_DIRECT);
     #endif
     #ifdef __APPLE__
         // macOS: optionally disable OS cache.
@@ -1484,9 +1528,10 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
         }
     #endif
 
-    int bytes = file_length(me->opts.file);
-    if (bytes < HEADER_BYTES)
-        ftruncate(me->fd, HEADER_BYTES);
+    struct stat st;
+    fstat(me->fd, &st);
+    if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES)
+        ftruncate(me->fd, (off_t)HEADER_BYTES);
 
     // Map the file header with MAP_SHARED so updates (e.g., magic, counts) are persisted to disk
     // Using MAP_PRIVATE here would create a private COW mapping and header writes wouldn't be visible
@@ -1497,9 +1542,9 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
 
     me->h = buffer_mmap(p, 0, HEADER_BYTES);
 
-    me->cache = hashmap_new(MAPPED_BYTEBUFFER_POOL_SIZE, hashmap_int_hash, hashmap_int_cmpr);
-
-    if (!me->cache) THROW(e, "Cannot create cache");
+    // DIO doesn't use cache - it bypasses OS page cache and uses direct I/O
+    // Cache is only needed if storage_mmap is called, which is rare in DIO mode
+    me->cache = NULL;
 
     me->close = storage_dio_close;
     me->count_get = storage_count_get;
@@ -1512,8 +1557,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     me->mmap = storage_mmap;
     me->head = storage_head;
 
-    if (bytes < HEADER_BYTES) {
-        // Fresh file: initialize free-list head to first block index (1)
+    if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES) {
         me->free = 0;
         me->count = 0;
         storage_commit(me, 1, e);
@@ -1545,6 +1589,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
         assert(me->count > -1);
     }
 
+    // LOG("storage_dio_open: completed, count=%lld, free=%lld", me->count, me->free);
     return 0;
 
 EXCEPTION:
@@ -1563,6 +1608,14 @@ EXCEPTION:
 }
 
 
+/**
+ * @brief Open storage based on type
+ * 
+ * @param me 
+ * @param opts 
+ * @param e 
+ * @return int 
+ */
 int storage_open(struct storage * me, struct storage_opts opts, char **e) {
     if (strncasecmp(opts.type, TYPE_MEMORY, sizeof(TYPE_MEMORY)-1) == 0)
         return storage_mem_open(me, opts, e);

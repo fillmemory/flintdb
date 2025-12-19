@@ -105,8 +105,14 @@ char * time_dur(u64 ms, char *buf, i32 len) {
 
 i64 file_length(const char *file) {
 	if (access(file, F_OK) == 0) {
+		struct stat st;
 		int fd = open(file, O_RDONLY, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
-		i64 l = lseek(fd, 0, SEEK_END);
+		if (fd < 0) {
+			// open failed - return -1
+			return -1;
+		}
+		fstat(fd, &st);
+		i64 l = st.st_size;
 		close(fd);
 		return l;
 	}
