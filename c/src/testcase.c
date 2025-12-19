@@ -452,6 +452,601 @@ int main(int argc, char **argv) {
 
 #endif // TESTCASE_STORAGE_DIO
 
+#ifdef TESTCASE_STORAGE_DIO_RANDOM
+// ./testcase.sh TESTCASE_STORAGE_DIO_RANDOM
+// Usage: ./bin/testcase [N_init=100000] [M_ops=200000] [seed=42]
+// Random mix of: reads, overwrites (incl. overflow), deletes+reinserts.
+
+static u64 fnv1a64(const void *data, size_t n) {
+    const unsigned char *p = (const unsigned char *)data;
+    u64 h = 1469598103934665603ull;
+    for (size_t i = 0; i < n; i++) {
+        h ^= (u64)p[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+static int build_payload(char *out, size_t out_cap, i64 slot, u32 ver, u32 len) {
+    // Deterministic payload: header + repeated pattern.
+    // Ensure there's always at least some prefix text.
+    int n = snprintf(out, out_cap, "slot=%lld ver=%u ", (long long)slot, (unsigned)ver);
+    if (n < 0) return -1;
+    size_t pos = (size_t)n;
+    if (pos >= out_cap) return -1;
+    while (pos < (size_t)len && pos < out_cap) {
+        char ch = (char)('a' + (char)((slot + (i64)ver + (i64)pos) % 26));
+        out[pos] = ch;
+        pos++;
+    }
+    if (pos > out_cap) return -1;
+    return (int)pos;
+}
+
+int main(int argc, char **argv) {
+    i64 N_init = 100000;
+    i64 M_ops = 200000;
+    unsigned seed = 42;
+    if (argc >= 2) {
+        long long t = atoll(argv[1]);
+        if (t > 0) N_init = (i64)t;
+    }
+    if (argc >= 3) {
+        long long t = atoll(argv[2]);
+        if (t > 0) M_ops = (i64)t;
+    }
+    if (argc >= 4) {
+        long long t = atoll(argv[3]);
+        if (t >= 0) seed = (unsigned)t;
+    }
+
+    struct storage_opts opts = {
+        .file = "./temp/storage_dio_random.bin",
+        .mode = FLINTDB_RDWR,
+        .block_bytes = 512 - 16,
+        .type = TYPE_DIO,
+    };
+    unlink(opts.file);
+
+    char *e = NULL;
+    struct storage s = {0};
+    int ok = storage_open(&s, opts, &e);
+    assert(ok == 0);
+
+    i64 *offs = (i64 *)CALLOC((size_t)N_init, sizeof(i64));
+    u64 *hashes = (u64 *)CALLOC((size_t)N_init, sizeof(u64));
+    u32 *lens = (u32 *)CALLOC((size_t)N_init, sizeof(u32));
+    u32 *vers = (u32 *)CALLOC((size_t)N_init, sizeof(u32));
+    assert(offs && hashes && lens && vers);
+
+    // Payload sizes: include overflow sometimes (up to 3 blocks worth of data).
+    const u32 block_data = (u32)opts.block_bytes;
+    const u32 max_payload = (block_data * 3u);
+    char *payload = (char *)MALLOC((size_t)max_payload + 64);
+    assert(payload);
+    struct buffer bb = {0};
+
+    srand(seed);
+
+    // Initial population
+    STOPWATCH_START(w_init);
+    for (i64 i = 0; i < N_init; i++) {
+        u32 len = (u32)(16 + (rand() % (int)(max_payload - 16)));
+        int actual = build_payload(payload, (size_t)max_payload + 64, i, 1, len);
+        if (actual < 0) {
+            fprintf(stderr, "payload build failed\n");
+            abort();
+        }
+        buffer_wrap(payload, (u32)actual, &bb);
+        offs[i] = s.write(&s, &bb, &e);
+        if (e && *e) {
+            fprintf(stderr, "write error: %s\n", e);
+            abort();
+        }
+        lens[i] = (u32)actual;
+        vers[i] = 1;
+        hashes[i] = fnv1a64(payload, (size_t)actual);
+    }
+    printf("init: %lld writes, %lldms\n", (long long)N_init, (long long)time_elapsed(&w_init));
+
+    // Random operations
+    STOPWATCH_START(w_ops);
+    i64 reads = 0, overwrites = 0, deletes = 0;
+    for (i64 op = 0; op < M_ops; op++) {
+        i64 idx = (i64)(rand() % (int)(N_init > 0 ? N_init : 1));
+        int r = rand() % 100;
+
+        if (r < 70) {
+            // Read + verify
+            struct buffer *rb = s.read(&s, offs[idx], &e);
+            if (e && *e) {
+                fprintf(stderr, "read error at idx=%lld off=%lld: %s\n", (long long)idx, (long long)offs[idx], e);
+                abort();
+            }
+            int n = rb->remaining(rb);
+            if (n < 0 || (u32)n != lens[idx]) {
+                fprintf(stderr, "len mismatch idx=%lld off=%lld got=%d expected=%u\n", (long long)idx, (long long)offs[idx], n, (unsigned)lens[idx]);
+                abort();
+            }
+            char *p = rb->array_get(rb, (u32)n, NULL);
+            u64 h = fnv1a64(p, (size_t)n);
+            if (h != hashes[idx]) {
+                fprintf(stderr, "hash mismatch idx=%lld off=%lld\n", (long long)idx, (long long)offs[idx]);
+                abort();
+            }
+            rb->free(rb);
+            reads++;
+        } else if (r < 90) {
+            // Overwrite at same offset (forces random access overwrite path)
+            u32 len = (u32)(16 + (rand() % (int)(max_payload - 16)));
+            vers[idx]++;
+            int actual = build_payload(payload, (size_t)max_payload + 64, idx, vers[idx], len);
+            if (actual < 0) {
+                fprintf(stderr, "payload build failed\n");
+                abort();
+            }
+            buffer_wrap(payload, (u32)actual, &bb);
+            (void)s.write_at(&s, offs[idx], &bb, &e);
+            if (e && *e) {
+                fprintf(stderr, "write_at error idx=%lld off=%lld: %s\n", (long long)idx, (long long)offs[idx], e);
+                abort();
+            }
+            lens[idx] = (u32)actual;
+            hashes[idx] = fnv1a64(payload, (size_t)actual);
+            overwrites++;
+        } else {
+            // Delete then insert a new record (exercises free-list reuse)
+            (void)s.delete(&s, offs[idx], &e);
+            if (e && *e) {
+                fprintf(stderr, "delete error idx=%lld off=%lld: %s\n", (long long)idx, (long long)offs[idx], e);
+                abort();
+            }
+            u32 len = (u32)(16 + (rand() % (int)(max_payload - 16)));
+            vers[idx]++;
+            int actual = build_payload(payload, (size_t)max_payload + 64, idx, vers[idx], len);
+            if (actual < 0) {
+                fprintf(stderr, "payload build failed\n");
+                abort();
+            }
+            buffer_wrap(payload, (u32)actual, &bb);
+            offs[idx] = s.write(&s, &bb, &e);
+            if (e && *e) {
+                fprintf(stderr, "write error after delete idx=%lld: %s\n", (long long)idx, e);
+                abort();
+            }
+            lens[idx] = (u32)actual;
+            hashes[idx] = fnv1a64(payload, (size_t)actual);
+            deletes++;
+        }
+    }
+    u64 ms_ops = time_elapsed(&w_ops);
+    printf("ops: %lld total, %lldms, %.0f ops/sec (reads=%lld overwrites=%lld delete+insert=%lld)\n",
+           (long long)M_ops, (long long)ms_ops, (double)M_ops / ((double)ms_ops / 1000.0),
+           (long long)reads, (long long)overwrites, (long long)deletes);
+
+    // Final spot-checks
+    for (int j = 0; j < 20; j++) {
+        i64 idx = (i64)(rand() % (int)(N_init > 0 ? N_init : 1));
+        struct buffer *rb = s.read(&s, offs[idx], &e);
+        if (e && *e) {
+            fprintf(stderr, "final read error idx=%lld off=%lld: %s\n", (long long)idx, (long long)offs[idx], e);
+            abort();
+        }
+        int n = rb->remaining(rb);
+        char *p = rb->array_get(rb, (u32)n, NULL);
+        u64 h = fnv1a64(p, (size_t)n);
+        if ((u32)n != lens[idx] || h != hashes[idx]) {
+            fprintf(stderr, "final verify failed idx=%lld off=%lld\n", (long long)idx, (long long)offs[idx]);
+            abort();
+        }
+        rb->free(rb);
+    }
+
+    s.close(&s);
+    FREE(payload);
+    FREE(offs);
+    FREE(hashes);
+    FREE(lens);
+    FREE(vers);
+    unlink(opts.file);
+    PRINT_MEMORY_LEAK_INFO();
+    return 0;
+}
+
+#endif // TESTCASE_STORAGE_DIO_RANDOM
+
+#ifdef TESTCASE_STORAGE_DIO_RANDOM_MT
+// ./testcase.sh TESTCASE_STORAGE_DIO_RANDOM_MT
+// Usage: ./bin/testcase [threads=4] [N_init=50000] [M_ops=200000] [seed=42] [lock_storage=1]
+// - lock_storage=1: serialize storage ops (should be stable)
+// - lock_storage=0: allow concurrent storage ops (expected to be unsafe; can expose races)
+
+static u64 fnv1a64(const void *data, size_t n) {
+    const unsigned char *p = (const unsigned char *)data;
+    u64 h = 1469598103934665603ull;
+    for (size_t i = 0; i < n; i++) {
+        h ^= (u64)p[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+static int build_payload(char *out, size_t out_cap, i64 slot, u32 ver, u32 len) {
+    int n = snprintf(out, out_cap, "slot=%lld ver=%u ", (long long)slot, (unsigned)ver);
+    if (n < 0) return -1;
+    size_t pos = (size_t)n;
+    if (pos >= out_cap) return -1;
+    while (pos < (size_t)len && pos < out_cap) {
+        char ch = (char)('a' + (char)((slot + (i64)ver + (i64)pos) % 26));
+        out[pos] = ch;
+        pos++;
+    }
+    if (pos > out_cap) return -1;
+    return (int)pos;
+}
+
+typedef struct dio_mt_ctx {
+    struct storage *s;
+    i64 N;
+    i64 ops;
+    u32 max_payload;
+
+    volatile int failed;
+
+    i64 *offs;
+    u64 *hashes;
+    u32 *lens;
+    u32 *vers;
+
+    pthread_mutex_t *stripes;
+    int stripe_n;
+    pthread_mutex_t storage_mtx;
+    int lock_storage;
+} dio_mt_ctx;
+
+static inline int dio_mt_is_failed(dio_mt_ctx *ctx) {
+    return __atomic_load_n(&ctx->failed, __ATOMIC_SEQ_CST) != 0;
+}
+
+static inline void dio_mt_set_failed(dio_mt_ctx *ctx) {
+    __atomic_store_n(&ctx->failed, 1, __ATOMIC_SEQ_CST);
+}
+
+static inline u64 xorshift64(u64 *state) {
+    u64 x = *state;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    *state = x;
+    return x;
+}
+
+static inline int stripe_index(dio_mt_ctx *ctx, i64 idx) {
+    // idx is non-negative
+    return (int)((u64)idx % (u64)ctx->stripe_n);
+}
+
+typedef struct dio_mt_worker {
+    dio_mt_ctx *ctx;
+    i64 tid;
+    u64 rng;
+    i64 reads;
+    i64 overwrites;
+    i64 deletes;
+} dio_mt_worker;
+
+static void *dio_mt_run(void *arg) {
+    dio_mt_worker *w = (dio_mt_worker *)arg;
+    dio_mt_ctx *ctx = w->ctx;
+
+    char *payload = (char *)MALLOC((size_t)ctx->max_payload + 64);
+    assert(payload);
+    struct buffer bb = {0};
+
+    for (i64 op = 0; op < ctx->ops; op++) {
+        if (dio_mt_is_failed(ctx)) break;
+        i64 idx = (i64)(xorshift64(&w->rng) % (u64)(ctx->N > 0 ? ctx->N : 1));
+        int r = (int)(xorshift64(&w->rng) % 100ull);
+        int si = stripe_index(ctx, idx);
+
+        if (r < 70) {
+            // Read + verify (lock slot stripe to avoid concurrent modification)
+            pthread_mutex_lock(&ctx->stripes[si]);
+            i64 off = ctx->offs[idx];
+            u32 len = ctx->lens[idx];
+            u64 expect = ctx->hashes[idx];
+            char *e = NULL;
+            if (ctx->lock_storage) pthread_mutex_lock(&ctx->storage_mtx);
+            struct buffer *rb = ctx->s->read(ctx->s, off, &e);
+            if (ctx->lock_storage) pthread_mutex_unlock(&ctx->storage_mtx);
+            if (e && *e) {
+                fprintf(stderr, "[T%lld] read error idx=%lld off=%lld: %s\n", (long long)w->tid, (long long)idx, (long long)off, e);
+                dio_mt_set_failed(ctx);
+                pthread_mutex_unlock(&ctx->stripes[si]);
+                FREE(payload);
+                return (void *)1;
+            }
+            int n = rb->remaining(rb);
+            if ((u32)n != len) {
+                fprintf(stderr, "[T%lld] len mismatch idx=%lld off=%lld got=%d expected=%u\n", (long long)w->tid, (long long)idx, (long long)off, n, (unsigned)len);
+                rb->free(rb);
+                dio_mt_set_failed(ctx);
+                pthread_mutex_unlock(&ctx->stripes[si]);
+                FREE(payload);
+                return (void *)1;
+            }
+            char *p = rb->array_get(rb, (u32)n, NULL);
+            u64 h = fnv1a64(p, (size_t)n);
+            if (h != expect) {
+                fprintf(stderr, "[T%lld] hash mismatch idx=%lld off=%lld\n", (long long)w->tid, (long long)idx, (long long)off);
+                rb->free(rb);
+                dio_mt_set_failed(ctx);
+                pthread_mutex_unlock(&ctx->stripes[si]);
+                FREE(payload);
+                return (void *)1;
+            }
+            rb->free(rb);
+            pthread_mutex_unlock(&ctx->stripes[si]);
+            w->reads++;
+        } else if (r < 90) {
+            // Overwrite at same offset
+            pthread_mutex_lock(&ctx->stripes[si]);
+            i64 off = ctx->offs[idx];
+            ctx->vers[idx]++;
+            u32 ver = ctx->vers[idx];
+            u32 len = (u32)(16 + (xorshift64(&w->rng) % (u64)(ctx->max_payload - 16)));
+            int actual = build_payload(payload, (size_t)ctx->max_payload + 64, idx, ver, len);
+            if (actual < 0) {
+                fprintf(stderr, "[T%lld] payload build failed\n", (long long)w->tid);
+                dio_mt_set_failed(ctx);
+                pthread_mutex_unlock(&ctx->stripes[si]);
+                FREE(payload);
+                return (void *)1;
+            }
+            buffer_wrap(payload, (u32)actual, &bb);
+            char *e = NULL;
+            if (ctx->lock_storage) pthread_mutex_lock(&ctx->storage_mtx);
+            (void)ctx->s->write_at(ctx->s, off, &bb, &e);
+            if (ctx->lock_storage) pthread_mutex_unlock(&ctx->storage_mtx);
+            if (e && *e) {
+                fprintf(stderr, "[T%lld] write_at error idx=%lld off=%lld: %s\n", (long long)w->tid, (long long)idx, (long long)off, e);
+                dio_mt_set_failed(ctx);
+                pthread_mutex_unlock(&ctx->stripes[si]);
+                FREE(payload);
+                return (void *)1;
+            }
+            ctx->lens[idx] = (u32)actual;
+            ctx->hashes[idx] = fnv1a64(payload, (size_t)actual);
+            pthread_mutex_unlock(&ctx->stripes[si]);
+            w->overwrites++;
+        } else {
+            // Delete then insert new record (free-list reuse)
+            pthread_mutex_lock(&ctx->stripes[si]);
+            i64 off = ctx->offs[idx];
+            char *e = NULL;
+            if (ctx->lock_storage) pthread_mutex_lock(&ctx->storage_mtx);
+            (void)ctx->s->delete(ctx->s, off, &e);
+            if (ctx->lock_storage) pthread_mutex_unlock(&ctx->storage_mtx);
+            if (e && *e) {
+                fprintf(stderr, "[T%lld] delete error idx=%lld off=%lld: %s\n", (long long)w->tid, (long long)idx, (long long)off, e);
+                dio_mt_set_failed(ctx);
+                pthread_mutex_unlock(&ctx->stripes[si]);
+                FREE(payload);
+                return (void *)1;
+            }
+
+            ctx->vers[idx]++;
+            u32 ver = ctx->vers[idx];
+            u32 len = (u32)(16 + (xorshift64(&w->rng) % (u64)(ctx->max_payload - 16)));
+            int actual = build_payload(payload, (size_t)ctx->max_payload + 64, idx, ver, len);
+            if (actual < 0) {
+                fprintf(stderr, "[T%lld] payload build failed\n", (long long)w->tid);
+                dio_mt_set_failed(ctx);
+                pthread_mutex_unlock(&ctx->stripes[si]);
+                FREE(payload);
+                return (void *)1;
+            }
+            buffer_wrap(payload, (u32)actual, &bb);
+
+            e = NULL;
+            if (ctx->lock_storage) pthread_mutex_lock(&ctx->storage_mtx);
+            i64 new_off = ctx->s->write(ctx->s, &bb, &e);
+            if (ctx->lock_storage) pthread_mutex_unlock(&ctx->storage_mtx);
+            if (e && *e) {
+                fprintf(stderr, "[T%lld] write error after delete idx=%lld: %s\n", (long long)w->tid, (long long)idx, e);
+                dio_mt_set_failed(ctx);
+                pthread_mutex_unlock(&ctx->stripes[si]);
+                FREE(payload);
+                return (void *)1;
+            }
+            ctx->offs[idx] = new_off;
+            ctx->lens[idx] = (u32)actual;
+            ctx->hashes[idx] = fnv1a64(payload, (size_t)actual);
+            pthread_mutex_unlock(&ctx->stripes[si]);
+            w->deletes++;
+        }
+    }
+
+    FREE(payload);
+    if (dio_mt_is_failed(ctx)) return (void *)1;
+    return NULL;
+}
+
+int main(int argc, char **argv) {
+    int threads = 4;
+    i64 N_init = 50000;
+    i64 M_ops = 200000;
+    unsigned seed = 42;
+    int lock_storage = 1;
+    if (argc >= 2) {
+        int t = atoi(argv[1]);
+        if (t > 0) threads = t;
+    }
+    if (argc >= 3) {
+        long long t = atoll(argv[2]);
+        if (t > 0) N_init = (i64)t;
+    }
+    if (argc >= 4) {
+        long long t = atoll(argv[3]);
+        if (t > 0) M_ops = (i64)t;
+    }
+    if (argc >= 5) {
+        long long t = atoll(argv[4]);
+        if (t >= 0) seed = (unsigned)t;
+    }
+    if (argc >= 6) {
+        int t = atoi(argv[5]);
+        if (t == 0 || t == 1) lock_storage = t;
+    }
+
+    struct storage_opts opts = {
+        .file = "./temp/storage_dio_random_mt.bin",
+        .mode = FLINTDB_RDWR,
+        .block_bytes = 512 - 16,
+        .type = TYPE_DIO,
+    };
+    unlink(opts.file);
+
+    char *e = NULL;
+    struct storage s = {0};
+    int ok = storage_open(&s, opts, &e);
+    assert(ok == 0);
+
+    dio_mt_ctx ctx = {0};
+    ctx.s = &s;
+    ctx.N = N_init;
+    ctx.ops = (threads > 0) ? (M_ops / (i64)threads) : M_ops;
+    ctx.max_payload = (u32)opts.block_bytes * 3u;
+    ctx.lock_storage = lock_storage;
+    ctx.failed = 0;
+
+    if (lock_storage == 0) {
+        fprintf(stderr, "NOTE: lock_storage=0 is intentionally unsafe; failures are expected (storage is not thread-safe).\n");
+    }
+
+    ctx.offs = (i64 *)CALLOC((size_t)N_init, sizeof(i64));
+    ctx.hashes = (u64 *)CALLOC((size_t)N_init, sizeof(u64));
+    ctx.lens = (u32 *)CALLOC((size_t)N_init, sizeof(u32));
+    ctx.vers = (u32 *)CALLOC((size_t)N_init, sizeof(u32));
+    assert(ctx.offs && ctx.hashes && ctx.lens && ctx.vers);
+
+    ctx.stripe_n = 1024;
+    ctx.stripes = (pthread_mutex_t *)CALLOC((size_t)ctx.stripe_n, sizeof(pthread_mutex_t));
+    assert(ctx.stripes);
+    for (int i = 0; i < ctx.stripe_n; i++) {
+        pthread_mutex_init(&ctx.stripes[i], NULL);
+    }
+    pthread_mutex_init(&ctx.storage_mtx, NULL);
+
+    // Initial population (single-threaded)
+    char *payload = (char *)MALLOC((size_t)ctx.max_payload + 64);
+    assert(payload);
+    struct buffer bb = {0};
+    STOPWATCH_START(w_init);
+    u64 rng = ((u64)seed << 1) ^ 0x9e3779b97f4a7c15ull;
+    for (i64 i = 0; i < N_init; i++) {
+        u32 len = (u32)(16 + (xorshift64(&rng) % (u64)(ctx.max_payload - 16)));
+        ctx.vers[i] = 1;
+        int actual = build_payload(payload, (size_t)ctx.max_payload + 64, i, ctx.vers[i], len);
+        if (actual < 0) abort();
+        buffer_wrap(payload, (u32)actual, &bb);
+        ctx.offs[i] = s.write(&s, &bb, &e);
+        if (e && *e) {
+            fprintf(stderr, "init write error: %s\n", e);
+            abort();
+        }
+        ctx.lens[i] = (u32)actual;
+        ctx.hashes[i] = fnv1a64(payload, (size_t)actual);
+    }
+    printf("init: %lld writes, %lldms\n", (long long)N_init, (long long)time_elapsed(&w_init));
+    FREE(payload);
+
+    // Run workers
+    pthread_t *tids = (pthread_t *)CALLOC((size_t)threads, sizeof(pthread_t));
+    dio_mt_worker *workers = (dio_mt_worker *)CALLOC((size_t)threads, sizeof(dio_mt_worker));
+    assert(tids && workers);
+
+    STOPWATCH_START(w_ops);
+    for (int i = 0; i < threads; i++) {
+        workers[i].ctx = &ctx;
+        workers[i].tid = i;
+        workers[i].rng = (((u64)seed + (u64)i * 1315423911ull) ^ 0xD1B54A32D192ED03ull);
+        pthread_create(&tids[i], NULL, dio_mt_run, &workers[i]);
+    }
+    for (int i = 0; i < threads; i++) {
+        void *ret = NULL;
+        pthread_join(tids[i], &ret);
+        if (ret != NULL) dio_mt_set_failed(&ctx);
+    }
+    u64 ms_ops = time_elapsed(&w_ops);
+
+    i64 reads = 0, overwrites = 0, deletes = 0;
+    for (int i = 0; i < threads; i++) {
+        reads += workers[i].reads;
+        overwrites += workers[i].overwrites;
+        deletes += workers[i].deletes;
+    }
+    i64 total_ops = (i64)threads * ctx.ops;
+    printf("mt ops: %lld total, %lldms, %.0f ops/sec (threads=%d lock_storage=%d reads=%lld overwrites=%lld delete+insert=%lld)\n",
+           (long long)total_ops, (long long)ms_ops, (double)total_ops / ((double)ms_ops / 1000.0),
+           threads, lock_storage, (long long)reads, (long long)overwrites, (long long)deletes);
+
+    // Final verify some slots (skip if already failed)
+    if (!dio_mt_is_failed(&ctx))
+    rng = ((u64)seed << 1) ^ 0xA0761D6478BD642Full;
+    for (int j = 0; j < 50; j++) {
+        i64 idx = (i64)(xorshift64(&rng) % (u64)(ctx.N > 0 ? ctx.N : 1));
+        int si = stripe_index(&ctx, idx);
+        pthread_mutex_lock(&ctx.stripes[si]);
+        i64 off = ctx.offs[idx];
+        u32 len = ctx.lens[idx];
+        u64 expect = ctx.hashes[idx];
+        char *e2 = NULL;
+        if (ctx.lock_storage) pthread_mutex_lock(&ctx.storage_mtx);
+        struct buffer *rb = s.read(&s, off, &e2);
+        if (ctx.lock_storage) pthread_mutex_unlock(&ctx.storage_mtx);
+        if (e2 && *e2) {
+            fprintf(stderr, "final read error idx=%lld off=%lld: %s\n", (long long)idx, (long long)off, e2);
+            dio_mt_set_failed(&ctx);
+            pthread_mutex_unlock(&ctx.stripes[si]);
+            break;
+        }
+        int n = rb->remaining(rb);
+        char *p = rb->array_get(rb, (u32)n, NULL);
+        u64 h = fnv1a64(p, (size_t)n);
+        if ((u32)n != len || h != expect) {
+            fprintf(stderr, "final verify failed idx=%lld off=%lld\n", (long long)idx, (long long)off);
+            rb->free(rb);
+            dio_mt_set_failed(&ctx);
+            pthread_mutex_unlock(&ctx.stripes[si]);
+            break;
+        }
+        rb->free(rb);
+        pthread_mutex_unlock(&ctx.stripes[si]);
+    }
+
+    s.close(&s);
+    for (int i = 0; i < ctx.stripe_n; i++) pthread_mutex_destroy(&ctx.stripes[i]);
+    pthread_mutex_destroy(&ctx.storage_mtx);
+
+    FREE(ctx.stripes);
+    FREE(ctx.offs);
+    FREE(ctx.hashes);
+    FREE(ctx.lens);
+    FREE(ctx.vers);
+    FREE(tids);
+    FREE(workers);
+    unlink(opts.file);
+    PRINT_MEMORY_LEAK_INFO();
+    if (dio_mt_is_failed(&ctx)) {
+        fprintf(stderr, "TESTCASE_STORAGE_DIO_RANDOM_MT: FAILED (lock_storage=%d)\n", lock_storage);
+        return 2;
+    }
+    return 0;
+}
+
+#endif // TESTCASE_STORAGE_DIO_RANDOM_MT
+
 #ifdef TESTCASE_BPLUSTREE
 // ./testcase.sh TESTCASE_BPLUSTREE
 

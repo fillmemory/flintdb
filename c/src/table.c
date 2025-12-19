@@ -1389,6 +1389,7 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
         .compact = m.compact,
     };
     strncpy(opts.file, file, sizeof(opts.file)-1);
+    strncpy(opts.type, strempty(m.storage) ? "" : m.storage, sizeof(opts.type)-1);
     
     char wal_file[PATH_MAX] = {0};
     snprintf(wal_file, sizeof(wal_file), "%s%s", file, ".wal");
@@ -1477,6 +1478,17 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
     table->read = table_read;
     table->read_stream = table_read_stream;
     table->close = table_close;
+
+    DEBUG("table: %s (mode=%d) meta: columns=%d indexes=%d cache=%d storage=%s wal=%s increment=%lld", 
+        file, 
+        mode, 
+        priv->meta.columns.length, 
+        priv->meta.indexes.length, 
+        cache_limit, 
+        priv->meta.storage, 
+        priv->meta.wal,
+        priv->meta.increment
+    );
     return table;
 
     EXCEPTION:

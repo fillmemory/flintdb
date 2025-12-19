@@ -773,6 +773,11 @@ EXCEPTION:
 
 static struct buffer_pool *g_dio_read_pool = NULL;
 
+// Batch size in pages for sequential DIO writes (must be >= 1).
+#ifndef DIO_WRITE_BATCH_PAGES
+#define DIO_WRITE_BATCH_PAGES 8
+#endif
+
 static inline struct buffer_pool *storage_dio_read_pool(void) {
     if (!g_dio_read_pool) {
         // Keep this pool global for process lifetime to avoid UAF if a caller frees
@@ -783,6 +788,41 @@ static inline struct buffer_pool *storage_dio_read_pool(void) {
 }
 
 static inline i64 storage_dio_file_offset(struct storage *me, i64 index);
+static void storage_dio_file_inflate(struct storage *me, i64 index, struct buffer *out);
+
+static inline void storage_dio_flush_wbatch(struct storage *me, char **e) {
+    if (!me || me->opts.mode != FLINTDB_RDWR) return;
+    if (!me->dio_wbatch || me->dio_wbatch_count == 0) return;
+
+    // Ensure chunks spanning the batch are inflated.
+    storage_dio_file_inflate(me, me->dio_wbatch_base, NULL);
+    storage_dio_file_inflate(me, me->dio_wbatch_base + (i64)me->dio_wbatch_count - 1, NULL);
+
+    i64 file_offset = storage_dio_file_offset(me, me->dio_wbatch_base);
+    size_t nbytes = (size_t)me->dio_wbatch_count * (size_t)me->block_bytes;
+    ssize_t written = pwrite(me->fd, me->dio_wbatch, nbytes, file_offset);
+    if (written < 0) {
+        THROW(e, "pwrite(batch) failed at offset %lld: %s", file_offset, strerror(errno));
+    }
+    if ((size_t)written != nbytes) {
+        THROW(e, "pwrite(batch) incomplete: wrote %zd of %zu bytes at offset %lld", written, nbytes, file_offset);
+    }
+
+    me->dio_wbatch_count = 0;
+    return;
+
+EXCEPTION:
+    return;
+}
+
+static inline void storage_dio_wbatch_read_through(struct storage *me, i64 offset, void *dst) {
+    // If the requested block is currently buffered but not flushed, serve it from memory.
+    if (!me || !me->dio_wbatch || me->dio_wbatch_count == 0) return;
+    if (offset < me->dio_wbatch_base) return;
+    i64 rel = offset - me->dio_wbatch_base;
+    if (rel < 0 || (u64)rel >= (u64)me->dio_wbatch_count) return;
+    memcpy(dst, (char *)me->dio_wbatch + ((size_t)rel * (size_t)me->block_bytes), (size_t)me->block_bytes);
+}
 
 static inline void *storage_dio_get_aligned(struct storage *me, u32 size, void **slot, u32 *slot_size, char **e) {
     if (*slot && slot_size && *slot_size >= size) {
@@ -820,6 +860,14 @@ static inline void storage_dio_pread_into(struct storage *me, i64 offset, void *
     assert(me != NULL);
     assert(me->fd != -1);
     assert(dst != NULL);
+
+    // Read-through from pending write batch (same process visibility)
+    storage_dio_wbatch_read_through(me, offset, dst);
+    // If it matched, the first byte (status) will already be set/non-zero for valid blocks.
+    // We can't reliably detect misses by content, so use range check again.
+    if (me && me->dio_wbatch && me->dio_wbatch_count > 0 && offset >= me->dio_wbatch_base && offset < (me->dio_wbatch_base + (i64)me->dio_wbatch_count)) {
+        return;
+    }
 
     i64 file_offset = storage_dio_file_offset(me, offset);
     ssize_t nread = pread(me->fd, dst, me->block_bytes, file_offset);
@@ -948,18 +996,21 @@ static struct buffer * storage_dio_read(struct storage *me, i64 offset, char **e
     assert(me->fd != -1);
 
     const int BLOCK_DATA_BYTES = me->opts.block_bytes;
-    char *local_e = NULL;
-    void *scratch = storage_dio_get_aligned(me, (u32)me->block_bytes, &me->dio_scratch, NULL, &local_e);
-    if (local_e && *local_e) {
-        THROW(e, "%s", local_e);
-    }
+    struct buffer *result = NULL;
+    void *scratch = storage_dio_get_aligned(me, (u32)me->block_bytes, &me->dio_scratch, NULL, e);
+    if (e && *e) THROW_S(e);
 
     i64 curr = offset;
     i32 total_len = -1;
-    struct buffer *result = NULL;
+    i32 appended = 0;
+    i64 steps = 0;
+    i64 max_steps = 1024; // updated once total_len is known
     struct buffer_pool *pool = storage_dio_read_pool();
 
     while (1) {
+        if (++steps > max_steps) {
+            THROW(e, "DIO read chain too long (possible cycle/corruption) at offset %lld", offset);
+        }
         storage_dio_file_inflate(me, curr, NULL);
         storage_dio_pread_into(me, curr, scratch, e);
         if (e && *e) THROW_S(e);
@@ -984,8 +1035,20 @@ static struct buffer * storage_dio_read(struct storage *me, i64 offset, char **e
         i64 next = bb.i64_get(&bb, e);
         if (e && *e) THROW_S(e);
 
+        if (limit < 0 || limit > BLOCK_DATA_BYTES) {
+            THROW(e, "DIO read invalid limit=%d at offset %lld", (int)limit, curr);
+        }
+        if (length < 0) {
+            THROW(e, "DIO read invalid length=%d at offset %lld", (int)length, curr);
+        }
+
         if (total_len < 0) {
             total_len = length;
+            // Derive an upper bound for the expected chain length.
+            // (total_len is total payload bytes, each block contributes <= BLOCK_DATA_BYTES)
+            max_steps = (i64)((total_len + BLOCK_DATA_BYTES - 1) / BLOCK_DATA_BYTES) + 8;
+            if (max_steps < 8) max_steps = 8;
+
             if (next <= NEXT_END || length <= BLOCK_DATA_BYTES) {
                 // Non-overflow: copy out exactly `limit` bytes.
                 result = pool ? pool->borrow(pool, (u32)limit) : buffer_alloc((u32)limit);
@@ -1007,9 +1070,17 @@ static struct buffer * storage_dio_read(struct storage *me, i64 offset, char **e
         struct buffer s = {0};
         bb.slice(&bb, 0, limit, &s, e);
         if (e && *e) THROW_S(e);
+        if (appended + (i32)s.remaining(&s) > total_len) {
+            THROW(e, "DIO read overflow/corruption: appended=%d + chunk=%d > total=%d at offset %lld", appended, (int)s.remaining(&s), total_len, offset);
+        }
         result->array_put(result, s.array, (u32)s.remaining(&s), NULL);
+        appended += (i32)s.remaining(&s);
 
         if (next <= NEXT_END) {
+            if (appended != total_len) {
+                // Don't silently return partial data.
+                THROW(e, "DIO read length mismatch: got=%d expected=%d at offset %lld", appended, total_len, offset);
+            }
             result->flip(result);
             return result;
         }
@@ -1022,15 +1093,24 @@ EXCEPTION:
 }
 
 static i32 storage_dio_delete(struct storage *me, i64 offset, char **e) {
-    char *local_e = NULL;
-    void *scratch = storage_dio_get_aligned(me, (u32)me->block_bytes, &me->dio_scratch, NULL, &local_e);
-    if (local_e && *local_e) {
-        THROW(e, "%s", local_e);
-    }
+    const int BLOCK_DATA_BYTES = me->opts.block_bytes;
+    void *scratch = storage_dio_get_aligned(me, (u32)me->block_bytes, &me->dio_scratch, NULL, e);
+    if (e && *e) THROW_S(e);
+
+    // Ensure any pending sequential writes are persisted before delete.
+    storage_dio_flush_wbatch(me, e);
+    if (e && *e) THROW_S(e);
 
     i64 curr = offset;
     int deleted_any = 0;
+    i64 steps = 0;
+    // Guard to avoid infinite loops under corruption/concurrent races.
+    // We derive a tight bound from the record's stored `length` on the first block.
+    i64 max_steps = 0;
     while (curr > NEXT_END) {
+        if (max_steps > 0 && ++steps > max_steps) {
+            THROW(e, "DIO delete chain too long (possible cycle/corruption) at offset %lld", offset);
+        }
         storage_dio_file_inflate(me, curr, NULL);
         storage_dio_pread_into(me, curr, scratch, e);
         if (e && *e) THROW_S(e);
@@ -1040,13 +1120,40 @@ static i32 storage_dio_delete(struct storage *me, i64 offset, char **e) {
 
         u8 status = bb.i8_get(&bb, e);
         if (e && *e) THROW_S(e);
-        bb.i8_get(&bb, NULL);
+        u8 mark = bb.i8_get(&bb, NULL);
         bb.i16_get(&bb, NULL);
-        bb.i32_get(&bb, NULL);
+        i32 length = bb.i32_get(&bb, NULL);
         i64 next = bb.i64_get(&bb, NULL);
+
+        if (next == curr) {
+            THROW(e, "DIO delete self-cycle at offset %lld", curr);
+        }
 
         if (STATUS_SET != status) {
             break;
+        }
+
+        if (max_steps == 0) {
+            if (length < 0) {
+                THROW(e, "DIO delete invalid length=%d at offset %lld", (int)length, curr);
+            }
+            max_steps = (i64)((length + BLOCK_DATA_BYTES - 1) / BLOCK_DATA_BYTES) + 8;
+            if (max_steps < 8) max_steps = 8;
+            // Now that we have a bound, count this first step.
+            steps = 1;
+        }
+
+        // Validate chain marks to avoid following junk pointers.
+        // Note: delete() is used both for deleting a record (starts at MARK_AS_DATA)
+        // and for cleaning up an overflow chain (starts at MARK_AS_NEXT).
+        if (curr == offset) {
+            if (mark != MARK_AS_DATA && mark != MARK_AS_NEXT) {
+                THROW(e, "DIO delete invalid mark at offset %lld", curr);
+            }
+        } else {
+            if (mark != MARK_AS_NEXT) {
+                THROW(e, "DIO delete invalid mark at offset %lld", curr);
+            }
         }
 
         // Rewrite header as free-list node.
@@ -1091,11 +1198,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
     i32 remaining = in->remaining(in);
     i64 next_last = NEXT_END;
 
-    char *local_e = NULL;
-    void *scratch = storage_dio_get_aligned(me, (u32)me->block_bytes, &me->dio_scratch, NULL, &local_e);
-    if (local_e && *local_e) {
-        THROW(e, "%s", local_e);
-    }
+    void *scratch = storage_dio_get_aligned(me, (u32)me->block_bytes, &me->dio_scratch, NULL, e);
+    if (e && *e) THROW_S(e);
 
     storage_dio_file_inflate(me, offset, NULL);
 
@@ -1107,6 +1211,12 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
         i64 next = curr + 1;
 
         int tail_fast = (curr == me->free && curr == me->count);
+
+        // If we're about to do a non-tail write (overwrite/random), flush pending sequential batch first.
+        if (!tail_fast && me->dio_wbatch_count > 0) {
+            storage_dio_flush_wbatch(me, e);
+            if (e && *e) THROW_S(e);
+        }
         if (!tail_fast) {
             storage_dio_file_inflate(me, curr, NULL);
             storage_dio_pread_into(me, curr, scratch, e);
@@ -1161,12 +1271,44 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
             p.array_put(&p, me->clean, (u32)pad, NULL);
         }
 
-        storage_dio_pwrite_from(me, curr, scratch, e);
-        if (e && *e) THROW_S(e);
+        // PERF: for virgin tail sequential allocation, buffer contiguous blocks and flush in batches.
+        if (tail_fast && me->dio_wbatch && me->dio_wbatch_blocks > 0) {
+            if (me->dio_wbatch_count == 0) {
+                me->dio_wbatch_base = curr;
+            }
+            // If not contiguous with current batch, flush and start a new batch.
+            if (curr != (me->dio_wbatch_base + (i64)me->dio_wbatch_count)) {
+                storage_dio_flush_wbatch(me, e);
+                if (e && *e) THROW_S(e);
+                me->dio_wbatch_base = curr;
+                me->dio_wbatch_count = 0;
+            }
+            // Flush if batch full.
+            if (me->dio_wbatch_count >= me->dio_wbatch_blocks) {
+                storage_dio_flush_wbatch(me, e);
+                if (e && *e) THROW_S(e);
+                me->dio_wbatch_base = curr;
+                me->dio_wbatch_count = 0;
+            }
+            memcpy((char *)me->dio_wbatch + ((size_t)me->dio_wbatch_count * (size_t)me->block_bytes), scratch, (size_t)me->block_bytes);
+            me->dio_wbatch_count++;
+
+            // Opportunistically flush when full.
+            if (me->dio_wbatch_count >= me->dio_wbatch_blocks) {
+                storage_dio_flush_wbatch(me, e);
+                if (e && *e) THROW_S(e);
+            }
+        } else {
+            storage_dio_pwrite_from(me, curr, scratch, e);
+            if (e && *e) THROW_S(e);
+        }
 
         remaining -= chunk;
         next_last = next;
         if (remaining <= 0) {
+            // Ensure any buffered writes are flushed before updating header.
+            storage_dio_flush_wbatch(me, e);
+            if (e && *e) THROW_S(e);
             // Only clean up an existing overflow chain when overwriting an already-set block.
             // For freshly allocated blocks, `next_last` is the free-list link.
             if (was_set && next_last > NEXT_END && next_last != curr) {
@@ -1200,6 +1342,8 @@ static i64 storage_dio_write_at(struct storage *me, i64 offset, struct buffer *i
 }
 
 static void storage_dio_close(struct storage *me) {
+        // Flush any pending sequential writes before closing.
+        storage_dio_flush_wbatch(me, NULL);
     assert(me != NULL);
     if (me->fd <= 0) return;
 
@@ -1237,6 +1381,14 @@ static void storage_dio_close(struct storage *me) {
         me->dio_chunk = NULL;
         me->dio_chunk_bytes = 0;
     }
+    if (me->dio_wbatch) {
+        FREE(me->dio_wbatch);
+        me->dio_wbatch = NULL;
+        me->dio_wbatch_bytes = 0;
+        me->dio_wbatch_blocks = 0;
+        me->dio_wbatch_count = 0;
+        me->dio_wbatch_base = 0;
+    }
     me->dio_last_inflated_chunk = -1;
     me->fd = -1;
 }
@@ -1264,6 +1416,26 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
 
     me->dio_last_inflated_chunk = -1;
 
+    // Initialize sequential write batch buffer.
+    me->dio_wbatch = NULL;
+    me->dio_wbatch_bytes = 0;
+    me->dio_wbatch_blocks = 0;
+    me->dio_wbatch_count = 0;
+    me->dio_wbatch_base = 0;
+
+    // Allocate an aligned write batch sized to whole pages.
+    // This targets write-heavy workloads by reducing pwrite syscalls.
+    u32 pages = (DIO_WRITE_BATCH_PAGES <= 0) ? 1u : (u32)DIO_WRITE_BATCH_PAGES;
+    u32 batch_bytes = (u32)OS_PAGE_SIZE * pages;
+    if (batch_bytes < (u32)me->block_bytes) batch_bytes = (u32)me->block_bytes;
+    batch_bytes = (batch_bytes / (u32)me->block_bytes) * (u32)me->block_bytes;
+    if (batch_bytes == 0) batch_bytes = (u32)me->block_bytes;
+    void *wb = storage_dio_get_aligned(me, batch_bytes, &me->dio_wbatch, &me->dio_wbatch_bytes, e);
+    if (e && *e) THROW_S(*e);
+    (void)wb;
+    me->dio_wbatch_blocks = (u32)(me->dio_wbatch_bytes / (u32)me->block_bytes);
+    me->dio_wbatch_count = 0;
+
     char dir[PATH_MAX] = {0};
     getdir(me->opts.file, dir);
     mkdirs(dir, S_IRWXU);
@@ -1280,8 +1452,16 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
         fcntl(me->fd, F_SETFL, O_DIRECT);
     #endif
     #ifdef __APPLE__
-        // macOS: Use F_NOCACHE to avoid caching
-        fcntl(me->fd, F_NOCACHE, 1);
+        // macOS: optionally disable OS cache.
+        // Default keeps previous behavior (nocache enabled). Set FLINTDB_DIO_NOCACHE=0 to allow caching for speed.
+        int nocache = 1;
+        const char *env_nocache = getenv("FLINTDB_DIO_NOCACHE");
+        if (env_nocache && (strcmp(env_nocache, "0") == 0 || strcasecmp(env_nocache, "false") == 0 || strcasecmp(env_nocache, "off") == 0)) {
+            nocache = 0;
+        }
+        if (nocache) {
+            fcntl(me->fd, F_NOCACHE, 1);
+        }
     #endif
 
     int bytes = file_length(me->opts.file);
@@ -1374,6 +1554,7 @@ int storage_open(struct storage * me, struct storage_opts opts, char **e) {
     ) 
         return storage_compression_open(me, opts, e);
 
+    // printf("storage type: %s\n", opts.type);
     if (strncasecmp(opts.type, TYPE_DIO, sizeof(TYPE_DIO)-1) == 0)
         return storage_dio_open(me, opts, e);
 

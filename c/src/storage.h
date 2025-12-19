@@ -43,6 +43,13 @@ struct storage {
     void *dio_chunk;   // aligned, size=mmap_bytes (chunk init)
     u32 dio_chunk_bytes;
 
+    // Sequential write batching (TYPE_DIO): accumulate contiguous blocks and flush with one pwrite.
+    void *dio_wbatch;         // aligned buffer, size=dio_wbatch_bytes
+    u32 dio_wbatch_bytes;     // total bytes in dio_wbatch
+    u32 dio_wbatch_blocks;    // capacity in blocks
+    u32 dio_wbatch_count;     // number of blocks currently buffered
+    i64 dio_wbatch_base;      // base block index for buffered range
+
     // Cache the most recently inflated chunk index to avoid repeated probe syscalls.
     i64 dio_last_inflated_chunk;
 

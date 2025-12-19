@@ -34,6 +34,14 @@ while [[ $# -gt 0 ]]; do
 			WAL_OPTION="${1#-wal=}"
 			shift
 			;;
+		-storage)
+			STORAGE_OPTION="STORAGE=$2"
+			shift 2
+			;;
+		-storage=*)
+			STORAGE_OPTION="STORAGE=${1#-storage=}"
+			shift 2
+			;;
 		*)
 			shift
 			;;
@@ -91,11 +99,11 @@ CREATE TABLE ../temp/c/tpch_lineitem.flintdb (
 	l_comment      STRING(44),
 	
 	PRIMARY KEY (l_orderkey, l_linenumber)
-) CACHE=256K, WAL=${WAL_OPTION}, WAL_CHECKPOINT_INTERVAL=10000000, WAL_BATCH_SIZE=500000, WAL_COMPRESSION_THRESHOLD=8K, WAL_SYNC=OFF, WAL_BUFFER_SIZE=256M, WAL_PAGE_DATA=OFF
+) CACHE=256K, WAL=${WAL_OPTION}, WAL_CHECKPOINT_INTERVAL=10000000, WAL_BATCH_SIZE=500000, WAL_COMPRESSION_THRESHOLD=8K, WAL_SYNC=OFF, WAL_BUFFER_SIZE=256M, WAL_PAGE_DATA=OFF, ${STORAGE_OPTION}
 EOF
 )
 # WAL=NONE|TRUNCATE|LOG
-echo "CREATE TABLE"
+echo "CREATE TABLE " $SQL_CREATE_TABLE
 ./bin/flintdb "$SQL_CREATE_TABLE" -status
 
 
