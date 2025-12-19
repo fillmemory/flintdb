@@ -22,8 +22,7 @@ static void flintdb_cleanup_atexit(void) {
     char *e = NULL;
     flintdb_cleanup(&e);
     if (e) {
-        fprintf(stderr, "FlintDB cleanup error: %s\n", e);
-        free(e);
+        WARN("FlintDB cleanup error: %s", e);
     }
 }
 
