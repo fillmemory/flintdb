@@ -1405,12 +1405,17 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     if (!me)
         return -1;
 
-    me->block_bytes = (opts.compact <= 0) ? (BLOCK_HEADER_BYTES + opts.block_bytes) : (BLOCK_HEADER_BYTES + (opts.compact));
+    // DIO requires alignment to sector size (typically 512 bytes)
+    #define DIO_SECTOR_SIZE 512
+    i32 raw_block_bytes = (opts.compact <= 0) ? (BLOCK_HEADER_BYTES + opts.block_bytes) : (BLOCK_HEADER_BYTES + (opts.compact));
+    // Round up to DIO_SECTOR_SIZE alignment
+    me->block_bytes = ((raw_block_bytes + DIO_SECTOR_SIZE - 1) / DIO_SECTOR_SIZE) * DIO_SECTOR_SIZE;
     me->clean = CALLOC(1, me->block_bytes);
     me->increment = (opts.increment <= 0) ? DEFAULT_INCREMENT_BYTES : opts.increment;
     me->mmap_bytes = me->block_bytes * (me->increment / me->block_bytes);
     assert(me->increment % OS_PAGE_SIZE == 0); // O_DIRECT requires aligned sizes
     assert(me->mmap_bytes % OS_PAGE_SIZE == 0); // O_DIRECT requires aligned sizes
+    assert(me->block_bytes % DIO_SECTOR_SIZE == 0); // O_DIRECT requires sector-aligned block sizes
 
     memcpy(&me->opts, &opts, sizeof(struct storage_opts));
 
@@ -1428,8 +1433,11 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     u32 pages = (DIO_WRITE_BATCH_PAGES <= 0) ? 1u : (u32)DIO_WRITE_BATCH_PAGES;
     u32 batch_bytes = (u32)OS_PAGE_SIZE * pages;
     if (batch_bytes < (u32)me->block_bytes) batch_bytes = (u32)me->block_bytes;
+    // Ensure batch_bytes is a multiple of block_bytes AND sector-aligned
     batch_bytes = (batch_bytes / (u32)me->block_bytes) * (u32)me->block_bytes;
     if (batch_bytes == 0) batch_bytes = (u32)me->block_bytes;
+    // Final alignment check for DIO
+    assert(batch_bytes % DIO_SECTOR_SIZE == 0);
     void *wb = storage_dio_get_aligned(me, batch_bytes, &me->dio_wbatch, &me->dio_wbatch_bytes, e);
     if (e && *e) THROW_S(*e);
     (void)wb;
