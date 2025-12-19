@@ -223,7 +223,7 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
 
     char buf[65536]; // General purpose buffer (increased for large SQL output like META)
     size_t buf_len = sizeof(buf);
-    char num_buf[64], time_buf[64]; // For formatting numbers and time
+    char num_buf[64], time_buf[64], ops_buf[64]; // For formatting numbers and time
 
     // Parse arguments
     for (int i = 1; i < argc; i++) {
@@ -321,6 +321,7 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
         STOPWATCH_START(watch);
         result = flintdb_sql_exec(stmt, transaction, e);
         time_dur(time_elapsed(&watch), time_buf, sizeof(time_buf));
+        snprintf(ops_buf, sizeof(ops_buf), "%.0f", result ? time_ops(result->affected, &watch) : 0);
 
         FREE(stmt); // Free statement after execution
 
@@ -451,7 +452,10 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
 
             if (status) {
                 format_number(num_buf, sizeof(num_buf), affected);
-                snprintf(buf, sizeof(buf), "%s rows affected, %s\n", num_buf, time_buf);
+                if (affected < 2)
+                    snprintf(buf, sizeof(buf), "%s rows affected, %s\n", num_buf, time_buf);
+                else
+                    snprintf(buf, sizeof(buf), "%s rows affected, %s, %sops\n", num_buf, time_buf, ops_buf);
                 bufio_print(bufout, buf, e);
             }
         }
