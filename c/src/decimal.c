@@ -147,7 +147,9 @@ int flintdb_decimal_to_string(const struct flintdb_decimal  *d, char *buf, size_
             // Determine sign from MSB (two's complement)
             const u8 *p = (const u8 *)d->data;
             u32 n = d->length;
-            int neg = (p[n - 1] & 0x80) ? 1 : 0;
+            // Clamp n to the maximum size of mag buffer (and data field)
+            if (n > 16) n = 16;
+            int neg = (n > 0 && (p[n - 1] & 0x80)) ? 1 : 0;
             
             u8 mag[16];
             simd_memcpy(mag, p, n);
