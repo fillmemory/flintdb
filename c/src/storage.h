@@ -37,6 +37,15 @@ struct storage {
     int mmap_bytes; // mmap size
     int mem_bytes;  // memory buffer size (for memory storage)
     char *clean; // zeroed block buffer
+
+    // Direct I/O scratch buffers (allocated only for TYPE_DIO)
+    void *dio_scratch; // aligned, size=block_bytes
+    void *dio_chunk;   // aligned, size=mmap_bytes (chunk init)
+    u32 dio_chunk_bytes;
+
+    // Cache the most recently inflated chunk index to avoid repeated probe syscalls.
+    i64 dio_last_inflated_chunk;
+
     i64 free; // The front of deleted blocks (allocatable)
     int dirty; // dirty write counter
 
@@ -59,11 +68,12 @@ struct storage {
 
 int storage_open(struct storage * s, struct storage_opts opts, char **e);
 
-#define HEADER_BYTES 16384 
+#define OS_PAGE_SIZE 16384 // 16KB
+#define HEADER_BYTES OS_PAGE_SIZE 
 #define BLOCK_HEADER_BYTES (1 + 1 + 2 + 4 + 8) // 16 
 
-#define TYPE_V1 "MMAP"
-#define TYPE_V2 "V2" // reserved for future use
+#define TYPE_MMAP "MMAP"
+#define TYPE_DIO "DIO" // O_DIRECT or F_NOCACHE
 
 #define TYPE_Z "Z"
 #define TYPE_LZ4 "LZ4"
@@ -71,6 +81,6 @@ int storage_open(struct storage * s, struct storage_opts opts, char **e);
 #define TYPE_SNAPPY "SNAPPY"
 
 #define TYPE_MEMORY "MEMORY"
-#define TYPE_DEFAULT TYPE_V1
+#define TYPE_DEFAULT TYPE_MMAP
 
 #endif // FLINTDB_STORAGE_H

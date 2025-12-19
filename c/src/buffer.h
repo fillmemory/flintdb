@@ -7,6 +7,10 @@
 
 #include "types.h"
 
+// Buffer ownership sentinel values (must never collide with real pointers)
+// Used in buffer->owner to mark internal ownership states.
+#define BUFFER_OWNER_SLICE_HEAP ((void *)1)
+
 struct buffer {
 	char *array;
 	u32 position;
@@ -17,7 +21,11 @@ struct buffer {
 		u32 length;
 	} mapped; // for mmap
 
-	i8 freeable; // whether the buffer can be freed or not (1: freeable, 0: not freeable)
+	// Optional owner pointer for custom free behavior.
+	// - NULL: normal buffer (free behavior defined by ->free)
+	// - buffer_pool*: pooled buffer (->free returns to pool)
+	// - small sentinel values: internal markers (e.g., heap-allocated slice struct)
+	void *owner;
 
 	void (*flip)(struct buffer *me);
 	void (*clear)(struct buffer *me);

@@ -219,14 +219,16 @@ static void buffer_free(struct buffer *me) {
     FREE(me);
 }
 
+static void buffer_pool_auto_return_free(struct buffer *me);
+
 static void buffer_borrow_free(struct buffer *me) {
     // do nothing
 }
 
 static void buffer_slice_free(struct buffer *me) {
-    // Slices do not own the underlying array, but the struct itself may be heap-allocated
-    // (e.g., storage_read/storage_head). Free only the struct.
-    if (me && me->freeable) {
+    // Slices do not own the underlying array.
+    // Only free the struct when it was heap-allocated via buffer_slice().
+    if (me && me->owner == BUFFER_OWNER_SLICE_HEAP) {
         FREE(me);
     }
 }
@@ -249,6 +251,7 @@ static void buffer_slice_to(struct buffer *me, i32 offset, i32 length, struct bu
     out->position = 0;
     out->limit = length;
     out->capacity = length;
+    out->owner = NULL;
 
     out->flip = &buffer_flip;
     out->clear = &buffer_clear;
@@ -283,7 +286,7 @@ struct buffer *buffer_slice(struct buffer *in, i32 offset, i32 length, char **e)
     if (!out) {
         THROW(e, "Out of memory");
     }
-    out->freeable = 1;
+    out->owner = BUFFER_OWNER_SLICE_HEAP;
     buffer_slice_to(in, offset, length, out, e);
     if (e && *e) {
         out->free(out);
@@ -297,7 +300,7 @@ EXCEPTION:
 }
 
 struct buffer *buffer_wrap(char *array, u32 capacity, struct buffer *out) {
-    out->freeable = 0;
+    out->owner = NULL;
     out->array = array;
     out->position = 0;
     out->limit = capacity; // MODIFIED 12-24 : 0 -> capacity
@@ -335,7 +338,7 @@ void buffer_realloc(struct buffer *me, i32 size) {
 
 struct buffer *buffer_alloc(u32 capacity) {
     struct buffer *out = CALLOC(1, sizeof(struct buffer));
-    out->freeable = 1;
+    out->owner = NULL;
     out->array = MALLOC(capacity);
     out->position = 0;
     out->limit = capacity; // MODIFIED 12-24 : 0 -> capacity
@@ -368,7 +371,7 @@ struct buffer *buffer_alloc(u32 capacity) {
 
 struct buffer *buffer_mmap(void *addr, u32 offset, u32 length) {
     struct buffer *out = CALLOC(1, sizeof(struct buffer));
-    out->freeable = 1;
+    out->owner = NULL;
     out->mapped.addr = addr;
     // mapped.length must equal the exact size passed to mmap().
     // The 'offset' here is the in-buffer view offset, not additional mapping size.
@@ -410,9 +413,13 @@ static struct buffer *buffer_pool_borrow(struct buffer_pool *pool, u32 buf_size)
             b->realloc(b, buf_size);
         }
         b->clear(b);
+        b->owner = (void *)pool;
+        b->free = &buffer_pool_auto_return_free;
         return b;
     } else {
         struct buffer *b = buffer_alloc(buf_size > (u32)pool->align ? buf_size : (u32)pool->align);
+        b->owner = (void *)pool;
+        b->free = &buffer_pool_auto_return_free;
         return b;
     }
 }
@@ -423,11 +430,12 @@ static void buffer_pool_return(struct buffer_pool *pool, struct buffer *b) {
     //  - realloc is set (buffer_alloc provides this)
     //  - free function is the owning heap free (buffer_free)
     //  - freeable flag is set
-    int pool_owned = (b && b->realloc != NULL && b->free == &buffer_free && b->freeable == 1);
+    // Pool-owned buffers set owner=pool and use auto-return free().
+    int pool_owned = (b && b->realloc != NULL && b->owner == (void *)pool && b->free == &buffer_pool_auto_return_free);
 
     if (!pool_owned) {
-        // Do not cache foreign buffers (slice/mmap/wrap). Free only if heap-owned.
-        if (b && b->freeable == 1) {
+        // Do not cache foreign buffers; delegate to their free() (may be no-op).
+        if (b && b->free) {
             b->free(b);
         }
         return;
@@ -447,11 +455,22 @@ static void buffer_pool_free(struct buffer_pool *pool) {
     for (int i = 0; i < pool->top; i++) {
         if (pool->items[i]) {
             struct buffer *b = pool->items[i];
-            b->free(b);
+            // Force actual free to avoid auto-return recursion.
+            buffer_free(b);
         }
     }
     FREE(pool->items);
     FREE(pool);
+}
+
+static void buffer_pool_auto_return_free(struct buffer *me) {
+    if (!me) return;
+    struct buffer_pool *pool = (struct buffer_pool *)me->owner;
+    if (!pool) {
+        buffer_free(me);
+        return;
+    }
+    pool->return_buffer(pool, me);
 }
 
 struct buffer_pool *buffer_pool_create(u32 capacity, u32 align, u32 preload) {

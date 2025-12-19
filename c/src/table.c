@@ -1360,7 +1360,7 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
         }
     }
 
-    if (!strempty(m.compressor) && strncmp(TYPE_V1, m.compressor, sizeof(TYPE_V1)-1) != 0) THROW(e, "Compressor not supported yet: %s", m.compressor);
+    if (!strempty(m.compressor) && strncmp(TYPE_MMAP, m.compressor, sizeof(TYPE_MMAP)-1) != 0) THROW(e, "Compressor not supported yet: %s", m.compressor);
     
     table = CALLOC(1, sizeof(struct flintdb_table));
     if (!table) THROW(e, "Failed to allocate memory for table_priv");

@@ -332,6 +332,7 @@ int main(int argc, char **argv) {
 
     b->free(b);
 
+    PRINT_MEMORY_LEAK_INFO();
     return 0;
 }
 #endif
@@ -366,7 +367,7 @@ int main(int argc, char **argv) {
     int max = 2 * 1024 * 1024;
     // int max = 1_000_000; --- IGNORE ---
     for (int i = 0; i < max; i++) {
-        sprintf(str, "Hello, %s! %03d", PRODUCT_NAME, i + 1);
+        sprintf(str, "Hello, %s! %03d", "PRODUCT_NAME", i + 1);
         buffer_wrap(str, strlen(str), &bb);
         s.write(&s, &bb, &e);
     }
@@ -393,7 +394,63 @@ int main(int argc, char **argv) {
     PRINT_MEMORY_LEAK_INFO();
     return 0;
 }
-#endif
+#endif // TESTCASE_STORAGE
+
+#ifdef TESTCASE_STORAGE_DIO
+// ./testcase.sh TESTCASE_STORAGE_DIO
+
+int main(int argc, char **argv) {
+    struct storage_opts opts = {
+        .file = "./temp/storage_dio.bin",
+        .mode = FLINTDB_RDWR,
+        .block_bytes = 512 - 16,
+        .type = TYPE_DIO,
+    };
+    unlink(opts.file);
+
+    char *e = NULL;
+    struct storage s = {0};
+
+    int ok = storage_open(&s, opts, &e);
+    assert(ok == 0);
+
+    char str[1000] = {
+        0,
+    };
+    struct buffer bb = {0};
+
+    STOPWATCH_START(watch);
+    int max = 2 * 1024 * 1024;
+    for (int i = 0; i < max; i++) {
+        sprintf(str, "Hello, %s! %03d", "PRODUCT_NAME", i + 1);
+        buffer_wrap(str, strlen(str), &bb);
+        s.write(&s, &bb, &e);
+    }
+
+    i64 count = s.count_get(&s);
+    printf("time  : %lld \n", time_elapsed(&watch));
+    printf("ops   : %f \n", time_ops(count, &watch));
+    printf("count : %lld \n", count);
+    printf("bytes : %lld \n", s.bytes_get(&s));
+
+    for (i64 i = count - 10; i < (count); i++) {
+        struct buffer *r = s.read(&s, i, &e);
+        int remaining = r->remaining(r);
+        // printf("read remaining : %d \n", remaining);
+        memcpy(str, r->array_get(r, remaining, NULL), remaining);
+        str[remaining] = '\0';
+        printf("read : %d - %s \n", remaining, str);
+        r->free(r);
+    }
+
+    s.close(&s);
+
+    unlink(opts.file);
+    PRINT_MEMORY_LEAK_INFO();
+    return 0;
+}
+
+#endif // TESTCASE_STORAGE_DIO
 
 #ifdef TESTCASE_BPLUSTREE
 // ./testcase.sh TESTCASE_BPLUSTREE
