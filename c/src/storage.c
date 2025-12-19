@@ -775,7 +775,7 @@ static struct buffer_pool *g_dio_read_pool = NULL;
 
 // Batch size in pages for sequential DIO writes (must be >= 1).
 #ifndef DIO_WRITE_BATCH_PAGES
-#define DIO_WRITE_BATCH_PAGES 8
+#define DIO_WRITE_BATCH_PAGES 256  // 256 * 16KB = 4MB for better batching
 #endif
 
 static inline struct buffer_pool *storage_dio_read_pool(void) {
@@ -795,8 +795,15 @@ static inline void storage_dio_flush_wbatch(struct storage *me, char **e) {
     if (!me->dio_wbatch || me->dio_wbatch_count == 0) return;
 
     // Ensure chunks spanning the batch are inflated.
-    storage_dio_file_inflate(me, me->dio_wbatch_base, NULL);
-    storage_dio_file_inflate(me, me->dio_wbatch_base + (i64)me->dio_wbatch_count - 1, NULL);
+    // Optimize: only inflate if not already done (sequential writes usually stay in same chunk)
+    i64 start_chunk = (me->dio_wbatch_base * me->block_bytes) / me->mmap_bytes;
+    i64 end_chunk = ((me->dio_wbatch_base + (i64)me->dio_wbatch_count - 1) * me->block_bytes) / me->mmap_bytes;
+    if (me->dio_last_inflated_chunk != start_chunk) {
+        storage_dio_file_inflate(me, me->dio_wbatch_base, NULL);
+    }
+    if (end_chunk != start_chunk && me->dio_last_inflated_chunk != end_chunk) {
+        storage_dio_file_inflate(me, me->dio_wbatch_base + (i64)me->dio_wbatch_count - 1, NULL);
+    }
 
     i64 file_offset = storage_dio_file_offset(me, me->dio_wbatch_base);
     size_t nbytes = (size_t)me->dio_wbatch_count * (size_t)me->block_bytes;
@@ -1201,6 +1208,7 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
     void *scratch = storage_dio_get_aligned(me, (u32)me->block_bytes, &me->dio_scratch, NULL, e);
     if (e && *e) THROW_S(e);
 
+    // Pre-inflate the starting chunk once
     storage_dio_file_inflate(me, offset, NULL);
 
     while (1) {
@@ -1235,8 +1243,12 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
             c.i32_get(&c, NULL);     // total length
             next = c.i64_get(&c, NULL);
         } else {
-            // Ensure this chunk exists/initialized before writing.
-            storage_dio_file_inflate(me, curr, NULL);
+            // For tail writes, only inflate when crossing chunk boundaries
+            // Check if we're moving to a different chunk
+            i64 curr_chunk = (curr * me->block_bytes) / me->mmap_bytes;
+            if (me->dio_last_inflated_chunk != curr_chunk) {
+                storage_dio_file_inflate(me, curr, NULL);
+            }
             // Reuse scratch; no need to preserve existing bytes.
             memset(scratch, 0, (size_t)me->block_bytes);
         }

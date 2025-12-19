@@ -103,7 +103,7 @@ CREATE TABLE ../temp/c/tpch_lineitem.flintdb (
 EOF
 )
 # WAL=NONE|TRUNCATE|LOG
-echo "CREATE TABLE " $SQL_CREATE_TABLE
+echo $SQL_CREATE_TABLE
 ./bin/flintdb "$SQL_CREATE_TABLE" -status
 
 
