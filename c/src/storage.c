@@ -24,6 +24,9 @@
 #define DEFAULT_INCREMENT_BYTES (16 * 1024 * 1024)
 
 #define MAPPED_BYTEBUFFER_POOL_SIZE 2048 // 20
+#define STORAGE_COMMIT_FORCE 1
+#define STORAGE_COMMIT_LAZY 0
+#define STORAGE_COMMIT_DEFAULT 0
 
 // Status markers
 #define STATUS_SET '+'
@@ -222,7 +225,7 @@ static void storage_mmap_buffer_get(struct storage *me, i64 index, struct buffer
             bb.i64_put(&bb, next, NULL);
             next++;
         }
-        storage_commit(me, 0, &e);
+        storage_commit(me, STORAGE_COMMIT_LAZY, &e);
         if (e && *e) THROW_S(e);
     }
 
@@ -267,7 +270,7 @@ static i32 storage_mmap_delete(struct storage *me, i64 offset, char **e) {
     if (next > NEXT_END)
         storage_mmap_delete(me, next, e);
 
-    storage_commit(me, 0, e);
+    storage_commit(me, STORAGE_COMMIT_LAZY, e);
     if (e && *e) THROW_S(e);
     return 1;
 
@@ -374,7 +377,7 @@ static inline void storage_mmap_write_priv(struct storage *me, i64 offset, u8 ma
             if (next_last > NEXT_END && next_last != curr) {
                 storage_mmap_delete(me, next_last, e);
             }
-            storage_commit(me, 0, e); // was 1
+            storage_commit(me, STORAGE_COMMIT_DEFAULT, e); // was 1
             if (e && *e) THROW_S(e);
             break;
         }
@@ -413,7 +416,7 @@ static void storage_mmap_close(struct storage *me) {
     // LOG("%p: begin file=%s, count=%lld, free=%lld", me, me->opts.file, me->count, me->free);
 
     // Force commit any pending changes before closing
-    storage_commit(me, 1, NULL);
+    storage_commit(me, STORAGE_COMMIT_FORCE, NULL);
 
     if (me->cache) {
         DEBUG("freeing cache %p", me->cache);
@@ -491,7 +494,7 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
         // Fresh file: initialize free-list head to first block index (1)
         me->free = 0;
         me->count = 0;
-        storage_commit(me, 1, e);
+        storage_commit(me, STORAGE_COMMIT_FORCE, e);
         if (e && *e) THROW_S(e);
     }
     else {
@@ -569,7 +572,7 @@ static void storage_mem_buffer_get(struct storage *me, i64 index, struct buffer 
             bb.i64_put(&bb, next, NULL);
             next++;
         }
-        storage_commit(me, 1, &e);
+        storage_commit(me, STORAGE_COMMIT_DEFAULT, &e);
         if (e && *e) THROW_S(e);
     }
 
@@ -613,7 +616,7 @@ static i32 storage_mem_delete(struct storage *me, i64 offset, char **e) {
     if (next > NEXT_END)
         storage_mem_delete(me, next, e);
 
-    storage_commit(me, 0, e);
+    storage_commit(me, STORAGE_COMMIT_LAZY, e);
     if (e && *e) THROW_S(e);
     return 1;
 
@@ -714,7 +717,7 @@ static inline void storage_mem_write_priv(struct storage *me, i64 offset, u8 mar
             if (next_last > NEXT_END && next_last != curr) {
                 storage_mem_delete(me, next_last, e);
             }
-            storage_commit(me, 1, e);
+            storage_commit(me, STORAGE_COMMIT_DEFAULT, e);
             if (e && *e) THROW_S(e);
             break;
         }
@@ -742,7 +745,7 @@ static void storage_mem_close(struct storage *me) {
     assert(me != NULL);
     if (me->cache == NULL) return;
 
-    storage_commit(me, 1, NULL);
+    storage_commit(me, STORAGE_COMMIT_FORCE, NULL);
 
     if (me->cache) {
         DEBUG("freeing cache %p", me->cache);
@@ -793,7 +796,7 @@ static int storage_mem_open(struct storage * me, struct storage_opts opts, char 
     // Initialize as fresh storage
     me->free = 0;
     me->count = 0;
-    storage_commit(me, 1, e);
+    storage_commit(me, STORAGE_COMMIT_FORCE, e);
     if (e && *e) THROW_S(e);
 
     return 0;
@@ -825,6 +828,7 @@ struct storage_dio_priv {
     u32 page_cache_limit; // max cached pages before flush
 };
 
+#if defined(__linux__) && defined(O_DIRECT)
 static inline int env_truthy(const char *v) {
     return v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0 || strcasecmp(v, "yes") == 0);
 }
@@ -832,8 +836,7 @@ static inline int env_truthy(const char *v) {
 static inline i64 align_down_i64(i64 x, i64 a) {
     return (a <= 0) ? x : (x / a) * a;
 }
-
-static inline u32 u32_max(u32 a, u32 b) { return a > b ? a : b; }
+#endif
 
 static inline void storage_dio_commit(struct storage *me, u8 force, char **e) {
     storage_commit(me, force, e);
@@ -850,10 +853,96 @@ static inline i64 storage_dio_file_offset(struct storage *me, i64 offset) {
     return (offset * me->block_bytes) + HEADER_BYTES;
 }
 
+// Read just the on-disk block header (16 bytes) to discover allocation state and free-list linkage.
+// This avoids a full block pread on the write path where we overwrite the entire block anyway.
+static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 *status_out, i64 *next_out) {
+    const i64 absolute = storage_dio_file_offset(me, offset);
+
+#ifdef DIO_CACHE_SIZE
+    // If write-back cache is enabled, honor read-your-writes for metadata too.
+    // Non-O_DIRECT cache is keyed by absolute block file offset.
+    if (me->cache) {
+        valtype found = me->cache->get(me->cache, (keytype)absolute);
+        if (HASHMAP_INVALID_VAL != found) {
+            struct buffer *cached = (struct buffer *)found;
+            if (cached && cached->capacity >= (int)BLOCK_HEADER_BYTES) {
+                if (status_out) *status_out = (u8)cached->array[0];
+                if (next_out) {
+                    i64 next = 0;
+                    memcpy(&next, cached->array + 8, 8);
+                    *next_out = next;
+                }
+                return 0;
+            }
+        }
+    }
+#endif
+
+    u8 hdr[BLOCK_HEADER_BYTES];
+    ssize_t n = pread(me->fd, hdr, (size_t)BLOCK_HEADER_BYTES, absolute);
+    if (n != (ssize_t)BLOCK_HEADER_BYTES) {
+        return -1;
+    }
+
+    if (status_out) *status_out = hdr[0];
+    if (next_out) {
+        i64 next = 0;
+        memcpy(&next, hdr + 8, 8);
+        *next_out = next;
+    }
+    return 0;
+}
+
+#if defined(__linux__) && defined(O_DIRECT)
+static inline struct buffer *storage_dio_odirect_page_get(struct storage *me, struct storage_dio_priv *priv, i64 page_base, int *cached_out) {
+    if (cached_out) *cached_out = 0;
+    if (!priv) return NULL;
+
+    const u32 io = priv->direct_io_bytes;
+    struct hashmap *cache = me->cache;
+
+    if (cache) {
+        valtype found = cache->get(cache, (keytype)page_base);
+        if (HASHMAP_INVALID_VAL != found) {
+            if (cached_out) *cached_out = 1;
+            return (struct buffer *)found;
+        }
+    }
+
+    struct buffer *page = buffer_alloc_aligned(io, priv->direct_align);
+    if (!page) return NULL;
+
+    ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
+    if (r < 0) {
+        page->free(page);
+        return NULL;
+    }
+    if (r == 0) {
+        memset(page->array, 0, (size_t)page->capacity);
+    } else if ((u32)r < page->capacity) {
+        memset(page->array + r, 0, (size_t)page->capacity - (size_t)r);
+    }
+
+    if (cache) {
+        void *slot = cache->put(cache, (keytype)page_base, (valtype)page, storage_cache_free);
+        if (slot) {
+            if (cached_out) *cached_out = 1;
+            return page;
+        }
+    }
+
+    // Not cached; caller must write-through and free.
+    if (cached_out) *cached_out = 0;
+    return page;
+}
+#endif
+
 static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, struct buffer **out) {
     i64 o = storage_dio_file_offset(me, offset);
 
+#ifdef __linux__
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+#endif
 
 #if defined(__linux__) && defined(O_DIRECT)
     // Linux O_DIRECT path: read a whole aligned page then slice/copy out block_bytes.
@@ -973,7 +1062,10 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 #ifdef DIO_CACHE_SIZE
     int fd = me->fd;
     struct hashmap *cache = me->cache;
+
+#ifdef __linux__
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+#endif
 
 #if defined(__linux__) && defined(O_DIRECT)
     if (priv && priv->o_direct_enabled) {
@@ -1039,7 +1131,10 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap, i64 absolute) {
 #ifdef DIO_CACHE_SIZE
     struct hashmap *cache = me->cache;
+
+#ifdef __linux__
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+#endif
 
 #if defined(__linux__) && defined(O_DIRECT)
     // Linux O_DIRECT path: merge block writes into an aligned page cache.
@@ -1182,7 +1277,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
             // ownership transferred to the DIO write cache
             bb = NULL;
         }
-        storage_commit(me, 1, e);
+        storage_commit(me, STORAGE_COMMIT_FORCE, e);
         if (e && *e) THROW_S(e);
         return 1;
     }
@@ -1259,25 +1354,105 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
     i64 next_last = NEXT_END;
     struct buffer *p = NULL;
 
+#if defined(__linux__) && defined(O_DIRECT)
+    struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+#endif
+
     while (1) {
-        struct buffer c = {0};
         storage_dio_file_inflate(me, curr, e);
         if (e && *e) THROW_S(*e);
-        storage_dio_buffer_get(me, curr, &p);
-        if (!p) THROW(e, "storage_dio_write_priv: pread failed at offset=%lld", curr);
-        p->slice(p, 0, p->remaining(p), &c, e);
 
-        u8 status = c.i8_get(&c, NULL);
-        c.i8_get(&c, NULL);      // mark
-        c.i16_get(&c, NULL);     // data length
-        c.i32_get(&c, NULL);     // total length
-        i64 next = c.i64_get(&c, NULL);
+        // Read minimal metadata (status + next pointer) instead of preading the whole block.
+        u8 status = STATUS_EMPTY;
+        i64 next = NEXT_END;
+
+#if defined(__linux__) && defined(O_DIRECT)
+        // Fast path for Linux O_DIRECT: modify the cached aligned page in-place.
+        // This avoids the expensive double pread (once for metadata and again for page RMW).
+        if (priv && priv->o_direct_enabled) {
+            const i64 abs = storage_dio_file_offset(me, curr);
+            const u32 io = priv->direct_io_bytes;
+            const i64 page_base = align_down_i64(abs, (i64)io);
+            const u32 page_off = (u32)(abs - page_base);
+
+            if ((unsigned long long)page_off + (unsigned long long)me->block_bytes <= (unsigned long long)io) {
+                int cached = 0;
+                struct buffer *page = storage_dio_odirect_page_get(me, priv, page_base, &cached);
+                if (!page) THROW(e, "storage_dio_write_priv: O_DIRECT page pread failed at abs=%lld", abs);
+
+                char *blk = page->array + page_off;
+                status = (u8)blk[0];
+                memcpy(&next, blk + 8, 8);
+
+                int chunk = (remaining < BLOCK_DATA_BYTES ? remaining : BLOCK_DATA_BYTES);
+                if (STATUS_SET != status) {
+                    me->count++;
+                    me->free = next; // relink free list
+                }
+
+                i64 next_index = NEXT_END;
+                if (remaining > BLOCK_DATA_BYTES) {
+                    next_index = (next > NEXT_END ? next : me->free);
+                }
+
+                // Write header
+                blk[0] = STATUS_SET;
+                blk[1] = curr_mark;
+                i16 chunk16 = (i16)chunk;
+                i32 rem32 = remaining;
+                i64 next64 = (remaining > BLOCK_DATA_BYTES) ? next_index : NEXT_END;
+                memcpy(blk + 2, &chunk16, 2);
+                memcpy(blk + 4, &rem32, 4);
+                memcpy(blk + 8, &next64, 8);
+
+                // Write data + zero pad
+                memcpy(blk + BLOCK_HEADER_BYTES, in->array_get(in, chunk, NULL), (size_t)chunk);
+                int pad = BLOCK_DATA_BYTES - chunk;
+                if (pad > 0) {
+                    memset(blk + BLOCK_HEADER_BYTES + chunk, 0, (size_t)pad);
+                }
+
+                // If we couldn't cache the page, write-through immediately.
+                if (!cached) {
+                    ssize_t wn = pwrite_all(me->fd, page->array, page->capacity, page_base);
+                    page->free(page);
+                    if (wn < 0) THROW(e, "storage_dio_write_priv: O_DIRECT page pwrite failed at abs=%lld", page_base);
+                } else {
+                    u32 limit = priv->page_cache_limit ? priv->page_cache_limit : 8192u;
+                    if (me->cache && (u32)me->cache->count_get(me->cache) >= limit) {
+                        if (storage_dio_pflush(me) < 0) {
+                            THROW(e, "storage_dio_write_priv: O_DIRECT pflush failed");
+                        }
+                    }
+                }
+
+                remaining -= chunk;
+                next_last = next;
+                if (remaining <= 0) {
+                    if (next_last > NEXT_END && next_last != curr) {
+                        storage_dio_delete(me, next_last, e);
+                    }
+                    storage_dio_commit(me, STORAGE_COMMIT_LAZY, e);
+                    if (e && *e) THROW_S(e);
+                    break;
+                }
+
+                curr = (remaining > BLOCK_DATA_BYTES) ? ((next > NEXT_END) ? next : me->free) : NEXT_END;
+                if (curr == NEXT_END) {
+                    // Should not happen because remaining > 0 implies we need a next block.
+                    THROW(e, "storage_dio_write_priv: invalid next in O_DIRECT fast path");
+                }
+                curr_mark = MARK_AS_NEXT;
+                continue;
+            }
+        }
+#endif
+
+        if (storage_dio_block_meta_get(me, curr, &status, &next) < 0) {
+            THROW(e, "storage_dio_write_priv: header pread failed at offset=%lld", curr);
+        }
 
         int chunk = (remaining < BLOCK_DATA_BYTES ? remaining : BLOCK_DATA_BYTES);
-        p->i8_put(p, STATUS_SET, NULL);
-        p->i8_put(p, curr_mark, NULL);
-        p->i16_put(p, (i16)chunk, NULL);
-        p->i32_put(p, remaining, NULL);
 
         if (STATUS_SET != status) {
             me->count++;
@@ -1287,22 +1462,32 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
         i64 next_index = NEXT_END;
         if (remaining > BLOCK_DATA_BYTES) {
             next_index = (next > NEXT_END ? next : me->free);
-            p->i64_put(p, next_index, NULL);
-        } else {
-            p->i64_put(p, NEXT_END, NULL);
         }
 
-        // copy data chunk from input to mapped block
+        p = BUFFER_POOL_BORROW(me->block_bytes);
+        if (!p) THROW(e, "storage_dio_write_priv: OOM allocating block buffer");
+        p->clear(p);
+        p->i8_put(p, STATUS_SET, NULL);
+        p->i8_put(p, curr_mark, NULL);
+        p->i16_put(p, (i16)chunk, NULL);
+        p->i32_put(p, remaining, NULL);
+        p->i64_put(p, (remaining > BLOCK_DATA_BYTES) ? next_index : NEXT_END, NULL);
+
+        // Copy data chunk
         p->array_put(p, in->array_get(in, chunk, NULL), chunk, NULL);
-        // pad remaining of block
+
+        // Zero pad remaining of block (faster than copying a pre-zeroed buffer for small pads)
         int pad = BLOCK_DATA_BYTES - chunk;
         if (pad > 0) {
-            p->array_put(p, me->clean, pad, NULL);
+            if ((p->position + pad) > p->capacity) {
+                THROW(e, "storage_dio_write_priv: pad overflow (pos=%d, pad=%d, cap=%d)", p->position, pad, p->capacity);
+            }
+            memset(p->array + p->position, 0, (size_t)pad);
+            p->position += pad;
         }
 
         p->flip(p);
         i64 o = storage_dio_file_offset(me, curr);
-        // storage_dio_pwrite(me, p->array, p->remaining(p), o);
         storage_dio_pwrite(me, p, o);
         // ownership transferred to the DIO write cache
         p = NULL;
@@ -1313,7 +1498,7 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
             if (next_last > NEXT_END && next_last != curr) {
                 storage_dio_delete(me, next_last, e);
             }
-            storage_dio_commit(me, 0, e);
+            storage_dio_commit(me, STORAGE_COMMIT_LAZY, e);
             if (e && *e) THROW_S(e);
             break;
         }
@@ -1345,7 +1530,7 @@ static void storage_dio_close(struct storage *me) {
     if (storage_dio_pflush(me) < 0) {
         WARN("storage_dio_close: pflush failed: %d - %s", errno, strerror(errno));
     }
-    storage_dio_commit(me, 1, NULL);
+    storage_dio_commit(me, STORAGE_COMMIT_FORCE, NULL);
 
     if (me->cache) {
         DEBUG("freeing cache %p", me->cache);
@@ -1428,6 +1613,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     me->priv = CALLOC(1, sizeof(struct storage_dio_priv));
     if (!me->priv) THROW(e, "Cannot allocate DIO private data");
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+    (void)priv;
 
     // Controls OS page cache behavior.
     // - macOS: uses F_NOCACHE when set to 0
@@ -1515,7 +1701,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES) {
         me->free = 0;
         me->count = 0;
-        storage_commit(me, 1, e);
+        storage_commit(me, STORAGE_COMMIT_FORCE, e);
         if (e && *e) THROW_S(e);
     }
     else {
