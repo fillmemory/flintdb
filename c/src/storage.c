@@ -790,12 +790,12 @@ static inline void storage_dio_commit(struct storage *me, u8 force, char **e) {
  * @return * i64 
  */
 static inline i64 storage_dio_file_offset(struct storage *me, i64 offset) {
-    return (offset * me->opts.block_bytes) + HEADER_BYTES;
+    return (offset * me->block_bytes) + HEADER_BYTES;
 }
 
 static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, struct buffer **out) {
     i64 o = storage_dio_file_offset(me, offset);
-    struct buffer *bb = buffer_alloc(me->opts.block_bytes);
+    struct buffer *bb = buffer_alloc(me->block_bytes);
     ssize_t n = pread(me->fd, bb->array, bb->capacity, o);
     // LOG("storage_dio_buffer_get: offset=%lld, file_offset=%lld, bytes_read=%zd", offset, o, n);
     if (n <= 0 && bb) {
@@ -836,7 +836,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
         i64 absolute = me->block_bytes * offset;
         i64 i = absolute / me->mmap_bytes;
         i32 blocks = length / me->block_bytes;
-        i64 next = 1 + (i * blocks);
+        i64 next = i * blocks;  // Start from the first block in this segment
         struct buffer *bb = NULL;
         for(i32 x=0; x<blocks; x++) {
             storage_dio_buffer_get(me, next, &bb);
@@ -844,7 +844,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
             bb->i8_put(bb, MARK_AS_UNUSED, NULL);
             bb->i16_put(bb, 0, NULL);
             bb->i32_put(bb, 0, NULL);
-            bb->i64_put(bb, next, NULL);
+            bb->i64_put(bb, (x == blocks - 1) ? NEXT_END : (next + 1), NULL);
             // bb->flip(bb);
             pwrite_all(me->fd, bb->array, bb->capacity, storage_dio_file_offset(me, next));
             next++;

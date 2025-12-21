@@ -420,10 +420,12 @@ int main(int argc, char **argv) {
     struct buffer bb = {0};
 
     STOPWATCH_START(watch);
-    int max = 1;
+    int max = 1024 * 1024;
     for (int i = 0; i < max; i++) {
         sprintf(str, "Hello, %s! %03d", "PRODUCT_NAME", i + 1);
-        buffer_wrap(str, strlen(str), &bb);
+        int len = strlen(str);
+        buffer_wrap(str, len, &bb);
+        bb.limit = len;
         s.write(&s, &bb, &e);
     }
 
