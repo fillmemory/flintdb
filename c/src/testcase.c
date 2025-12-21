@@ -435,15 +435,15 @@ int main(int argc, char **argv) {
     printf("count : %lld \n", count);
     printf("bytes : %lld \n", s.bytes_get(&s));
 
-    // for (i64 i = count - 10; i < (count); i++) {
-    //     struct buffer *r = s.read(&s, i, &e);
-    //     int remaining = r->remaining(r);
-    //     // printf("read remaining : %d \n", remaining);
-    //     memcpy(str, r->array_get(r, remaining, NULL), remaining);
-    //     str[remaining] = '\0';
-    //     printf("read : %d - %s \n", remaining, str);
-    //     r->free(r);
-    // }
+    for (i64 i = count - 10; i < (count); i++) {
+        struct buffer *r = s.read(&s, i, &e);
+        int remaining = r->remaining(r);
+        // printf("read remaining : %d \n", remaining);
+        memcpy(str, r->array_get(r, remaining, NULL), remaining);
+        str[remaining] = '\0';
+        printf("read : %d - %s \n", remaining, str);
+        r->free(r);
+    }
 
     s.close(&s);
 

@@ -828,7 +828,6 @@ struct storage_dio_priv {
     u32 page_cache_limit; // max cached pages before flush
 };
 
-#if defined(__linux__) && defined(O_DIRECT)
 static inline int env_truthy(const char *v) {
     return v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0 || strcasecmp(v, "yes") == 0);
 }
@@ -836,7 +835,6 @@ static inline int env_truthy(const char *v) {
 static inline i64 align_down_i64(i64 x, i64 a) {
     return (a <= 0) ? x : (x / a) * a;
 }
-#endif
 
 static inline void storage_dio_commit(struct storage *me, u8 force, char **e) {
     storage_commit(me, force, e);
@@ -860,9 +858,26 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
 
 #ifdef DIO_CACHE_SIZE
     // If write-back cache is enabled, honor read-your-writes for metadata too.
-    // Non-O_DIRECT cache is keyed by absolute block file offset.
     if (me->cache) {
-        valtype found = me->cache->get(me->cache, (keytype)absolute);
+        // Page cache: keyed by OS_PAGE_SIZE-aligned page base.
+        const i64 page_base = align_down_i64(absolute, (i64)OS_PAGE_SIZE);
+        const u32 page_off = (u32)(absolute - page_base);
+        valtype found = me->cache->get(me->cache, (keytype)page_base);
+        if (HASHMAP_INVALID_VAL != found) {
+            struct buffer *page = (struct buffer *)found;
+            if (page && ((u32)page->capacity) >= (u32)OS_PAGE_SIZE && (page_off + (u32)BLOCK_HEADER_BYTES) <= (u32)page->capacity) {
+                if (status_out) *status_out = (u8)page->array[page_off + 0];
+                if (next_out) {
+                    i64 next = 0;
+                    memcpy(&next, page->array + page_off + 8, 8);
+                    *next_out = next;
+                }
+                return 0;
+            }
+        }
+
+        // Back-compat: if something stored block buffers keyed by absolute offset.
+        found = me->cache->get(me->cache, (keytype)absolute);
         if (HASHMAP_INVALID_VAL != found) {
             struct buffer *cached = (struct buffer *)found;
             if (cached && cached->capacity >= (int)BLOCK_HEADER_BYTES) {
@@ -1001,9 +1016,12 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
 
 #ifdef DIO_CACHE_SIZE
     // If write-back cache is enabled, honor read-your-writes.
-    // Cached blocks are keyed by absolute file offset.
     if (me->cache) {
-        valtype found = me->cache->get(me->cache, o);
+        // Page cache: keyed by OS_PAGE_SIZE-aligned page base.
+        const i64 page_base = align_down_i64(o, (i64)OS_PAGE_SIZE);
+        const u32 page_off = (u32)(o - page_base);
+
+        valtype found = me->cache->get(me->cache, (keytype)page_base);
         if (HASHMAP_INVALID_VAL != found) {
             struct buffer *cached = (struct buffer *)found;
             struct buffer *bb = BUFFER_POOL_BORROW(me->block_bytes);
@@ -1012,7 +1030,27 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
                 return -1;
             }
             bb->clear(bb);
-            memcpy(bb->array, cached->array, (size_t)bb->capacity);
+            if ((page_off + (u32)me->block_bytes) <= (u32)cached->capacity) {
+                memcpy(bb->array, cached->array + page_off, (size_t)bb->capacity);
+            } else {
+                // Should not happen; fall back to zero-fill.
+                memset(bb->array, 0, (size_t)bb->capacity);
+            }
+            if (out) *out = bb;
+            return (ssize_t)bb->capacity;
+        }
+
+        // Back-compat: cached blocks keyed by absolute offset.
+        found = me->cache->get(me->cache, (keytype)o);
+        if (HASHMAP_INVALID_VAL != found) {
+            struct buffer *cached2 = (struct buffer *)found;
+            struct buffer *bb = BUFFER_POOL_BORROW(me->block_bytes);
+            if (!bb) {
+                if (out) *out = NULL;
+                return -1;
+            }
+            bb->clear(bb);
+            memcpy(bb->array, cached2->array, (size_t)bb->capacity);
             if (out) *out = bb;
             return (ssize_t)bb->capacity;
         }
@@ -1086,40 +1124,122 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
     }
 #endif
 
+    // Non-O_DIRECT: coalesce sequential blocks into large writes.
+    // In DIO mode the cache is a treemap (sorted by absolute offset), so
+    // sequential appends become a small number of large pwrite() calls.
+    // This is critical for TESTCASE_STORAGE_DIO performance.
+
     // Defensive guard: if the hashmap's iteration list is corrupted (cycle),
     // iterate() may never reach tail. Bound by (count + 1).
     int expected = cache ? cache->count_get(cache) : 0;
     int steps = 0;
 
+    size_t batch_cap = (size_t)me->mmap_bytes;
+    const size_t unit = (size_t)OS_PAGE_SIZE;
+    if (batch_cap < unit) batch_cap = unit;
+    batch_cap = (batch_cap / unit) * unit;
+    if (batch_cap == 0) batch_cap = unit;
+
+    char *batch = (char *)MALLOC(batch_cap);
+    if (!batch) {
+        return -1;
+    }
+
     unsigned long long total_bytes = 0ull;
+    i64 run_base = 0;
+    i64 expected_abs = 0;
+    size_t run_len = 0;
+
     struct map_iterator itr = {0};
     while (cache->iterate(cache, &itr)) {
         if (expected > 0 && ++steps > expected + 1) {
             WARN("storage_dio_pflush: iterator exceeded expected steps (count=%d); possible list corruption", expected);
+            FREE(batch);
             return -1;
         }
+
         i64 abs = itr.key;
         struct buffer *heap = (struct buffer *)itr.val;
+        if (!heap) continue;
 
-        ssize_t n = pwrite_all(fd, heap->array, heap->capacity, abs);
-        if (n < 0) 
+        // Start a new run if needed.
+        if (run_len == 0) {
+            run_base = abs;
+            expected_abs = abs;
+        }
+
+        // If this block isn't the next contiguous offset, flush current run.
+        if (abs != expected_abs || (run_len + (size_t)heap->capacity) > batch_cap) {
+            if (run_len > 0) {
+                ssize_t wn = pwrite_all(fd, batch, run_len, run_base);
+                if (wn < 0) {
+                    FREE(batch);
+                    return -1;
+                }
+
+#if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
+                if (priv && priv->drop_os_cache) {
+                    (void)posix_fadvise(fd, (off_t)run_base, (off_t)run_len, POSIX_FADV_DONTNEED);
+                }
+#endif
+
+                total_bytes += (unsigned long long)wn;
+            }
+            run_base = abs;
+            expected_abs = abs;
+            run_len = 0;
+        }
+
+        // Append buffer into batch.
+        memcpy(batch + run_len, heap->array, (size_t)heap->capacity);
+        run_len += (size_t)heap->capacity;
+        expected_abs += (i64)heap->capacity;
+
+        // Flush full batch.
+        if (run_len == batch_cap) {
+            ssize_t wn = pwrite_all(fd, batch, run_len, run_base);
+            if (wn < 0) {
+                FREE(batch);
+                return -1;
+            }
+
+#if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
+            if (priv && priv->drop_os_cache) {
+                (void)posix_fadvise(fd, (off_t)run_base, (off_t)run_len, POSIX_FADV_DONTNEED);
+            }
+#endif
+
+            total_bytes += (unsigned long long)wn;
+            run_len = 0;
+        }
+    }
+
+    // Flush tail.
+    if (run_len > 0) {
+        ssize_t wn = pwrite_all(fd, batch, run_len, run_base);
+        if (wn < 0) {
+            FREE(batch);
             return -1;
+        }
 
 #if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
         if (priv && priv->drop_os_cache) {
-            (void)posix_fadvise(fd, (off_t)abs, (off_t)heap->capacity, POSIX_FADV_DONTNEED);
+            (void)posix_fadvise(fd, (off_t)run_base, (off_t)run_len, POSIX_FADV_DONTNEED);
         }
 #endif
-        
-        total_bytes += (unsigned long long)n;
+
+        total_bytes += (unsigned long long)wn;
     }
+
+    FREE(batch);
+
     // `cache` owns the buffers (dealloc set at put); clearing releases them.
     cache->clear(cache);
 
     // fsync can be very expensive and may look like a hang.
     // Keep previous behavior (no fsync) unless explicitly enabled.
     const char *env_fsync = getenv("FLINTDB_DIO_FSYNC");
-    if (env_fsync && (strcmp(env_fsync, "1") == 0 || strcasecmp(env_fsync, "true") == 0 || strcasecmp(env_fsync, "on") == 0)) {
+    if (env_fsync && env_truthy(env_fsync)) {
         fsync(fd);
     }
     return total_bytes;
@@ -1132,9 +1252,7 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
 #ifdef DIO_CACHE_SIZE
     struct hashmap *cache = me->cache;
 
-#ifdef __linux__
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
-#endif
 
 #if defined(__linux__) && defined(O_DIRECT)
     // Linux O_DIRECT path: merge block writes into an aligned page cache.
@@ -1203,39 +1321,67 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
     }
 #endif
 
-    // IMPORTANT:
-    // The current flat hashmap refuses some inserts once it reaches ~75% load
-    // (slow-path insert returns NULL when count >= capacity * 0.75).
-    // If we wait until DIO_CACHE_SIZE entries, we can silently drop cached writes
-    // and corrupt on-disk initialization (e.g., free list next pointers).
-    const int soft_limit = (DIO_CACHE_SIZE * 3) / 4; // 75%
-    if (cache->count_get(cache) >= soft_limit) {
-        ssize_t n = storage_dio_pflush(me);
-        if (n < 0) {
-            heap->free(heap);
-            return -1;
-        }
-    }
+    // Non-O_DIRECT path: merge block writes into an OS_PAGE_SIZE page cache.
+    // This reduces tree inserts and allocations dramatically for sequential workloads.
+    const i64 page_base = align_down_i64(absolute, (i64)OS_PAGE_SIZE);
+    const u32 page_off = (u32)(absolute - page_base);
 
-    // Cache owns `heap` and will free it on overwrite/clear/free.
-    // If insertion fails (hashmap at load factor limit), flush and retry once.
-    void *slot = cache->put(cache, absolute, (valtype)heap, storage_cache_free);
-    if (!slot) {
-        ssize_t n = storage_dio_pflush(me);
-        if (n < 0) {
-            heap->free(heap);
-            return -1;
+    if (page_off + (u32)heap->capacity <= (u32)OS_PAGE_SIZE) {
+        struct buffer *page = NULL;
+        if (cache) {
+            valtype found = cache->get(cache, (keytype)page_base);
+            if (HASHMAP_INVALID_VAL != found) {
+                page = (struct buffer *)found;
+            }
         }
-        slot = cache->put(cache, absolute, (valtype)heap, storage_cache_free);
-    }
-    if (!slot) {
-        // Last-resort correctness fallback: write-through.
-        ssize_t written = pwrite_all(me->fd, heap->array, heap->capacity, absolute);
+
+        if (!page) {
+            page = buffer_alloc_aligned((u32)OS_PAGE_SIZE, (u32)OS_PAGE_SIZE);
+            if (!page) {
+                heap->free(heap);
+                return -1;
+            }
+
+            // RMW: load current page contents, or treat missing as zero.
+            ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
+            if (r < 0) {
+                page->free(page);
+                heap->free(heap);
+                return -1;
+            }
+            if (r == 0) {
+                memset(page->array, 0, (size_t)page->capacity);
+            } else if ((u32)r < (u32)page->capacity) {
+                memset(page->array + r, 0, (size_t)page->capacity - (size_t)r);
+            }
+
+            if (cache) {
+                if (!cache->put(cache, (keytype)page_base, (valtype)page, storage_cache_free)) {
+                    // Fallback: write-through the block.
+                    ssize_t written = pwrite_all(me->fd, heap->array, (size_t)heap->capacity, absolute);
+                    page->free(page);
+                    heap->free(heap);
+                    return written;
+                }
+            }
+        }
+
+        memcpy(page->array + page_off, heap->array, (size_t)heap->capacity);
         heap->free(heap);
-        return written;
+
+        u32 limit = (priv && priv->page_cache_limit) ? priv->page_cache_limit : 8192u;
+        if (cache && (u32)cache->count_get(cache) >= limit) {
+            if (storage_dio_pflush(me) < 0) {
+                return -1;
+            }
+        }
+        return (ssize_t)me->block_bytes;
     }
 
-    return heap->capacity;
+    // Should be unreachable (block fits in OS_PAGE_SIZE); correctness fallback.
+    ssize_t written = pwrite_all(me->fd, heap->array, (size_t)heap->capacity, absolute);
+    heap->free(heap);
+    return written;
 #else
     ssize_t written = pwrite_all(me->fd, heap->array, heap->capacity, absolute);
     heap->free(heap);
@@ -1253,30 +1399,62 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
         return -1;
 
     if (o >= st.st_size) {
-        i32 length = me->mmap_bytes;
-        off_t l = st.st_size + (me->mmap_bytes);
+        const i32 length = me->mmap_bytes;
+        off_t l = st.st_size + (off_t)me->mmap_bytes;
         _ftruncate(me->fd, l);
 
-        i64 absolute = me->block_bytes * offset;
-        i64 i = absolute / me->mmap_bytes;
-        i32 blocks = length / me->block_bytes;
-        i64 next = (i * blocks);
-        struct buffer *bb = NULL;
-        for(i32 x=0; x<blocks; x++) {
-            storage_dio_buffer_get(me, next, &bb);
-            if (!bb) THROW(e, "storage_dio_file_inflate: pread failed at offset=%lld", next);
-            bb->i8_put(bb, STATUS_EMPTY, NULL);
-            bb->i8_put(bb, MARK_AS_UNUSED, NULL);
-            bb->i16_put(bb, 0, NULL);
-            bb->i32_put(bb, 0, NULL);
-            bb->i64_put(bb, next + 1, NULL);
-            bb->flip(bb);
-            //storage_dio_pwrite(me, bb->array, bb->capacity, storage_dio_file_offset(me, next));
-            storage_dio_pwrite(me, bb, storage_dio_file_offset(me, next));
-            next++;
-            // ownership transferred to the DIO write cache
-            bb = NULL;
+        // The old implementation did per-block pread+pwrite (and often via the write-back cache),
+        // which is extremely slow for sequential growth. Initialize the entire newly-extended
+        // region in one contiguous write.
+
+        const i64 absolute = me->block_bytes * offset;
+        const i64 i = absolute / me->mmap_bytes;
+        const i32 blocks = length / me->block_bytes;
+        const i64 first = (i * (i64)blocks);
+
+        // Pick an alignment that is compatible with Linux O_DIRECT when enabled.
+        u32 alignment = (u32)OS_PAGE_SIZE;
+#if defined(__linux__) && defined(O_DIRECT)
+        {
+            struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+            if (priv && priv->o_direct_enabled && priv->direct_align) {
+                alignment = priv->direct_align;
+            }
         }
+#endif
+
+        struct buffer *chunk = buffer_alloc_aligned((u32)length, alignment);
+        if (!chunk) THROW(e, "storage_dio_file_inflate: OOM allocating chunk (%d bytes)", length);
+
+        // Zero all data; then stamp the free-list headers.
+        memset(chunk->array, 0, (size_t)length);
+
+        const i16 z16 = 0;
+        const i32 z32 = 0;
+        for (i32 x = 0; x < blocks; x++) {
+            char *blk = chunk->array + ((i64)x * (i64)me->block_bytes);
+            blk[0] = STATUS_EMPTY;
+            blk[1] = MARK_AS_UNUSED;
+            memcpy(blk + 2, &z16, 2);
+            memcpy(blk + 4, &z32, 4);
+            i64 next_ptr = first + (i64)x + 1;
+            memcpy(blk + 8, &next_ptr, 8);
+        }
+
+        const i64 abs_first = storage_dio_file_offset(me, first);
+        ssize_t wn = pwrite_all(me->fd, chunk->array, (size_t)length, abs_first);
+        chunk->free(chunk);
+        if (wn < 0) THROW(e, "storage_dio_file_inflate: pwrite failed at abs=%lld (%d bytes)", abs_first, length);
+
+#if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
+        {
+            struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+            if (priv && priv->drop_os_cache) {
+                (void)posix_fadvise(me->fd, (off_t)abs_first, (off_t)length, POSIX_FADV_DONTNEED);
+            }
+        }
+#endif
+
         storage_commit(me, STORAGE_COMMIT_FORCE, e);
         if (e && *e) THROW_S(e);
         return 1;
@@ -1613,7 +1791,15 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     me->priv = CALLOC(1, sizeof(struct storage_dio_priv));
     if (!me->priv) THROW(e, "Cannot allocate DIO private data");
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
-    (void)priv;
+
+    // Default cache sizing (used by both O_DIRECT and non-O_DIRECT page caching).
+    // Can be overridden on Linux O_DIRECT via FLINTDB_DIO_DIRECT_PAGE_CACHE.
+    const char *env_pages = getenv("FLINTDB_DIO_PAGE_CACHE");
+    if (env_pages && atoi(env_pages) > 0) {
+        priv->page_cache_limit = (u32)atoi(env_pages);
+    } else if (priv->page_cache_limit == 0) {
+        priv->page_cache_limit = 8192u;
+    }
 
     // Controls OS page cache behavior.
     // - macOS: uses F_NOCACHE when set to 0
