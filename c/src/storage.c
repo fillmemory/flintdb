@@ -66,7 +66,6 @@ static inline int _ftruncate(i32 fd, off_t length) {
                 return -1;
             }
         }
-
         return ftruncate(fd, length);
     #else
         return ftruncate(fd, length);
@@ -1102,10 +1101,11 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
 
     // Default keeps previous behavior (nocache enabled). Set FLINTDB_DIO_NOCACHE=0 to allow caching for speed.
     int nocache = 0;
-    const char *env_nocache = getenv("FLINTDB_DIO_NOCACHE");
-    if (env_nocache && (strcmp(env_nocache, "1") == 0 || strcasecmp(env_nocache, "true") == 0 || strcasecmp(env_nocache, "on") == 0)) {
+    const char *env_cache = getenv("FLINTDB_DIO_CACHE");
+    if (env_cache && (strcmp(env_cache, "1") == 0 || strcasecmp(env_cache, "true") == 0 || strcasecmp(env_cache, "on") == 0)) {
         nocache = 1;
     }
+
     #ifdef __APPLE__
         if (nocache) 
             fcntl(me->fd, F_NOCACHE, 1); // F_GLOBAL_NOCACHE
@@ -1180,7 +1180,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
 
     #ifdef STORAGE_DIO_USE_BUFFER_POOL
     LOG("Initializing DIO buffer pool: block_bytes=%d", me->block_bytes);
-    me->pool = buffer_pool_safe_create(32, me->block_bytes, 0); // 256K blocks
+    me->pool = buffer_pool_safe_create(STORAGE_DIO_USE_BUFFER_POOL, me->block_bytes, 0); // 256K blocks
     #endif
 
     // LOG("count=%lld, free=%lld", me->count, me->free);

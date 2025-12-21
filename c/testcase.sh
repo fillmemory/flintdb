@@ -295,6 +295,8 @@ case "$VARIANT_STRPOOL" in
 esac
 # CFLAGS="$CFLAGS -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE=1" # for large file support
 
+CFLAGS="$CFLAGS -DSTORAGE_DIO_USE_BUFFER_POOL=16" # Use DIO buffer pool with 64 buffers
+
 EXE_NAME=./testcase
 EXE_PATH=$EXE_NAME
 #SRC_FILES=./src/*.c 
