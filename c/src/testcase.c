@@ -378,7 +378,9 @@ int main(int argc, char **argv) {
     printf("count : %lld \n", count);
     printf("bytes : %lld \n", s.bytes_get(&s));
 
-    for (i64 i = count - 10; i < (count); i++) {
+    i64 start = count - 10;
+    if (start < 0) start = 0;
+    for (i64 i = start; i < (count); i++) {
         struct buffer *r = s.read(&s, i, &e);
         int remaining = r->remaining(r);
         // printf("read remaining : %d \n", remaining);

@@ -821,6 +821,13 @@ EXCEPTION:
 struct storage_dio_priv {
     int drop_os_cache; // best-effort OS page cache drop (Linux: posix_fadvise DONTNEED, macOS: F_NOCACHE)
 
+    // True if the file was opened as a brand-new DIO file (no existing blocks).
+    // Used to safely avoid pread() RMW when creating page-cache entries.
+    int fresh_file;
+
+    // Cached file size used by storage_dio_file_inflate to avoid per-write fstat().
+    i64 inflated_size;
+
     // Linux O_DIRECT mode: actual IO is performed in page-sized aligned units.
     int o_direct_enabled;
     u32 direct_align;     // e.g., 4096
@@ -834,6 +841,34 @@ static inline int env_truthy(const char *v) {
 
 static inline i64 align_down_i64(i64 x, i64 a) {
     return (a <= 0) ? x : (x / a) * a;
+}
+
+static inline void storage_dio_page_init_freelist(struct storage *me, struct buffer *page, i64 page_base_abs) {
+    assert(me);
+    assert(page);
+    assert(page->array);
+
+    // Only safe when a page is composed of whole blocks.
+    assert(me->block_bytes > 0);
+    assert((page->capacity % me->block_bytes) == 0);
+    assert(page_base_abs >= (i64)HEADER_BYTES);
+    assert(((page_base_abs - (i64)HEADER_BYTES) % (i64)me->block_bytes) == 0);
+
+    memset(page->array, 0, (size_t)page->capacity);
+
+    const i32 blocks = (i32)((i64)page->capacity / (i64)me->block_bytes);
+    const i64 first = (page_base_abs - (i64)HEADER_BYTES) / (i64)me->block_bytes;
+    const i16 z16 = 0;
+    const i32 z32 = 0;
+    for (i32 x = 0; x < blocks; x++) {
+        char *blk = page->array + ((i64)x * (i64)me->block_bytes);
+        blk[0] = STATUS_EMPTY;
+        blk[1] = MARK_AS_UNUSED;
+        memcpy(blk + 2, &z16, 2);
+        memcpy(blk + 4, &z32, 4);
+        i64 next_ptr = first + (i64)x + 1;
+        memcpy(blk + 8, &next_ptr, 8);
+    }
 }
 
 static inline void storage_dio_commit(struct storage *me, u8 force, char **e) {
@@ -855,6 +890,18 @@ static inline i64 storage_dio_file_offset(struct storage *me, i64 offset) {
 // This avoids a full block pread on the write path where we overwrite the entire block anyway.
 static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 *status_out, i64 *next_out) {
     const i64 absolute = storage_dio_file_offset(me, offset);
+
+    // For brand-new files with OS cache disabled (e.g., macOS F_NOCACHE), avoid any disk reads
+    // for blocks that are being allocated for the first time. In this state, the on-disk bytes
+    // are implicitly zero, and the free-list linkage is a simple linear chain.
+    {
+        struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+        if (priv && priv->fresh_file && offset >= me->count) {
+            if (status_out) *status_out = STATUS_EMPTY;
+            if (next_out) *next_out = offset + 1;
+            return 0;
+        }
+    }
 
 #ifdef DIO_CACHE_SIZE
     // If write-back cache is enabled, honor read-your-writes for metadata too.
@@ -927,15 +974,31 @@ static inline struct buffer *storage_dio_odirect_page_get(struct storage *me, st
     struct buffer *page = buffer_alloc_aligned(io, priv->direct_align);
     if (!page) return NULL;
 
-    ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
-    if (r < 0) {
-        page->free(page);
-        return NULL;
+    // For a brand-new DIO file we keep the data region sparse (no on-disk free-list initialization).
+    // Pages at/after the first unallocated block must be synthesized in-memory, otherwise empty blocks
+    // read as all-zeros and the free-list linkage becomes "next=0" (causing the allocator to reuse block 0).
+    int synthesized = 0;
+    if (priv && priv->fresh_file) {
+        if (page_base >= (i64)HEADER_BYTES && (page->capacity % me->block_bytes) == 0 && ((page_base - (i64)HEADER_BYTES) % (i64)me->block_bytes) == 0) {
+            const i64 first = (page_base - (i64)HEADER_BYTES) / (i64)me->block_bytes;
+            if (first >= me->count) {
+                storage_dio_page_init_freelist(me, page, page_base);
+                synthesized = 1;
+            }
+        }
     }
-    if (r == 0) {
-        memset(page->array, 0, (size_t)page->capacity);
-    } else if ((u32)r < page->capacity) {
-        memset(page->array + r, 0, (size_t)page->capacity - (size_t)r);
+
+    if (!synthesized) {
+        ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
+        if (r < 0) {
+            page->free(page);
+            return NULL;
+        }
+        if (r == 0) {
+            memset(page->array, 0, (size_t)page->capacity);
+        } else if ((u32)r < page->capacity) {
+            memset(page->array + r, 0, (size_t)page->capacity - (size_t)r);
+        }
     }
 
     if (cache) {
@@ -1277,17 +1340,30 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
                 return -1;
             }
 
-            // Read existing page contents (RMW). If beyond EOF/new area, pread may return 0; treat as zero page.
-            ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
-            if (r < 0) {
-                page->free(page);
-                heap->free(heap);
-                return -1;
+            int synthesized = 0;
+            if (priv && priv->fresh_file) {
+                if (page_base >= (i64)HEADER_BYTES && (page->capacity % me->block_bytes) == 0 && ((page_base - (i64)HEADER_BYTES) % (i64)me->block_bytes) == 0) {
+                    const i64 first = (page_base - (i64)HEADER_BYTES) / (i64)me->block_bytes;
+                    if (first >= me->count) {
+                        storage_dio_page_init_freelist(me, page, page_base);
+                        synthesized = 1;
+                    }
+                }
             }
-            if (r == 0) {
-                memset(page->array, 0, (size_t)page->capacity);
-            } else if ((u32)r < page->capacity) {
-                memset(page->array + r, 0, (size_t)page->capacity - (size_t)r);
+
+            if (!synthesized) {
+                // Read existing page contents (RMW).
+                ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
+                if (r < 0) {
+                    page->free(page);
+                    heap->free(heap);
+                    return -1;
+                }
+                if (r == 0) {
+                    memset(page->array, 0, (size_t)page->capacity);
+                } else if ((u32)r < page->capacity) {
+                    memset(page->array + r, 0, (size_t)page->capacity - (size_t)r);
+                }
             }
 
             // Insert into cache (cache owns page).
@@ -1342,17 +1418,31 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
                 return -1;
             }
 
-            // RMW: load current page contents, or treat missing as zero.
-            ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
-            if (r < 0) {
-                page->free(page);
-                heap->free(heap);
-                return -1;
+            // RMW: for brand-new DIO files we know all pages are in the default free-list layout.
+            // This avoids an expensive disk pread per page when OS caching is disabled.
+            int synthesized = 0;
+            if (priv && priv->fresh_file) {
+                if (page_base >= (i64)HEADER_BYTES && (page->capacity % me->block_bytes) == 0 && ((page_base - (i64)HEADER_BYTES) % (i64)me->block_bytes) == 0) {
+                    const i64 first = (page_base - (i64)HEADER_BYTES) / (i64)me->block_bytes;
+                    if (first >= me->count) {
+                        storage_dio_page_init_freelist(me, page, page_base);
+                        synthesized = 1;
+                    }
+                }
             }
-            if (r == 0) {
-                memset(page->array, 0, (size_t)page->capacity);
-            } else if ((u32)r < (u32)page->capacity) {
-                memset(page->array + r, 0, (size_t)page->capacity - (size_t)r);
+
+            if (!synthesized) {
+                ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
+                if (r < 0) {
+                    page->free(page);
+                    heap->free(heap);
+                    return -1;
+                }
+                if (r == 0) {
+                    memset(page->array, 0, (size_t)page->capacity);
+                } else if ((u32)r < (u32)page->capacity) {
+                    memset(page->array + r, 0, (size_t)page->capacity - (size_t)r);
+                }
             }
 
             if (cache) {
@@ -1394,23 +1484,40 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
     assert(me->opts.mode == FLINTDB_RDWR);
 
     i64 o = storage_dio_file_offset(me, offset);
-    struct stat st;
-    if (fstat(me->fd, &st) < 0) 
-        return -1;
+    struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+    if (!priv) return -1;
 
-    if (o >= st.st_size) {
+    // Ensure internal size starts sane.
+    if (priv->inflated_size < (i64)HEADER_BYTES) {
+        priv->inflated_size = (i64)HEADER_BYTES;
+    }
+
+    const i64 need = o + (i64)me->block_bytes;
+    if (need > priv->inflated_size) {
         const i32 length = me->mmap_bytes;
-        off_t l = st.st_size + (off_t)me->mmap_bytes;
-        _ftruncate(me->fd, l);
+
+        // Extend by one or more whole chunks.
+        i64 old_size = priv->inflated_size;
+        i64 new_size = priv->inflated_size;
+        while (need > new_size) {
+            new_size += (i64)me->mmap_bytes;
+        }
+        _ftruncate(me->fd, (off_t)new_size);
+        priv->inflated_size = new_size;
+
+        // For brand-new files, keep the file sparse and synthesize free-list metadata in-memory.
+        // This avoids forcing physical IO and large memory initialization during growth.
+        if (priv->fresh_file) {
+            storage_commit(me, STORAGE_COMMIT_FORCE, e);
+            if (e && *e) THROW_S(e);
+            return 1;
+        }
 
         // The old implementation did per-block pread+pwrite (and often via the write-back cache),
         // which is extremely slow for sequential growth. Initialize the entire newly-extended
         // region in one contiguous write.
-
-        const i64 absolute = me->block_bytes * offset;
-        const i64 i = absolute / me->mmap_bytes;
         const i32 blocks = length / me->block_bytes;
-        const i64 first = (i * (i64)blocks);
+        const i64 first = (old_size - (i64)HEADER_BYTES) / (i64)me->block_bytes;
 
         // Pick an alignment that is compatible with Linux O_DIRECT when enabled.
         u32 alignment = (u32)OS_PAGE_SIZE;
@@ -1441,7 +1548,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
             memcpy(blk + 8, &next_ptr, 8);
         }
 
-        const i64 abs_first = storage_dio_file_offset(me, first);
+        const i64 abs_first = old_size;
         ssize_t wn = pwrite_all(me->fd, chunk->array, (size_t)length, abs_first);
         chunk->free(chunk);
         if (wn < 0) THROW(e, "storage_dio_file_inflate: pwrite failed at abs=%lld (%d bytes)", abs_first, length);
@@ -1518,7 +1625,7 @@ EXCEPTION:
 }
 
 static i32 storage_dio_delete(struct storage *me, i64 offset, char **e) {
-
+    // TODO: implement block deletion (reclaim to free list)
     return 0;
 }
 
@@ -1811,8 +1918,10 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     }
 
     #ifdef __APPLE__
-        if (oscache == 0)
+        if (oscache == 0) {
             fcntl(me->fd, F_NOCACHE, 1); // F_GLOBAL_NOCACHE
+            priv->drop_os_cache = 1;
+        }
         // macOS doesn't provide posix_fadvise/POSIX_FADV_* in all SDKs; use fcntl hints instead.
         #ifdef F_RDAHEAD
             (void)fcntl(me->fd, F_RDAHEAD, 1);
@@ -1853,8 +1962,10 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
 
     struct stat st;
     fstat(me->fd, &st);
+    priv->fresh_file = (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES);
     if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES)
         _ftruncate(me->fd, (off_t)HEADER_BYTES);
+    priv->inflated_size = (st.st_size >= (i64)HEADER_BYTES) ? (i64)st.st_size : (i64)HEADER_BYTES;
 
     // Map the file header with MAP_SHARED so updates (e.g., magic, counts) are persisted to disk
     // Using MAP_PRIVATE here would create a private COW mapping and header writes wouldn't be visible
