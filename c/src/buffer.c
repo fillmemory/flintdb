@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+
+#ifdef _WIN32
+#include <malloc.h>
+#endif
 
 // #ifndef _WIN32
 // #include <arpa/inet.h>
@@ -219,6 +224,18 @@ static void buffer_free(struct buffer *me) {
     FREE(me);
 }
 
+static void buffer_aligned_free(struct buffer *me) {
+    if (!me) return;
+#ifdef _WIN32
+    if (me->array) {
+        _aligned_free(me->array);
+    }
+#else
+    FREE(me->array);
+#endif
+    FREE(me);
+}
+
 static void buffer_pool_auto_return_free(struct buffer *me);
 
 static void buffer_borrow_free(struct buffer *me) {
@@ -365,6 +382,85 @@ struct buffer *buffer_alloc(u32 capacity) {
 
     out->realloc = &buffer_realloc;
     out->free = &buffer_free;
+
+    return out;
+}
+
+static u32 round_up_u32(u32 x, u32 a) {
+    if (a == 0) return x;
+    u32 r = x % a;
+    return r == 0 ? x : (x + (a - r));
+}
+
+static u32 next_pow2_u32(u32 x) {
+    if (x <= 1) return 1;
+    x--;
+    x |= x >> 1;
+    x |= x >> 2;
+    x |= x >> 4;
+    x |= x >> 8;
+    x |= x >> 16;
+    return x + 1;
+}
+
+struct buffer *buffer_alloc_aligned(u32 capacity, u32 alignment) {
+    // posix_memalign requires alignment to be a power-of-two multiple of sizeof(void*).
+    u32 min_align = (u32)sizeof(void *);
+    if (alignment < min_align) alignment = min_align;
+    if ((alignment & (alignment - 1)) != 0) alignment = next_pow2_u32(alignment);
+
+    u32 size = round_up_u32(capacity, alignment);
+
+    void *ptr = NULL;
+#ifdef _WIN32
+    ptr = _aligned_malloc((size_t)size, (size_t)alignment);
+    if (!ptr) {
+        return NULL;
+    }
+#else
+    int rc = posix_memalign(&ptr, (size_t)alignment, (size_t)size);
+    if (rc != 0) {
+        errno = rc;
+        return NULL;
+    }
+#endif
+
+    struct buffer *out = CALLOC(1, sizeof(struct buffer));
+    if (!out) {
+#ifdef _WIN32
+        _aligned_free(ptr);
+#else
+        FREE(ptr);
+#endif
+        return NULL;
+    }
+
+    out->owner = NULL;
+    out->array = (char *)ptr;
+    out->position = 0;
+    out->limit = size;
+    out->capacity = size;
+
+    out->flip = &buffer_flip;
+    out->clear = &buffer_clear;
+    out->skip = &buffer_skip;
+    out->remaining = &buffer_remaining;
+    out->array_put = &buffer_array_put;
+    out->array_get = &buffer_array_get;
+    out->i8_put = &buffer_i8_put;
+    out->i16_put = &buffer_i16_put;
+    out->i32_put = &buffer_i32_put;
+    out->i64_put = &buffer_i64_put;
+    out->f64_put = &buffer_f64_put;
+    out->i8_get = &buffer_i8_get;
+    out->i16_get = &buffer_i16_get;
+    out->i32_get = &buffer_i32_get;
+    out->i64_get = &buffer_i64_get;
+    out->f64_get = &buffer_f64_get;
+
+    out->slice = &buffer_slice_to;
+    out->realloc = &buffer_realloc;
+    out->free = &buffer_aligned_free;
 
     return out;
 }

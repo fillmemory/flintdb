@@ -816,8 +816,24 @@ EXCEPTION:
 
 
 struct storage_dio_priv {
-    // Add any private fields if necessary
+    int drop_os_cache; // best-effort OS page cache drop (Linux: posix_fadvise DONTNEED, macOS: F_NOCACHE)
+
+    // Linux O_DIRECT mode: actual IO is performed in page-sized aligned units.
+    int o_direct_enabled;
+    u32 direct_align;     // e.g., 4096
+    u32 direct_io_bytes;  // e.g., 4096 (must be multiple of direct_align)
+    u32 page_cache_limit; // max cached pages before flush
 };
+
+static inline int env_truthy(const char *v) {
+    return v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0 || strcasecmp(v, "yes") == 0);
+}
+
+static inline i64 align_down_i64(i64 x, i64 a) {
+    return (a <= 0) ? x : (x / a) * a;
+}
+
+static inline u32 u32_max(u32 a, u32 b) { return a > b ? a : b; }
 
 static inline void storage_dio_commit(struct storage *me, u8 force, char **e) {
     storage_commit(me, force, e);
@@ -836,6 +852,63 @@ static inline i64 storage_dio_file_offset(struct storage *me, i64 offset) {
 
 static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, struct buffer **out) {
     i64 o = storage_dio_file_offset(me, offset);
+
+    struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+
+#if defined(__linux__) && defined(O_DIRECT)
+    // Linux O_DIRECT path: read a whole aligned page then slice/copy out block_bytes.
+    if (priv && priv->o_direct_enabled) {
+        const u32 io = priv->direct_io_bytes;
+        const i64 page_base = align_down_i64(o, (i64)io);
+        const u32 page_off = (u32)(o - page_base);
+
+        // First: read-your-writes from the page cache.
+        if (me->cache) {
+            valtype found = me->cache->get(me->cache, (keytype)page_base);
+            if (HASHMAP_INVALID_VAL != found) {
+                struct buffer *page = (struct buffer *)found;
+                struct buffer *bb = BUFFER_POOL_BORROW((u32)me->block_bytes);
+                if (!bb) {
+                    if (out) *out = NULL;
+                    return -1;
+                }
+                bb->clear(bb);
+                memcpy(bb->array, page->array + page_off, (size_t)me->block_bytes);
+                if (out) *out = bb;
+                return (ssize_t)me->block_bytes;
+            }
+        }
+
+        // Miss: do an aligned page pread.
+        struct buffer *page = buffer_alloc_aligned(io, priv->direct_align);
+        if (!page) {
+            if (out) *out = NULL;
+            return -1;
+        }
+        ssize_t n = pread(me->fd, page->array, page->capacity, page_base);
+        if (n <= 0) {
+            page->free(page);
+            if (out) *out = NULL;
+            return n;
+        }
+        if ((u32)n < page->capacity) {
+            memset(page->array + n, 0, (size_t)page->capacity - (size_t)n);
+        }
+
+        struct buffer *bb = BUFFER_POOL_BORROW((u32)me->block_bytes);
+        if (!bb) {
+            page->free(page);
+            if (out) *out = NULL;
+            return -1;
+        }
+        bb->clear(bb);
+        memcpy(bb->array, page->array + page_off, (size_t)me->block_bytes);
+        page->free(page);
+
+        if (out) *out = bb;
+        return (ssize_t)me->block_bytes;
+    }
+#endif
 
 #ifdef DIO_CACHE_SIZE
     // If write-back cache is enabled, honor read-your-writes.
@@ -860,6 +933,14 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
     //struct buffer *bb = buffer_alloc(me->block_bytes);
     struct buffer *bb = BUFFER_POOL_BORROW(me->block_bytes);
     ssize_t n = pread(me->fd, bb->array, bb->capacity, o);
+#if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
+    // Best-effort: drop cache for the range we just touched.
+    // This is safer than O_DIRECT (which requires strict alignment of buffers/offsets).
+    
+    if (priv && priv->drop_os_cache) {
+        (void)posix_fadvise(me->fd, (off_t)o, (off_t)bb->capacity, POSIX_FADV_DONTNEED);
+    }
+#endif
     // LOG("storage_dio_buffer_get: offset=%lld, file_offset=%lld, bytes_read=%zd", offset, o, n);
     if (n <= 0 && bb) {
         bb->free(bb);
@@ -892,6 +973,26 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 #ifdef DIO_CACHE_SIZE
     int fd = me->fd;
     struct hashmap *cache = me->cache;
+    struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+
+#if defined(__linux__) && defined(O_DIRECT)
+    if (priv && priv->o_direct_enabled) {
+        const u32 io = priv->direct_io_bytes;
+        unsigned long long total_bytes = 0ull;
+        struct map_iterator itr = {0};
+        while (cache->iterate(cache, &itr)) {
+            i64 abs = (i64)itr.key; // page base
+            struct buffer *page = (struct buffer *)itr.val;
+            // Page buffers are aligned and sized for O_DIRECT.
+            ssize_t n = pwrite_all(fd, page->array, page->capacity, abs);
+            if (n < 0) return -1;
+            total_bytes += (unsigned long long)n;
+        }
+        cache->clear(cache);
+        (void)io; // silence unused if compiled without O_DIRECT semantics
+        return (ssize_t)total_bytes;
+    }
+#endif
 
     // Defensive guard: if the hashmap's iteration list is corrupted (cycle),
     // iterate() may never reach tail. Bound by (count + 1).
@@ -911,6 +1012,12 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
         ssize_t n = pwrite_all(fd, heap->array, heap->capacity, abs);
         if (n < 0) 
             return -1;
+
+#if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
+        if (priv && priv->drop_os_cache) {
+            (void)posix_fadvise(fd, (off_t)abs, (off_t)heap->capacity, POSIX_FADV_DONTNEED);
+        }
+#endif
         
         total_bytes += (unsigned long long)n;
     }
@@ -932,6 +1039,75 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap, i64 absolute) {
 #ifdef DIO_CACHE_SIZE
     struct hashmap *cache = me->cache;
+    struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+
+#if defined(__linux__) && defined(O_DIRECT)
+    // Linux O_DIRECT path: merge block writes into an aligned page cache.
+    if (priv && priv->o_direct_enabled) {
+        const u32 io = priv->direct_io_bytes;
+        const i64 page_base = align_down_i64(absolute, (i64)io);
+        const u32 page_off = (u32)(absolute - page_base);
+
+        // Fetch or create cached page.
+        struct buffer *page = NULL;
+        if (cache) {
+            valtype found = cache->get(cache, (keytype)page_base);
+            if (HASHMAP_INVALID_VAL != found) {
+                page = (struct buffer *)found;
+            }
+        }
+
+        if (!page) {
+            page = buffer_alloc_aligned(io, priv->direct_align);
+            if (!page) {
+                heap->free(heap);
+                return -1;
+            }
+
+            // Read existing page contents (RMW). If beyond EOF/new area, pread may return 0; treat as zero page.
+            ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
+            if (r < 0) {
+                page->free(page);
+                heap->free(heap);
+                return -1;
+            }
+            if (r == 0) {
+                memset(page->array, 0, (size_t)page->capacity);
+            } else if ((u32)r < page->capacity) {
+                memset(page->array + r, 0, (size_t)page->capacity - (size_t)r);
+            }
+
+            // Insert into cache (cache owns page).
+            if (!cache->put(cache, (keytype)page_base, (valtype)page, storage_cache_free)) {
+                // If insertion fails, fall back to write-through page.
+                ssize_t written = pwrite_all(me->fd, page->array, page->capacity, page_base);
+                page->free(page);
+                if (written < 0) {
+                    heap->free(heap);
+                    return -1;
+                }
+                // Proceed without caching.
+                page = NULL;
+            }
+        }
+
+        if (page) {
+            memcpy(page->array + page_off, heap->array, (size_t)heap->capacity);
+        }
+        heap->free(heap);
+
+        // Flush cache if too big.
+        u32 limit = priv->page_cache_limit ? priv->page_cache_limit : 8192u;
+        if (cache && (u32)cache->count_get(cache) >= limit) {
+            if (storage_dio_pflush(me) < 0) {
+                return -1;
+            }
+        }
+
+        return (ssize_t)me->block_bytes;
+    }
+#endif
+
     // IMPORTANT:
     // The current flat hashmap refuses some inserts once it reaches ~75% load
     // (slow-path insert returns NULL when count >= capacity * 0.75).
@@ -1233,16 +1409,32 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     getdir(me->opts.file, dir);
     mkdirs(dir, S_IRWXU);
 
-    // O_DIRECT removed: incompatible with mmap and can hurt performance
-    me->fd = open(me->opts.file, (opts.mode == FLINTDB_RDWR ? O_RDWR | O_CREAT : O_RDONLY), S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
+    // Decide Linux O_DIRECT at open-time (cannot be reliably enabled via fcntl).
+    int open_flags = (opts.mode == FLINTDB_RDWR ? (O_RDWR | O_CREAT) : O_RDONLY);
+#if defined(__linux__) && defined(O_DIRECT)
+    const char *env_odirect = getenv("FLINTDB_DIO_O_DIRECT");
+    const char *env_oscache = getenv("FLINTDB_DIO_OS_CACHE");
+    int want_odirect = env_truthy(env_odirect) || (env_oscache && (strcmp(env_oscache, "0") == 0 || strcasecmp(env_oscache, "false") == 0 || strcasecmp(env_oscache, "off") == 0));
+    if (want_odirect) {
+        open_flags |= O_DIRECT;
+    }
+#endif
+
+    me->fd = open(me->opts.file, open_flags, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
     if (me->fd < 0) {
         THROW(e, "Cannot open file %s: %s", me->opts.file, strerror(errno));
     }
 
-    // Default keeps previous behavior (nocache enabled). Set FLINTDB_DIO_NOCACHE=0 to allow caching for speed.
+    me->priv = CALLOC(1, sizeof(struct storage_dio_priv));
+    if (!me->priv) THROW(e, "Cannot allocate DIO private data");
+    struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+
+    // Controls OS page cache behavior.
+    // - macOS: uses F_NOCACHE when set to 0
+    // - Linux: if opened with O_DIRECT, all data IO uses aligned page RMW; otherwise uses posix_fadvise(DONTNEED).
     int oscache = 1;
-    const char *env_oscache = getenv("FLINTDB_DIO_OS_CACHE");
-    if (env_oscache && (strcmp(env_oscache, "0") == 0 || strcasecmp(env_oscache, "false") == 0 || strcasecmp(env_oscache, "off") == 0)) {
+    const char *env_oscache2 = getenv("FLINTDB_DIO_OS_CACHE");
+    if (env_oscache2 && (strcmp(env_oscache2, "0") == 0 || strcasecmp(env_oscache2, "false") == 0 || strcasecmp(env_oscache2, "off") == 0)) {
         oscache = 0;
     }
 
@@ -1265,8 +1457,23 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     #endif
 
     #ifdef __linux__
-        if (oscache == 0) 
-             fcntl(me->fd, F_SETFL, O_DIRECT);
+        if (oscache == 0) {
+            // If file was opened with O_DIRECT, enable aligned page IO.
+#if defined(O_DIRECT)
+            if (open_flags & O_DIRECT) {
+                priv->o_direct_enabled = 1;
+                priv->direct_align = 4096u;
+                priv->direct_io_bytes = 4096u;
+                const char *env_pages = getenv("FLINTDB_DIO_DIRECT_PAGE_CACHE");
+                priv->page_cache_limit = (env_pages && atoi(env_pages) > 0) ? (u32)atoi(env_pages) : 8192u;
+                DEBUG("DIO: Linux O_DIRECT enabled (align=%u, io=%u, page_cache_limit=%u)", priv->direct_align, priv->direct_io_bytes, priv->page_cache_limit);
+            } else {
+                priv->drop_os_cache = 1;
+            }
+#else
+            priv->drop_os_cache = 1;
+#endif
+        }
         #if defined(POSIX_FADV_SEQUENTIAL)
             (void)posix_fadvise(me->fd, 0, 0, POSIX_FADV_SEQUENTIAL);
         #endif
@@ -1341,9 +1548,6 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     LOG("Initializing DIO buffer pool: block_bytes=%d", me->block_bytes);
     me->pool = buffer_pool_safe_create(STORAGE_DIO_USE_BUFFER_POOL, me->block_bytes, 0); // 256K blocks
     #endif
-
-    me->priv = CALLOC(1, sizeof(struct storage_dio_priv));
-    if (!me->priv) THROW(e, "Cannot allocate DIO private data");
 
     // LOG("count=%lld, free=%lld", me->count, me->free);
     return 0;

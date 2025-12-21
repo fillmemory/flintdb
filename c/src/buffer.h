@@ -59,6 +59,11 @@ struct buffer * buffer_mmap(void *addr, u32 offset, u32 length);
 
 struct buffer * buffer_alloc(u32 capacity);
 
+// Allocate a buffer whose backing array is aligned to `alignment` bytes.
+// Useful for Linux O_DIRECT which requires strict alignment.
+// Note: capacity may be rounded up to a multiple of alignment.
+struct buffer * buffer_alloc_aligned(u32 capacity, u32 alignment);
+
 struct buffer * buffer_slice(struct buffer *in, i32 offset, i32 length, char **e);
 
 const char * dump_as_hex(const char *in, int offset, int len, int width, char *out);
