@@ -44,6 +44,35 @@
 
 const i64 NEXT_END = -1;
 
+static inline int _ftruncate(i32 fd, off_t length) {
+    #ifdef __linux__
+        int rc = posix_fallocate(fd, 0, (off_t)length);
+        if (rc != 0) {
+            errno = rc;
+            return -1;
+        }
+        return ftruncate(fd, (off_t)length);
+    #elif defined(__APPLE__)
+        fstore_t fst;
+        memset(&fst, 0, sizeof(fst));
+        fst.fst_flags = F_ALLOCATECONTIG;
+        fst.fst_posmode = F_PEOFPOSMODE;
+        fst.fst_offset = 0;
+        fst.fst_length = length;
+
+        if (fcntl(fd, F_PREALLOCATE, &fst) == -1) {
+            fst.fst_flags = F_ALLOCATEALL;
+            if (fcntl(fd, F_PREALLOCATE, &fst) == -1) {
+                return -1;
+            }
+        }
+
+        return ftruncate(fd, length);
+    #else
+        return ftruncate(fd, length);
+    #endif
+}
+
 static i64 storage_count_get(struct storage *me) {
     return me->count;
 }
@@ -109,7 +138,7 @@ static struct buffer * storage_mmap(struct storage *me, i64 offset, i32 length, 
     struct stat st;
     fstat(me->fd, &st);
     if (limit > st.st_size) {
-        ftruncate(me->fd, limit);
+        _ftruncate(me->fd, limit);
     }
 
     i32 page_size = OS_PAGE_SIZE; // 16Kb fixed // getpagesize(); // sysconf(_SC_PAGESIZE)
@@ -433,7 +462,7 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
     struct stat st;
     fstat(me->fd, &st);
     if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES)
-        ftruncate(me->fd, (off_t)HEADER_BYTES);
+        _ftruncate(me->fd, (off_t)HEADER_BYTES);
 
     // Map the file header with MAP_SHARED so updates (e.g., magic, counts) are persisted to disk
     // Using MAP_PRIVATE here would create a private COW mapping and header writes wouldn't be visible
@@ -793,9 +822,16 @@ static inline i64 storage_dio_file_offset(struct storage *me, i64 offset) {
     return (offset * me->block_bytes) + HEADER_BYTES;
 }
 
+#ifdef STORAGE_DIO_USE_BUFFER_POOL
+    #define BUFFER_POOL_BORROW(length) me->pool->borrow(me->pool, length);
+#else
+    #define BUFFER_POOL_BORROW(length) buffer_alloc(length);
+#endif
+
 static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, struct buffer **out) {
     i64 o = storage_dio_file_offset(me, offset);
-    struct buffer *bb = buffer_alloc(me->block_bytes);
+    //struct buffer *bb = buffer_alloc(me->block_bytes);
+    struct buffer *bb = BUFFER_POOL_BORROW(me->block_bytes);
     ssize_t n = pread(me->fd, bb->array, bb->capacity, o);
     // LOG("storage_dio_buffer_get: offset=%lld, file_offset=%lld, bytes_read=%zd", offset, o, n);
     if (n <= 0 && bb) {
@@ -831,12 +867,12 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
     if (o >= st.st_size) {
         i32 length = me->mmap_bytes;
         off_t l = st.st_size + (me->mmap_bytes);
-        ftruncate(me->fd, l);
+        _ftruncate(me->fd, l);
 
         i64 absolute = me->block_bytes * offset;
         i64 i = absolute / me->mmap_bytes;
         i32 blocks = length / me->block_bytes;
-        i64 next = i * blocks;  // Start from the first block in this segment
+        i64 next = (i * blocks);
         struct buffer *bb = NULL;
         for(i32 x=0; x<blocks; x++) {
             storage_dio_buffer_get(me, next, &bb);
@@ -844,7 +880,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
             bb->i8_put(bb, MARK_AS_UNUSED, NULL);
             bb->i16_put(bb, 0, NULL);
             bb->i32_put(bb, 0, NULL);
-            bb->i64_put(bb, (x == blocks - 1) ? NEXT_END : (next + 1), NULL);
+            bb->i64_put(bb, next + 1, NULL);
             // bb->flip(bb);
             pwrite_all(me->fd, bb->array, bb->capacity, storage_dio_file_offset(me, next));
             next++;
@@ -874,7 +910,8 @@ static struct buffer * storage_dio_read(struct storage *me, i64 offset, char **e
     i64 next = p->i64_get(p, e);
 
     if (next > NEXT_END && length > (me->opts.block_bytes)) {
-        struct buffer *p = buffer_alloc(length);
+        // struct buffer *p = buffer_alloc(length);
+        struct buffer *p = BUFFER_POOL_BORROW(length);
         // copy only the first chunk (limit) from the first block
         struct buffer first = {0};
         p->slice(p, 0, limit, &first, e);
@@ -922,7 +959,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
     i64 next_last = NEXT_END;
     struct buffer *p = NULL;
 
-    p = buffer_alloc(BLOCK_DATA_BYTES);
+    // p = buffer_alloc(BLOCK_DATA_BYTES);
+    p = BUFFER_POOL_BORROW(BLOCK_DATA_BYTES);
 
     while (1) {
         struct buffer c = {0};
@@ -1017,6 +1055,13 @@ static void storage_dio_close(struct storage *me) {
         FREE(me->clean);
         me->clean = NULL;
     }
+    #ifdef STORAGE_DIO_USE_BUFFER_POOL
+    if (me->pool) {
+        DEBUG("freeing pool buffer");
+        me->pool->free(me->pool);
+        me->pool = NULL;
+    }
+    #endif
     me->fd = -1;
 }
 
@@ -1056,27 +1101,26 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     }
 
     // Default keeps previous behavior (nocache enabled). Set FLINTDB_DIO_NOCACHE=0 to allow caching for speed.
-    int nocache = 1;
+    int nocache = 0;
     const char *env_nocache = getenv("FLINTDB_DIO_NOCACHE");
-    if (env_nocache && (strcmp(env_nocache, "0") == 0 || strcasecmp(env_nocache, "false") == 0 || strcasecmp(env_nocache, "off") == 0)) {
-        nocache = 0;
+    if (env_nocache && (strcmp(env_nocache, "1") == 0 || strcasecmp(env_nocache, "true") == 0 || strcasecmp(env_nocache, "on") == 0)) {
+        nocache = 1;
     }
-    if (nocache) {
-        #ifdef __APPLE__
-        fcntl(me->fd, F_NOCACHE, 1);
-        #endif
+    #ifdef __APPLE__
+        if (nocache) 
+            fcntl(me->fd, F_NOCACHE, 1); // F_GLOBAL_NOCACHE
+    #endif
 
-        #ifdef __linux__
-        // Advise kernel about sequential write pattern for better I/O scheduling
+    #ifdef __linux__
+        if (nocache) 
+             fcntl(me->fd, F_SETFL, O_DIRECT);
         posix_fadvise(me->fd, 0, 0, POSIX_FADV_SEQUENTIAL);
-        // fcntl(me->fd, F_SETFL, O_DIRECT);
-        #endif
-    }
+    #endif
 
     struct stat st;
     fstat(me->fd, &st);
     if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES)
-        ftruncate(me->fd, (off_t)HEADER_BYTES);
+        _ftruncate(me->fd, (off_t)HEADER_BYTES);
 
     // Map the file header with MAP_SHARED so updates (e.g., magic, counts) are persisted to disk
     // Using MAP_PRIVATE here would create a private COW mapping and header writes wouldn't be visible
@@ -1134,7 +1178,12 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
         assert(me->count > -1);
     }
 
-    // LOG("storage_dio_open: completed, count=%lld, free=%lld", me->count, me->free);
+    #ifdef STORAGE_DIO_USE_BUFFER_POOL
+    LOG("Initializing DIO buffer pool: block_bytes=%d", me->block_bytes);
+    me->pool = buffer_pool_safe_create(32, me->block_bytes, 0); // 256K blocks
+    #endif
+
+    // LOG("count=%lld, free=%lld", me->count, me->free);
     return 0;
 
 EXCEPTION:

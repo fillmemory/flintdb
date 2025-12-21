@@ -24,6 +24,9 @@ struct storage {
     int fd;
     i64 count;
     struct hashmap *cache;  // buffer cache for mmap/memory storage
+#ifdef STORAGE_DIO_USE_BUFFER_POOL
+    struct buffer_pool_safe *pool; // Direct I/O buffer pool
+#endif
 
     // Ownership/lifetime
     // 0: caller owns storage and must close/free it
@@ -38,6 +41,7 @@ struct storage {
 
     i64 free; // The front of deleted blocks (allocatable)
     int dirty; // dirty write counter
+
 
 	void (*close)(struct storage *me);
 
