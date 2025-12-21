@@ -1879,12 +1879,34 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     getdir(me->opts.file, dir);
     mkdirs(dir, S_IRWXU);
 
+    // Controls OS page cache behavior.
+    // - macOS: uses F_NOCACHE when set to 0
+    // - Linux: if opened with O_DIRECT, all data IO uses aligned page RMW; otherwise uses posix_fadvise(DONTNEED).
+    int oscache = 1;
+    const char *env_oscache2 = getenv("FLINTDB_DIO_OS_CACHE");
+    if (env_oscache2 && (strcmp(env_oscache2, "0") == 0 || strcasecmp(env_oscache2, "false") == 0 || strcasecmp(env_oscache2, "off") == 0)) {
+        oscache = 0;
+    }
+
     // Decide Linux O_DIRECT at open-time (cannot be reliably enabled via fcntl).
     int open_flags = (opts.mode == FLINTDB_RDWR ? (O_RDWR | O_CREAT) : O_RDONLY);
 #if defined(__linux__) && defined(O_DIRECT)
     const char *env_odirect = getenv("FLINTDB_DIO_O_DIRECT");
-    const char *env_oscache = getenv("FLINTDB_DIO_OS_CACHE");
-    int want_odirect = env_truthy(env_odirect) || env_truthy(env_oscache) == 0;
+    int want_odirect = 0;
+    if (env_odirect) {
+        // Override behavior:
+        // - FLINTDB_DIO_O_DIRECT=1 => force on
+        // - FLINTDB_DIO_O_DIRECT=0 => force off
+        // - FLINTDB_DIO_O_DIRECT=auto => follow oscache
+        if (strcasecmp(env_odirect, "auto") == 0) {
+            want_odirect = (oscache == 0);
+        } else {
+            want_odirect = env_truthy(env_odirect);
+        }
+    } else {
+        // Backward compatible default: when OS cache is disabled, prefer O_DIRECT on Linux.
+        want_odirect = (oscache == 0);
+    }
     if (want_odirect) {
         open_flags |= O_DIRECT;
     }
@@ -1905,16 +1927,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     if (env_pages && atoi(env_pages) > 0) {
         priv->page_cache_limit = (u32)atoi(env_pages);
     } else if (priv->page_cache_limit == 0) {
-        priv->page_cache_limit = 8192u;
-    }
-
-    // Controls OS page cache behavior.
-    // - macOS: uses F_NOCACHE when set to 0
-    // - Linux: if opened with O_DIRECT, all data IO uses aligned page RMW; otherwise uses posix_fadvise(DONTNEED).
-    int oscache = 1;
-    const char *env_oscache2 = getenv("FLINTDB_DIO_OS_CACHE");
-    if (env_oscache2 && (strcmp(env_oscache2, "0") == 0 || strcasecmp(env_oscache2, "false") == 0 || strcasecmp(env_oscache2, "off") == 0)) {
-        oscache = 0;
+        priv->page_cache_limit = 8192u; // 8K pages
     }
 
     #ifdef __APPLE__
