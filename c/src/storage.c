@@ -812,7 +812,7 @@ EXCEPTION:
     #define BUFFER_POOL_BORROW(length) buffer_alloc(length);
 #endif
 
-#define DIO_CACHE_SIZE 32768  // ~32K entries
+// #define DIO_CACHE_SIZE 32768  // ~32K entries
 
 struct storage_dio_priv {
     // Add any private fields if necessary
@@ -841,6 +841,7 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
     // LOG("storage_dio_buffer_get: offset=%lld, file_offset=%lld, bytes_read=%zd", offset, o, n);
     if (n <= 0 && bb) {
         bb->free(bb);
+        if (out) *out = NULL;
     } else {
         bb->clear(bb);
         *out = bb;
@@ -861,6 +862,7 @@ static inline ssize_t pwrite_all(int fd, char *buf, size_t bytes, i64 absolute) 
 }
 
 static inline ssize_t storage_dio_pflush(struct storage *me) {
+#ifdef DIO_CACHE_SIZE
     int fd = me->fd;
     struct hashmap *cache = me->cache;
 
@@ -869,26 +871,33 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
         i64 abs = itr.key;
         struct buffer *heap = (struct buffer *)itr.val;
         ssize_t n = pwrite_all(fd, heap->array, heap->capacity, abs);
-        heap->free(heap);
         if (n < 0) 
             return -1;
     }
+    // `cache` owns the buffers (dealloc set at put); clearing releases them.
     cache->clear(cache);
     return fsync(fd);
+#else
+    return 0;
+#endif
 }
 
 static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap, i64 absolute) {
-    int fd = me->fd;
+#ifdef DIO_CACHE_SIZE
     struct hashmap *cache = me->cache;
-
     if (cache->count_get(cache) >= DIO_CACHE_SIZE) {
         ssize_t n = storage_dio_pflush(me);
         if (n < 0) 
             return -1;
     }
-
-    cache->put(cache, absolute, (valtype)heap, NULL);
+    // Cache owns `heap` and will free it on overwrite/clear/free.
+    cache->put(cache, absolute, (valtype)heap, storage_cache_free);
     return heap->capacity;
+#else
+    ssize_t written = pwrite_all(me->fd, heap->array, heap->capacity, absolute);
+    heap->free(heap);
+    return written;
+#endif
 }
 
 static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char **e) {
@@ -912,6 +921,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
         struct buffer *bb = NULL;
         for(i32 x=0; x<blocks; x++) {
             storage_dio_buffer_get(me, next, &bb);
+            if (!bb) THROW(e, "storage_dio_file_inflate: pread failed at offset=%lld", next);
             bb->i8_put(bb, STATUS_EMPTY, NULL);
             bb->i8_put(bb, MARK_AS_UNUSED, NULL);
             bb->i16_put(bb, 0, NULL);
@@ -921,7 +931,8 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
             //storage_dio_pwrite(me, bb->array, bb->capacity, storage_dio_file_offset(me, next));
             storage_dio_pwrite(me, bb, storage_dio_file_offset(me, next));
             next++;
-            bb->free(bb);
+            // ownership transferred to the DIO write cache
+            bb = NULL;
         }
         storage_commit(me, 1, e);
         if (e && *e) THROW_S(e);
@@ -935,48 +946,53 @@ EXCEPTION:
 
 
 static struct buffer * storage_dio_read(struct storage *me, i64 offset, char **e) {
-    struct buffer *p = NULL;
-    storage_dio_buffer_get(me, offset, &p);
-    u8 status = p->i8_get(p, e);
+    struct buffer *blk = NULL;
+    storage_dio_buffer_get(me, offset, &blk);
+    if (!blk) THROW(e, "storage_dio_read: pread failed at offset=%lld", offset);
+    u8 status = blk->i8_get(blk, e);
     if (status != STATUS_SET) THROW(e, "Block at offset %lld is not set", offset);
 
-    u8 mark = p->i8_get(p, e);
+    u8 mark = blk->i8_get(blk, e);
     if (mark != MARK_AS_DATA) THROW(e, "Block at offset %lld is not data", offset);
-    i16 limit = p->i16_get(p, e);
-    i32 length = p->i32_get(p, e);
-    i64 next = p->i64_get(p, e);
+    i16 limit = blk->i16_get(blk, e);
+    i32 length = blk->i32_get(blk, e);
+    i64 next = blk->i64_get(blk, e);
 
     if (next > NEXT_END && length > (me->opts.block_bytes)) {
-        // struct buffer *p = buffer_alloc(length);
-        struct buffer *p = BUFFER_POOL_BORROW(length);
+        struct buffer *out = BUFFER_POOL_BORROW((u32)length);
         // copy only the first chunk (limit) from the first block
-        struct buffer first = {0};
-        p->slice(p, 0, limit, &first, e);
-        if (e && *e) THROW_S(e);
-        p->array_put(p, first.array, first.remaining(&first), NULL);
+        out->array_put(out, blk->array_get(blk, limit, NULL), (u32)limit, NULL);
+        blk->free(blk);
+        blk = NULL;
         for(; next > NEXT_END; ) {
             struct buffer *n = NULL;
             storage_dio_buffer_get(me, next, &n);
-            if (STATUS_SET != n->i8_get(n, NULL)) break;
+            if (!n) THROW(e, "storage_dio_read: pread failed at offset=%lld", next);
+            if (STATUS_SET != n->i8_get(n, NULL)) {
+                n->free(n);
+                break;
+            }
             n->i8_get(n, NULL); // MARK
             i16 remains = n->i16_get(n, NULL);
             n->i32_get(n, NULL);
             next = n->i64_get(n, NULL);
 
-            struct buffer s = {0};
-            n->slice(n, 0, remains, &s, e);
-            if (e && *e) THROW_S(e);
-            p->array_put(p, s.array, s.remaining(&s), NULL);
+            out->array_put(out, n->array_get(n, remains, NULL), (u32)remains, NULL);
             n->free(n);
         }
-        p->flip(p);
-        return p;
+        out->flip(out);
+        return out;
     }
 
-    struct buffer *slice = buffer_slice(p, 0, limit, e);
-    return slice;
+    // Non-overflow: return an owning buffer (do not leak the read block buffer).
+    struct buffer *out = BUFFER_POOL_BORROW((u32)limit);
+    out->array_put(out, blk->array_get(blk, limit, NULL), (u32)limit, NULL);
+    out->flip(out);
+    blk->free(blk);
+    return out;
 
 EXCEPTION:
+    if (blk) blk->free(blk);
     return NULL;
 }
 
@@ -989,20 +1005,18 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
     assert(me != NULL);
 
     const int BLOCK_DATA_BYTES = me->opts.block_bytes;
-    int fd = me->fd;
     i64 curr = offset;
     u8 curr_mark = mark;
     i32 remaining = in->remaining(in);
     i64 next_last = NEXT_END;
     struct buffer *p = NULL;
 
-    // p = buffer_alloc(BLOCK_DATA_BYTES);
-    p = BUFFER_POOL_BORROW(BLOCK_DATA_BYTES);
-
     while (1) {
         struct buffer c = {0};
-        storage_dio_file_inflate(me, offset, e);
+        storage_dio_file_inflate(me, curr, e);
+        if (e && *e) THROW_S(*e);
         storage_dio_buffer_get(me, curr, &p);
+        if (!p) THROW(e, "storage_dio_write_priv: pread failed at offset=%lld", curr);
         p->slice(p, 0, p->remaining(p), &c, e);
 
         u8 status = c.i8_get(&c, NULL);
@@ -1042,6 +1056,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
         i64 o = storage_dio_file_offset(me, curr);
         // storage_dio_pwrite(me, p->array, p->remaining(p), o);
         storage_dio_pwrite(me, p, o);
+        // ownership transferred to the DIO write cache
+        p = NULL;
 
         remaining -= chunk;
         next_last = next;
@@ -1058,7 +1074,6 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
         curr_mark = MARK_AS_NEXT;
     }
 
-    if (p && me->cache == NULL) p->free(p);
 EXCEPTION:
     if (p) p->free(p);
     return;
@@ -1200,7 +1215,9 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     // DIO doesn't use cache - it bypasses OS page cache and uses direct I/O
     // Cache is only needed if storage_mmap is called, which is rare in DIO mode
     // me->cache = NULL;
+#ifdef DIO_CACHE_SIZE
     me->cache = hashmap_new(DIO_CACHE_SIZE, hashmap_int_hash, hashmap_int_cmpr); // batch write cache
+#endif
 
     me->close = storage_dio_close;
     me->count_get = storage_count_get;
