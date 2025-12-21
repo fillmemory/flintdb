@@ -1414,7 +1414,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
 #if defined(__linux__) && defined(O_DIRECT)
     const char *env_odirect = getenv("FLINTDB_DIO_O_DIRECT");
     const char *env_oscache = getenv("FLINTDB_DIO_OS_CACHE");
-    int want_odirect = env_truthy(env_odirect) || (env_oscache && (strcmp(env_oscache, "0") == 0 || strcasecmp(env_oscache, "false") == 0 || strcasecmp(env_oscache, "off") == 0));
+    int want_odirect = env_truthy(env_odirect) || env_truthy(env_oscache) == 0;
     if (want_odirect) {
         open_flags |= O_DIRECT;
     }
