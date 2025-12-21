@@ -420,7 +420,7 @@ int main(int argc, char **argv) {
     struct buffer bb = {0};
 
     STOPWATCH_START(watch);
-    int max = 2 * 1024 * 1024;
+    int max = 1;
     for (int i = 0; i < max; i++) {
         sprintf(str, "Hello, %s! %03d", "PRODUCT_NAME", i + 1);
         buffer_wrap(str, strlen(str), &bb);
@@ -433,19 +433,19 @@ int main(int argc, char **argv) {
     printf("count : %lld \n", count);
     printf("bytes : %lld \n", s.bytes_get(&s));
 
-    for (i64 i = count - 10; i < (count); i++) {
-        struct buffer *r = s.read(&s, i, &e);
-        int remaining = r->remaining(r);
-        // printf("read remaining : %d \n", remaining);
-        memcpy(str, r->array_get(r, remaining, NULL), remaining);
-        str[remaining] = '\0';
-        printf("read : %d - %s \n", remaining, str);
-        r->free(r);
-    }
+    // for (i64 i = count - 10; i < (count); i++) {
+    //     struct buffer *r = s.read(&s, i, &e);
+    //     int remaining = r->remaining(r);
+    //     // printf("read remaining : %d \n", remaining);
+    //     memcpy(str, r->array_get(r, remaining, NULL), remaining);
+    //     str[remaining] = '\0';
+    //     printf("read : %d - %s \n", remaining, str);
+    //     r->free(r);
+    // }
 
     s.close(&s);
 
-    unlink(opts.file);
+    // unlink(opts.file);
     PRINT_MEMORY_LEAK_INFO();
     return 0;
 }

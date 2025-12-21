@@ -1479,7 +1479,7 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
     table->read_stream = table_read_stream;
     table->close = table_close;
 
-    DEBUG("table: %s (mode=%d) meta: columns=%d indexes=%d cache=%d storage=%s wal=%s increment=%lld", 
+    DEBUG("table: %s (mode=%d) meta: columns=%d indexes=%d cache=%d storage=%s wal=%s increment=%d", 
         file, 
         mode, 
         priv->meta.columns.length, 

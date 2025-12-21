@@ -13,7 +13,6 @@ struct storage_opts {
     char file[PATH_MAX];
     enum flintdb_open_mode mode;
     int block_bytes;
-    int extra_header_bytes;
     int compact;
     int increment;
     char type[16];
@@ -34,24 +33,8 @@ struct storage {
     struct buffer *h; // mmaped header
     int block_bytes; // including header
     int increment; // file size increment step
-    int mmap_bytes; // mmap size
-    int mem_bytes;  // memory buffer size (for memory storage)
+    int mmap_bytes; // mmap size (for mmap, memory, dio)
     char *clean; // zeroed block buffer
-
-    // Direct I/O scratch buffers (allocated only for TYPE_DIO)
-    void *dio_scratch; // aligned, size=block_bytes
-    void *dio_chunk;   // aligned, size=mmap_bytes (chunk init)
-    u32 dio_chunk_bytes;
-
-    // Sequential write batching (TYPE_DIO): accumulate contiguous blocks and flush with one pwrite.
-    void *dio_wbatch;         // aligned buffer, size=dio_wbatch_bytes
-    u32 dio_wbatch_bytes;     // total bytes in dio_wbatch
-    u32 dio_wbatch_blocks;    // capacity in blocks
-    u32 dio_wbatch_count;     // number of blocks currently buffered
-    i64 dio_wbatch_base;      // base block index for buffered range
-
-    // Cache the most recently inflated chunk index to avoid repeated probe syscalls.
-    i64 dio_last_inflated_chunk;
 
     i64 free; // The front of deleted blocks (allocatable)
     int dirty; // dirty write counter
@@ -80,7 +63,7 @@ int storage_open(struct storage * s, struct storage_opts opts, char **e);
 #define BLOCK_HEADER_BYTES (1 + 1 + 2 + 4 + 8) // 16 
 
 #define TYPE_MMAP "MMAP"
-#define TYPE_DIO "DIO" // O_DIRECT or F_NOCACHE
+#define TYPE_DIO "DIO" // O_DIRECT or F_NOCACHE (Experimental Feature)
 
 #define TYPE_Z "Z"
 #define TYPE_LZ4 "LZ4"
