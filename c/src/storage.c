@@ -806,6 +806,18 @@ EXCEPTION:
 
 /// Direct I/O storage
 
+#ifdef STORAGE_DIO_USE_BUFFER_POOL
+    #define BUFFER_POOL_BORROW(length) me->pool->borrow(me->pool, length);
+#else
+    #define BUFFER_POOL_BORROW(length) buffer_alloc(length);
+#endif
+
+#define DIO_CACHE_SIZE 32768  // ~32K entries
+
+struct storage_dio_priv {
+    // Add any private fields if necessary
+};
+
 static inline void storage_dio_commit(struct storage *me, u8 force, char **e) {
     storage_commit(me, force, e);
 }
@@ -820,12 +832,6 @@ static inline void storage_dio_commit(struct storage *me, u8 force, char **e) {
 static inline i64 storage_dio_file_offset(struct storage *me, i64 offset) {
     return (offset * me->block_bytes) + HEADER_BYTES;
 }
-
-#ifdef STORAGE_DIO_USE_BUFFER_POOL
-    #define BUFFER_POOL_BORROW(length) me->pool->borrow(me->pool, length);
-#else
-    #define BUFFER_POOL_BORROW(length) buffer_alloc(length);
-#endif
 
 static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, struct buffer **out) {
     i64 o = storage_dio_file_offset(me, offset);
@@ -842,16 +848,47 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
     return n;
 }
 
-static inline ssize_t pwrite_all(int fd, char *buf, size_t bytes, i64 offset) {
+static inline ssize_t pwrite_all(int fd, char *buf, size_t bytes, i64 absolute) {
     size_t total_written = 0;
     while (total_written < bytes) {
-        ssize_t written = pwrite(fd, buf + total_written, bytes - total_written, offset + total_written);
+        ssize_t written = pwrite(fd, buf + total_written, bytes - total_written, absolute + total_written);
         if (written < 0) {
             return -1; // Error
         }
         total_written += written;
     }
     return total_written;
+}
+
+static inline ssize_t storage_dio_pflush(struct storage *me) {
+    int fd = me->fd;
+    struct hashmap *cache = me->cache;
+
+    struct map_iterator itr = {0};
+    while (cache->iterate(cache, &itr)) {
+        i64 abs = itr.key;
+        struct buffer *heap = (struct buffer *)itr.val;
+        ssize_t n = pwrite_all(fd, heap->array, heap->capacity, abs);
+        heap->free(heap);
+        if (n < 0) 
+            return -1;
+    }
+    cache->clear(cache);
+    return fsync(fd);
+}
+
+static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap, i64 absolute) {
+    int fd = me->fd;
+    struct hashmap *cache = me->cache;
+
+    if (cache->count_get(cache) >= DIO_CACHE_SIZE) {
+        ssize_t n = storage_dio_pflush(me);
+        if (n < 0) 
+            return -1;
+    }
+
+    cache->put(cache, absolute, (valtype)heap, NULL);
+    return heap->capacity;
 }
 
 static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char **e) {
@@ -880,8 +917,9 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
             bb->i16_put(bb, 0, NULL);
             bb->i32_put(bb, 0, NULL);
             bb->i64_put(bb, next + 1, NULL);
-            // bb->flip(bb);
-            pwrite_all(me->fd, bb->array, bb->capacity, storage_dio_file_offset(me, next));
+            bb->flip(bb);
+            //storage_dio_pwrite(me, bb->array, bb->capacity, storage_dio_file_offset(me, next));
+            storage_dio_pwrite(me, bb, storage_dio_file_offset(me, next));
             next++;
             bb->free(bb);
         }
@@ -1002,7 +1040,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
 
         p->flip(p);
         i64 o = storage_dio_file_offset(me, curr);
-        pwrite_all(fd, p->array, p->remaining(p), o);
+        // storage_dio_pwrite(me, p->array, p->remaining(p), o);
+        storage_dio_pwrite(me, p, o);
 
         remaining -= chunk;
         next_last = next;
@@ -1019,7 +1058,9 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
         curr_mark = MARK_AS_NEXT;
     }
 
+    if (p && me->cache == NULL) p->free(p);
 EXCEPTION:
+    if (p) p->free(p);
     return;
 }
 
@@ -1038,16 +1079,18 @@ static void storage_dio_close(struct storage *me) {
     assert(me != NULL);
     if (me->fd <= 0) return;
 
+    storage_dio_pflush(me);
     storage_dio_commit(me, 1, NULL);
 
+    if (me->cache) {
+        DEBUG("freeing cache %p", me->cache);
+        me->cache->free(me->cache);
+        me->cache = NULL;
+    }
     if (me->h) {
         DEBUG("freeing header mapping %p", me->h);
         me->h->free(me->h);
         me->h = NULL;
-    }
-    if (me->fd > 0) {
-        DEBUG("closing fd");
-        close(me->fd);
     }
     if (me->clean) {
         DEBUG("freeing clean buffer");
@@ -1061,6 +1104,14 @@ static void storage_dio_close(struct storage *me) {
         me->pool = NULL;
     }
     #endif
+    if (me->priv) {
+        FREE(me->priv);
+        me->priv = NULL;
+    }
+    if (me->fd > 0) {
+        DEBUG("closing fd");
+        close(me->fd);
+    }
     me->fd = -1;
 }
 
@@ -1100,21 +1151,36 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     }
 
     // Default keeps previous behavior (nocache enabled). Set FLINTDB_DIO_NOCACHE=0 to allow caching for speed.
-    int nocache = 0;
-    const char *env_cache = getenv("FLINTDB_DIO_CACHE");
-    if (env_cache && (strcmp(env_cache, "1") == 0 || strcasecmp(env_cache, "true") == 0 || strcasecmp(env_cache, "on") == 0)) {
-        nocache = 1;
+    int oscache = 1;
+    const char *env_oscache = getenv("FLINTDB_DIO_OS_CACHE");
+    if (env_oscache && (strcmp(env_oscache, "0") == 0 || strcasecmp(env_oscache, "false") == 0 || strcasecmp(env_oscache, "off") == 0)) {
+        oscache = 0;
     }
 
     #ifdef __APPLE__
-        if (nocache) 
+        if (oscache == 0)
             fcntl(me->fd, F_NOCACHE, 1); // F_GLOBAL_NOCACHE
+        // macOS doesn't provide posix_fadvise/POSIX_FADV_* in all SDKs; use fcntl hints instead.
+        #ifdef F_RDAHEAD
+            (void)fcntl(me->fd, F_RDAHEAD, 1);
+        #endif
+        #ifdef F_RDADVISE
+            {
+                struct radvisory ra;
+                memset(&ra, 0, sizeof(ra));
+                ra.ra_offset = 0;
+                ra.ra_count = 0; // let kernel decide / whole file
+                (void)fcntl(me->fd, F_RDADVISE, &ra);
+            }
+        #endif
     #endif
 
     #ifdef __linux__
-        if (nocache) 
+        if (oscache == 0) 
              fcntl(me->fd, F_SETFL, O_DIRECT);
-        posix_fadvise(me->fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+        #if defined(POSIX_FADV_SEQUENTIAL)
+            (void)posix_fadvise(me->fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+        #endif
     #endif
 
     struct stat st;
@@ -1133,7 +1199,8 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
 
     // DIO doesn't use cache - it bypasses OS page cache and uses direct I/O
     // Cache is only needed if storage_mmap is called, which is rare in DIO mode
-    me->cache = NULL;
+    // me->cache = NULL;
+    me->cache = hashmap_new(DIO_CACHE_SIZE, hashmap_int_hash, hashmap_int_cmpr); // batch write cache
 
     me->close = storage_dio_close;
     me->count_get = storage_count_get;
@@ -1182,6 +1249,9 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     LOG("Initializing DIO buffer pool: block_bytes=%d", me->block_bytes);
     me->pool = buffer_pool_safe_create(STORAGE_DIO_USE_BUFFER_POOL, me->block_bytes, 0); // 256K blocks
     #endif
+
+    me->priv = CALLOC(1, sizeof(struct storage_dio_priv));
+    if (!me->priv) THROW(e, "Cannot allocate DIO private data");
 
     // LOG("count=%lld, free=%lld", me->count, me->free);
     return 0;

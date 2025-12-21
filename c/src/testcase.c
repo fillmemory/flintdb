@@ -420,7 +420,7 @@ int main(int argc, char **argv) {
     struct buffer bb = {0};
 
     STOPWATCH_START(watch);
-    int max = 2 * 1024 * 1024;
+    int max = 2  * 1024;
     for (int i = 0; i < max; i++) {
         sprintf(str, "Hello, %s! %03d", "PRODUCT_NAME", i + 1);
         int len = strlen(str);

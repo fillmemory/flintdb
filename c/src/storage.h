@@ -19,14 +19,18 @@ struct storage_opts {
     char compress[16];
 };
 
+
+
 struct storage {
     struct storage_opts opts;
     int fd;
     i64 count;
     struct hashmap *cache;  // buffer cache for mmap/memory storage
+
 #ifdef STORAGE_DIO_USE_BUFFER_POOL
     struct buffer_pool_safe *pool; // Direct I/O buffer pool
 #endif
+    void *priv; // storage-specific private data
 
     // Ownership/lifetime
     // 0: caller owns storage and must close/free it
