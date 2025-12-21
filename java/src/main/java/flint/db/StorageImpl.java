@@ -20,7 +20,7 @@ final class MMAPStorage implements Storage {
     static final int O_SYNC = Integer.parseInt(System.getProperty("STORAGE.ATTR.O_SYNC", "0"));
     static final int O_DIRECT = Integer.parseInt(System.getProperty("STORAGE.ATTR.O_DIRECT", "0"));
     
-    private final int EXTRA_HEADER_BYTES;
+    // private final int EXTRA_HEADER_BYTES;
     private final int BLOCK_BYTES;
     private final int BLOCK_DATA_BYTES;
     private int MMAP_BYTES;
@@ -68,7 +68,7 @@ final class MMAPStorage implements Storage {
         Storage.validate(options);
         this.file = options.file;
         this.options = options;
-        this.EXTRA_HEADER_BYTES = options.EXTRA_HEADER_BYTES;
+        // this.EXTRA_HEADER_BYTES = options.EXTRA_HEADER_BYTES;
         this.BLOCK_BYTES = ((short) (BLOCK_HEADER_BYTES + (options.compact <= 0 ? (options.BLOCK_BYTES) : options.compact)));
         this.BLOCK_DATA_BYTES = BLOCK_BYTES - BLOCK_HEADER_BYTES;
         this.MMAP_BYTES = BLOCK_BYTES * (options.increment / BLOCK_BYTES);
@@ -450,7 +450,7 @@ final class MMAPStorage implements Storage {
             // try (final IO.Closer CLOSER = new IO.Closer(lock)) {
                 p = mbb.get(i);
                 if (p == null) {
-                    final long offset = HEADER_BYTES + EXTRA_HEADER_BYTES + (1L * MMAP_BYTES * i);
+                    final long offset = HEADER_BYTES + (1L * MMAP_BYTES * i);
                     final long sz = channel.size();
                     // System.err.println("channel.map => i : " + i + ", offset : " + offset + ", MMAP_BYTES : " + MMAP_BYTES + ", file : " + file);
                     p = IoBuffer.wrap(channel.map( //
@@ -544,7 +544,7 @@ final class MMAPStorage implements Storage {
  * Memory
  */
 final class MemoryStorage implements Storage {
-    private final int EXTRA_HEADER_BYTES;
+    // private final int EXTRA_HEADER_BYTES;
     private final int BLOCK_BYTES;
     private final int BLOCK_DATA_BYTES;
     private final int MBB_BYTES;
@@ -576,11 +576,11 @@ final class MemoryStorage implements Storage {
     MemoryStorage(final Options options) throws IOException {
         // this.file = options.file;
         this.options = options;
-        this.EXTRA_HEADER_BYTES = options.EXTRA_HEADER_BYTES;
+        // this.EXTRA_HEADER_BYTES = options.EXTRA_HEADER_BYTES;
         this.BLOCK_BYTES = ((short) (BLOCK_HEADER_BYTES + (options.compact <= 0 ? (options.BLOCK_BYTES) : options.compact)));
         this.BLOCK_DATA_BYTES = BLOCK_BYTES - BLOCK_HEADER_BYTES;
         this.MBB_BYTES = BLOCK_BYTES * (options.increment / BLOCK_BYTES);
-        this.HEADER = IoBuffer.allocateDirect(CUSTOM_HEADER_BYTES + COMMON_HEADER_BYTES + EXTRA_HEADER_BYTES);
+        this.HEADER = IoBuffer.allocateDirect(CUSTOM_HEADER_BYTES + COMMON_HEADER_BYTES);
         this.CLEAN = new byte[BLOCK_DATA_BYTES];
 
         // Initialize DirectBufferPool with optimal size for this storage

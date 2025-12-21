@@ -564,18 +564,18 @@ int main(int argc, char **argv) {
             // Read + verify
             struct buffer *rb = s.read(&s, offs[idx], &e);
             if (e && *e) {
-                fprintf(stderr, "read error at idx=%lld off=%lld: %s\n", (long long)idx, (long long)offs[idx], e);
+                fprintf(stderr, "read error op=%lld idx=%lld off=%lld: %s\n", (long long)op, (long long)idx, (long long)offs[idx], e);
                 abort();
             }
             int n = rb->remaining(rb);
             if (n < 0 || (u32)n != lens[idx]) {
-                fprintf(stderr, "len mismatch idx=%lld off=%lld got=%d expected=%u\n", (long long)idx, (long long)offs[idx], n, (unsigned)lens[idx]);
+                fprintf(stderr, "len mismatch op=%lld idx=%lld off=%lld got=%d expected=%u\n", (long long)op, (long long)idx, (long long)offs[idx], n, (unsigned)lens[idx]);
                 abort();
             }
             char *p = rb->array_get(rb, (u32)n, NULL);
             u64 h = fnv1a64(p, (size_t)n);
             if (h != hashes[idx]) {
-                fprintf(stderr, "hash mismatch idx=%lld off=%lld\n", (long long)idx, (long long)offs[idx]);
+                fprintf(stderr, "hash mismatch op=%lld idx=%lld off=%lld\n", (long long)op, (long long)idx, (long long)offs[idx]);
                 abort();
             }
             rb->free(rb);
@@ -592,7 +592,7 @@ int main(int argc, char **argv) {
             buffer_wrap(payload, (u32)actual, &bb);
             (void)s.write_at(&s, offs[idx], &bb, &e);
             if (e && *e) {
-                fprintf(stderr, "write_at error idx=%lld off=%lld: %s\n", (long long)idx, (long long)offs[idx], e);
+                fprintf(stderr, "write_at error op=%lld idx=%lld off=%lld: %s\n", (long long)op, (long long)idx, (long long)offs[idx], e);
                 abort();
             }
             lens[idx] = (u32)actual;
@@ -602,7 +602,7 @@ int main(int argc, char **argv) {
             // Delete then insert a new record (exercises free-list reuse)
             (void)s.delete(&s, offs[idx], &e);
             if (e && *e) {
-                fprintf(stderr, "delete error idx=%lld off=%lld: %s\n", (long long)idx, (long long)offs[idx], e);
+                fprintf(stderr, "delete error op=%lld idx=%lld off=%lld: %s\n", (long long)op, (long long)idx, (long long)offs[idx], e);
                 abort();
             }
             u32 len = (u32)(16 + (rand() % (int)(max_payload - 16)));
@@ -615,7 +615,7 @@ int main(int argc, char **argv) {
             buffer_wrap(payload, (u32)actual, &bb);
             offs[idx] = s.write(&s, &bb, &e);
             if (e && *e) {
-                fprintf(stderr, "write error after delete idx=%lld: %s\n", (long long)idx, e);
+                fprintf(stderr, "write error after delete op=%lld idx=%lld: %s\n", (long long)op, (long long)idx, e);
                 abort();
             }
             lens[idx] = (u32)actual;

@@ -39,8 +39,8 @@ public class TestcaseBPlusTreeLargeRows {
 		// testcase_random_search_tree_v2();
 		// testcase_random_search_tree_v2();
 
-		testcase_random_input_HashTable();
-		testcase_random_input_HashTable();
+		// testcase_random_input_HashTable();
+		// testcase_random_input_HashTable();
 		testcase_random_input_BPlusTreeTable();
 		testcase_random_input_BPlusTreeTable();
 	}
@@ -141,94 +141,6 @@ public class TestcaseBPlusTreeLargeRows {
 		tree.close();
 	}
 
-	static void testcase_random_input_hash(final int m) throws Exception {
-		System.out.println("");
-		System.out.println("-- testcase_random_input_hash --");
-		// randomintFile.delete();
-		if (!randomintFile.exists())
-			throw new FileNotFoundException(randomintFile.getCanonicalPath());
-
-		final File file = new File("temp/test.hash");
-		file.delete();
-
-		final HashFile hash = new HashFile(file, m, true, (INCREMENTS), new HashFile.HashFunction() {
-			@Override
-			public int hash(long v) {
-				return (int) (v & Integer.MAX_VALUE);
-			}
-
-			@Override
-			public int compare(Long o1, Long o2) {
-				return Long.compare(o1, o2);
-			}
-		});
-
-		IO.StopWatch watch = new IO.StopWatch();
-		long COUNT = 0L;
-		try (final InputStream in = new FileInputStream(randomintFile)) {
-			final byte[] bytes = new byte[4];
-			long key = 0;
-			int i = 1;
-			for (i = 1;; i++) {
-				if (in.read(bytes) <= 0)
-					break;
-
-                ByteBuffer bb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
-				key = bb.getInt() & 0xFFFFFFFFL;
-				hash.put(key);
-				COUNT++;
-			}
-			System.out.println("put : " + key + ", i : " + (i - 1));
-		}
-		//
-		// tree.put(0L);
-
-		System.out.println(String.format("%sops, %s", watch.ops(COUNT), IO.StopWatch.humanReadableTime(watch.elapsed())));
-
-		// new BPlusTreeTracer().trace(tree);
-		System.out.println("KEYS : " + hash.count() + ", BYTES : " + hash.bytes());
-
-		hash.close();
-	}
-
-	static void testcase_random_search_hash() throws Exception {
-		System.out.println("");
-		System.out.println("-- testcase_random_search_hash --");
-		final File file = new File("temp/test.hash");
-		final HashFile hash = new HashFile(file, (1024 * 1024), true, (INCREMENTS), new HashFile.HashFunction() {
-			@Override
-			public int hash(long v) {
-				return (int) (v & Integer.MAX_VALUE);
-			}
-
-			@Override
-			public int compare(Long o1, Long o2) {
-				return Long.compare(o1, o2);
-			}
-		});
-
-		int COUNT = 0;
-		final IO.StopWatch watch = new IO.StopWatch();
-		try (final InputStream in = new FileInputStream(randomintFile)) {
-			final byte[] bytes = new byte[4];
-
-			long key = 0;
-			for (;;) {
-				if (in.read(bytes) <= 0)
-					break;
-
-                ByteBuffer bb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
-				key = bb.getInt() & 0xFFFFFFFFL;
-				hash.get(key);
-				COUNT++;
-			}
-			// System.out.println("put : " + key + ", i : " + (i - 1));
-		}
-
-		System.out.println(String.format("%sops, %s", watch.ops(COUNT), IO.StopWatch.humanReadableTime(watch.elapsed())));
-		hash.close();
-	}
-
 	static Meta meta(final String name) {
 		Meta meta = new Meta(name);
 		meta.columns(new Column[] { //
@@ -242,36 +154,6 @@ public class TestcaseBPlusTreeLargeRows {
 		meta.cacheSize(CACHE_SIZE);
 		meta.increment(INCREMENTS);
 		return meta;
-	}
-
-	static void testcase_random_input_HashTable() throws Exception {
-		final File file = new File("temp/hashtable.db");
-		final Meta meta = meta(file.getName());
-		System.out.println(meta.toString());
-
-		final IO.StopWatch watch = new IO.StopWatch();
-		try (final Table table = new HashTable(file, meta, Meta.OPEN_RDWR, new Logger.NullLogger())) {
-			try (final InputStream in = new FileInputStream(randomintFile)) {
-				final byte[] bytes = new byte[4];
-
-				long key = 0;
-				for (int i = 1; i <= (10 * 1024 * 1024); i++) {
-					if (in.read(bytes) <= 0)
-						break;
-
-                    ByteBuffer bb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
-					key = bb.getInt() & 0xFFFFFFFFL;
-					table.apply(Row.create(meta, new Object[] { //
-							key, //
-							new UUID(key, key).toString().replace("-", ""), //
-							// new BigDecimal(key + 0xFFFFFFFFFFFFFFFL).toBigInteger().toString(), //
-							String.valueOf(key), //
-					}));
-				}
-			}
-			System.out.println("rows : " + table.rows() + ", ops : " + watch.ops(table.rows()) + ", time : " + IO.StopWatch.humanReadableTime(watch.elapsed()) + ", bytes : " + IO.readableBytesSize(table.bytes()));
-		}
-		Table.drop(file);
 	}
 
 	static void testcase_random_input_BPlusTreeTable() throws Exception {

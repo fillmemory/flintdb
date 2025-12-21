@@ -140,7 +140,6 @@ public interface Storage extends Closeable {
 		boolean mutable = true;
 		boolean lock = false;
 		short BLOCK_BYTES;
-		int EXTRA_HEADER_BYTES = 0;
 		int compact = -1;
 		int increment = DEFAULT_INCREMENT_BYTES;
 		String storage = TYPE_DEFAULT;
@@ -176,11 +175,6 @@ public interface Storage extends Closeable {
 
 		public Options lock(boolean lock) {
 			this.lock = lock;
-			return this;
-		}
-
-		public Options extraHeaderBytes(int EXTRA_HEADER_BYTES) {
-			this.EXTRA_HEADER_BYTES = EXTRA_HEADER_BYTES;
 			return this;
 		}
 
