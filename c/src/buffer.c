@@ -445,7 +445,9 @@ static void buffer_pool_return(struct buffer_pool *pool, struct buffer *b) {
         b->clear(b);
         pool->items[pool->top++] = b;
     } else {
-        b->free(b);
+        // Pool is full; force a real free.
+        // Calling b->free(b) would recurse back into buffer_pool_auto_return_free.
+        buffer_free(b);
     }
 }
 

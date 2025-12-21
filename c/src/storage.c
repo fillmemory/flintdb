@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <assert.h>
+#include <stdarg.h>
 #ifndef _WIN32
 #include <sys/mman.h>
 #endif
@@ -13,7 +14,6 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-
 
 #include "storage.h"
 
@@ -222,7 +222,7 @@ static void storage_mmap_buffer_get(struct storage *me, i64 index, struct buffer
             bb.i64_put(&bb, next, NULL);
             next++;
         }
-        storage_commit(me, 1, &e);
+        storage_commit(me, 0, &e);
         if (e && *e) THROW_S(e);
     }
 
@@ -812,7 +812,8 @@ EXCEPTION:
     #define BUFFER_POOL_BORROW(length) buffer_alloc(length);
 #endif
 
-// #define DIO_CACHE_SIZE 32768  // ~32K entries
+#define DIO_CACHE_SIZE (1 * 1024 * 1024) // 1 million blocks
+
 
 struct storage_dio_priv {
     // Add any private fields if necessary
@@ -835,6 +836,27 @@ static inline i64 storage_dio_file_offset(struct storage *me, i64 offset) {
 
 static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, struct buffer **out) {
     i64 o = storage_dio_file_offset(me, offset);
+
+#ifdef DIO_CACHE_SIZE
+    // If write-back cache is enabled, honor read-your-writes.
+    // Cached blocks are keyed by absolute file offset.
+    if (me->cache) {
+        valtype found = me->cache->get(me->cache, o);
+        if (HASHMAP_INVALID_VAL != found) {
+            struct buffer *cached = (struct buffer *)found;
+            struct buffer *bb = BUFFER_POOL_BORROW(me->block_bytes);
+            if (!bb) {
+                if (out) *out = NULL;
+                return -1;
+            }
+            bb->clear(bb);
+            memcpy(bb->array, cached->array, (size_t)bb->capacity);
+            if (out) *out = bb;
+            return (ssize_t)bb->capacity;
+        }
+    }
+#endif
+
     //struct buffer *bb = buffer_alloc(me->block_bytes);
     struct buffer *bb = BUFFER_POOL_BORROW(me->block_bytes);
     ssize_t n = pread(me->fd, bb->array, bb->capacity, o);
@@ -856,6 +878,11 @@ static inline ssize_t pwrite_all(int fd, char *buf, size_t bytes, i64 absolute) 
         if (written < 0) {
             return -1; // Error
         }
+        if (written == 0) {
+            // Avoid infinite loop if the OS reports no progress.
+            errno = EIO;
+            return -1;
+        }
         total_written += written;
     }
     return total_written;
@@ -866,17 +893,37 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
     int fd = me->fd;
     struct hashmap *cache = me->cache;
 
+    // Defensive guard: if the hashmap's iteration list is corrupted (cycle),
+    // iterate() may never reach tail. Bound by (count + 1).
+    int expected = cache ? cache->count_get(cache) : 0;
+    int steps = 0;
+
+    unsigned long long total_bytes = 0ull;
     struct map_iterator itr = {0};
     while (cache->iterate(cache, &itr)) {
+        if (expected > 0 && ++steps > expected + 1) {
+            WARN("storage_dio_pflush: iterator exceeded expected steps (count=%d); possible list corruption", expected);
+            return -1;
+        }
         i64 abs = itr.key;
         struct buffer *heap = (struct buffer *)itr.val;
+
         ssize_t n = pwrite_all(fd, heap->array, heap->capacity, abs);
         if (n < 0) 
             return -1;
+        
+        total_bytes += (unsigned long long)n;
     }
     // `cache` owns the buffers (dealloc set at put); clearing releases them.
     cache->clear(cache);
-    return fsync(fd);
+
+    // fsync can be very expensive and may look like a hang.
+    // Keep previous behavior (no fsync) unless explicitly enabled.
+    const char *env_fsync = getenv("FLINTDB_DIO_FSYNC");
+    if (env_fsync && (strcmp(env_fsync, "1") == 0 || strcasecmp(env_fsync, "true") == 0 || strcasecmp(env_fsync, "on") == 0)) {
+        fsync(fd);
+    }
+    return total_bytes;
 #else
     return 0;
 #endif
@@ -885,13 +932,38 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap, i64 absolute) {
 #ifdef DIO_CACHE_SIZE
     struct hashmap *cache = me->cache;
-    if (cache->count_get(cache) >= DIO_CACHE_SIZE) {
+    // IMPORTANT:
+    // The current flat hashmap refuses some inserts once it reaches ~75% load
+    // (slow-path insert returns NULL when count >= capacity * 0.75).
+    // If we wait until DIO_CACHE_SIZE entries, we can silently drop cached writes
+    // and corrupt on-disk initialization (e.g., free list next pointers).
+    const int soft_limit = (DIO_CACHE_SIZE * 3) / 4; // 75%
+    if (cache->count_get(cache) >= soft_limit) {
         ssize_t n = storage_dio_pflush(me);
-        if (n < 0) 
+        if (n < 0) {
+            heap->free(heap);
             return -1;
+        }
     }
+
     // Cache owns `heap` and will free it on overwrite/clear/free.
-    cache->put(cache, absolute, (valtype)heap, storage_cache_free);
+    // If insertion fails (hashmap at load factor limit), flush and retry once.
+    void *slot = cache->put(cache, absolute, (valtype)heap, storage_cache_free);
+    if (!slot) {
+        ssize_t n = storage_dio_pflush(me);
+        if (n < 0) {
+            heap->free(heap);
+            return -1;
+        }
+        slot = cache->put(cache, absolute, (valtype)heap, storage_cache_free);
+    }
+    if (!slot) {
+        // Last-resort correctness fallback: write-through.
+        ssize_t written = pwrite_all(me->fd, heap->array, heap->capacity, absolute);
+        heap->free(heap);
+        return written;
+    }
+
     return heap->capacity;
 #else
     ssize_t written = pwrite_all(me->fd, heap->array, heap->capacity, absolute);
@@ -1093,8 +1165,10 @@ static i64 storage_dio_write_at(struct storage *me, i64 offset, struct buffer *i
 static void storage_dio_close(struct storage *me) {
     assert(me != NULL);
     if (me->fd <= 0) return;
-
-    storage_dio_pflush(me);
+    
+    if (storage_dio_pflush(me) < 0) {
+        WARN("storage_dio_close: pflush failed: %d - %s", errno, strerror(errno));
+    }
     storage_dio_commit(me, 1, NULL);
 
     if (me->cache) {
@@ -1216,7 +1290,8 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     // Cache is only needed if storage_mmap is called, which is rare in DIO mode
     // me->cache = NULL;
 #ifdef DIO_CACHE_SIZE
-    me->cache = hashmap_new(DIO_CACHE_SIZE, hashmap_int_hash, hashmap_int_cmpr); // batch write cache
+    // me->cache = hashmap_new(DIO_CACHE_SIZE, hashmap_int_hash, hashmap_int_cmpr); // batch write cache
+    me->cache = treemap_new(hashmap_int_cmpr); // batch write cache
 #endif
 
     me->close = storage_dio_close;
