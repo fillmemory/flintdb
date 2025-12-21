@@ -149,7 +149,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 CC=gcc
-STD=c23 # c99, c11, c17, c23
+STD=c2x # c99, c11, c17, c23
 
 # Optional sanitizers (clang recommended):
 #   SANITIZE=address   -> AddressSanitizer
@@ -169,6 +169,37 @@ fi
 CFLAGS="-O3 -march=native -std=$STD -DUNIT_TEST -I/usr/local/include "
 #LDFLAGS="-lc -lm -lpthread -lz -llz4 -lzstd -lsnappy -L/usr/local/lib "
 LDFLAGS="-lc -lm -lpthread -lz -L/usr/local/lib "
+
+# Enable Linux io_uring only when liburing is available.
+# `wal.c` compiles io_uring code behind: __linux__ && HAVE_LIBURING
+if [[ "${osname:-}" == "linux" ]]; then
+    have_liburing=0
+
+    if command -v pkg-config &>/dev/null && pkg-config --exists liburing; then
+        have_liburing=1
+        # Prefer pkg-config so include/lib paths are correct (e.g., /usr/local).
+        CFLAGS="$CFLAGS $(pkg-config --cflags liburing) -DHAVE_LIBURING"
+        LDFLAGS="$LDFLAGS $(pkg-config --libs liburing)"
+    else
+        # Fallback: header + library presence checks.
+        if [[ -f /usr/include/liburing.h || -f /usr/local/include/liburing.h ]]; then
+            if (command -v ldconfig &>/dev/null && ldconfig -p 2>/dev/null | grep -qE 'liburing\\.so'); then
+                have_liburing=1
+            elif ls /lib*/liburing.so* /usr/lib*/liburing.so* /usr/local/lib*/liburing.so* &>/dev/null; then
+                have_liburing=1
+            fi
+        fi
+
+        if [[ $have_liburing -eq 1 ]]; then
+            CFLAGS="$CFLAGS -DHAVE_LIBURING"
+            LDFLAGS="$LDFLAGS -luring"
+        fi
+    fi
+
+    if [[ $have_liburing -eq 1 ]]; then
+        echo "Using liburing (io_uring enabled)"
+    fi
+fi
 
 # Apply sanitizers (must be set before compile).
 case "$SANITIZE" in
