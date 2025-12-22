@@ -6,11 +6,6 @@ on:
     paths:
       - 'c/**'
       - '.github/workflows/build.yml'
-  pull_request:
-    branches: [ "main" ]
-    paths:
-      - 'c/**'
-      - '.github/workflows/build.yml'
 
 jobs:
   build:
@@ -20,8 +15,9 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
+    # 1. 윈도우 환경 설정
     - name: Set up MSYS2 (Windows)
       if: runner.os == 'Windows'
       uses: msys2/setup-msys2@v2
@@ -36,27 +32,41 @@ jobs:
           mingw-w64-x86_64-cjson
           mingw-w64-x86_64-gperftools
           mingw-w64-x86_64-jemalloc
+          mingw-w64-x86_64-dlfcn
 
+    # 2. 리눅스 의존성 설치
     - name: Install dependencies (Ubuntu)
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential zlib1g-dev libarrow-dev libcjson-dev libgoogle-perftools-dev libjemalloc-dev
+        sudo apt-get install -y build-essential zlib1g-dev libcjson-dev libgoogle-perftools-dev libjemalloc-dev
+        # arrow는 별도 레포 설정이 필요할 수 있으므로 실패 시 확인 필요
 
+    # 3. macOS 의존성 설치
     - name: Install dependencies (macOS)
       if: runner.os == 'macOS'
       run: |
-        brew update
         brew install zlib apache-arrow cjson gperftools jemalloc
 
-    - name: Build the project
+    # 4. 프로젝트 빌드 (Windows는 msys2 쉘, 나머지는 기본 bash)
+    - name: Build (Windows)
+      if: runner.os == 'Windows'
+      shell: msys2 {0}
       run: |
         cd c
         ./build.sh -all
-      shell: msys2 {0} # for Windows
 
-    - name: List build artifacts
+    - name: Build (Linux & macOS)
+      if: runner.os != 'Windows'
       run: |
         cd c
-        ls -l bin lib
-      shell: bash
+        chmod +x build.sh
+        ./build.sh -all
+
+    # 5. 결과물 확인 및 업로드 (성공 시 실행 파일을 다운로드할 수 있게 함)
+    - name: Upload Artifacts (Windows Only)
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-binaries
+        path: c/bin/  # .exe 파일이 생성되는 경로로 수정하세요
