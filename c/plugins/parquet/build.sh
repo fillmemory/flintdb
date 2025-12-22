@@ -10,7 +10,12 @@ MAKE_BIN="${MAKE_CMD:-make}"
 if command -v pkg-config &> /dev/null; then
     if pkg-config --exists arrow; then
         echo "Found Arrow via pkg-config"
-        export ARROW_HOME=$(pkg-config --variable=prefix arrow)
+        ARROW_PREFIX=$(pkg-config --variable=prefix arrow)
+        if [ -d "$ARROW_PREFIX/include/arrow" ]; then
+            export ARROW_HOME="$ARROW_PREFIX"
+        else
+            echo "Warning: pkg-config prefix does not contain include/arrow: $ARROW_PREFIX"
+        fi
     fi
 fi
 
@@ -19,8 +24,12 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     if command -v brew &> /dev/null; then
         ARROW_PREFIX=$(brew --prefix apache-arrow 2>/dev/null || echo "")
         if [ -n "$ARROW_PREFIX" ]; then
-            echo "Found Arrow via Homebrew: $ARROW_PREFIX"
-            export ARROW_HOME=$ARROW_PREFIX
+            if [ -d "$ARROW_PREFIX/include/arrow" ]; then
+                echo "Found Arrow via Homebrew: $ARROW_PREFIX"
+                export ARROW_HOME="$ARROW_PREFIX"
+            else
+                echo "Warning: Homebrew prefix does not contain include/arrow: $ARROW_PREFIX"
+            fi
         fi
     fi
 fi
@@ -30,7 +39,8 @@ if [ -z "$ARROW_HOME" ]; then
     echo "Warning: ARROW_HOME not set, will try system paths"
     echo "Install Apache Arrow:"
     echo "  macOS: brew install apache-arrow"
-    echo "  Linux: sudo apt-get install libarrow-dev libparquet-dev"
+    echo "  Linux: sudo apt-get install libarrow-dev libparquet-dev (Arrow typically installs under /usr)"
+    echo "  Tip: ensure pkg-config is installed and can find Arrow (pkg-config --exists arrow)"
 fi
 
 # Test Arrow installation

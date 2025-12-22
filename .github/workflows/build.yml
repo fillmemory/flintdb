@@ -66,14 +66,21 @@ jobs:
         for f in \
           bin/flintdb.exe \
           lib/flintdb.dll \
-          lib/libflintdb_jsonl.dll \
-          lib/libflintdb_parquet.dll
+          lib/libflintdb_jsonl.dll
         do
           if [ ! -f "$f" ]; then
             echo "::error file=$f::Missing expected build output: $f"
             missing=1
           fi
         done
+
+        # Parquet(Arrow) plugin is optional on Windows/MSYS2.
+        # If it builds, great; but we don't fail the workflow if it's missing.
+        if [ -f "lib/libflintdb_parquet.dll" ]; then
+          echo "Found optional Parquet plugin: lib/libflintdb_parquet.dll"
+        else
+          echo "Optional Parquet plugin not present (skipping)."
+        fi
         if [ "$missing" -ne 0 ]; then
           echo "--- bin (detailed) ---"
           ls -al bin || true

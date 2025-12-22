@@ -25,17 +25,40 @@ LDFLAGS = -shared
 # Platform detection (used for sensible default dependency prefixes)
 UNAME_S := $(shell uname -s)
 
-# Try to detect Arrow installation
-# - macOS: Homebrew prefix
-# - MSYS2 UCRT64: /ucrt64
-# - Linux: /usr/local (common for source installs)
-ifneq ($(findstring _NT-,$(UNAME_S)),)
-	ARROW_HOME ?= /ucrt64
-else
-	ARROW_HOME ?= $(shell brew --prefix apache-arrow 2>/dev/null || echo /usr/local)
+# Arrow installation detection
+#
+# CI gotcha: ARROW_HOME may be pre-set to a wrong prefix (e.g. /usr/local)
+# even when Arrow is installed from distro packages under /usr.
+# To make builds robust, compute an effective prefix (ARROW_PREFIX) that must
+# actually contain include/arrow.
+
+# Prefer pkg-config if present.
+ARROW_PKG_PREFIX := $(shell command -v pkg-config >/dev/null 2>&1 && pkg-config --exists arrow >/dev/null 2>&1 && pkg-config --variable=prefix arrow 2>/dev/null || true)
+
+# Validate user-provided ARROW_HOME first (from env or make ARROW_HOME=...)
+ARROW_PREFIX := $(strip $(ARROW_HOME))
+ifneq ($(ARROW_PREFIX),)
+	ARROW_HOME_VALID := $(shell test -d "$(ARROW_PREFIX)/include/arrow" && echo yes || echo no)
+	ifneq ($(ARROW_HOME_VALID),yes)
+		ARROW_PREFIX :=
+	endif
 endif
-ARROW_INCLUDE = -I$(ARROW_HOME)/include -I../../src
-ARROW_LIBS = -L$(ARROW_HOME)/lib -larrow -lparquet
+
+# Auto-detect if ARROW_HOME was empty or invalid
+ifeq ($(strip $(ARROW_PREFIX)),)
+	ifneq ($(strip $(ARROW_PKG_PREFIX)),)
+		ARROW_PREFIX := $(ARROW_PKG_PREFIX)
+	else ifneq ($(findstring _NT-,$(UNAME_S)),)
+		ARROW_PREFIX := /ucrt64
+	else ifeq ($(UNAME_S),Darwin)
+		ARROW_PREFIX := $(shell brew --prefix apache-arrow 2>/dev/null || echo /usr/local)
+	else
+		ARROW_PREFIX := $(shell test -d /usr/include/arrow && echo /usr || echo /usr/local)
+	endif
+endif
+
+ARROW_INCLUDE = -I$(ARROW_PREFIX)/include -I../../src
+ARROW_LIBS = -L$(ARROW_PREFIX)/lib -larrow -lparquet
 
 # Link against main FlintDB library
 FlintDB_LIB = -L../../lib -lflintdb
@@ -47,11 +70,11 @@ else ifeq ($(UNAME_S),Darwin)
     TARGET = libflintdb_parquet.dylib
     LDFLAGS += -dynamiclib -install_name @rpath/libflintdb_parquet.dylib
 	# rpath for dependencies: Arrow/Parquet and the core FlintDB next to this plugin
-	LDFLAGS += -Wl,-rpath,$(ARROW_HOME)/lib -Wl,-rpath,@loader_path
+	LDFLAGS += -Wl,-rpath,$(ARROW_PREFIX)/lib -Wl,-rpath,@loader_path
 else
     TARGET = libflintdb_parquet.so
 	# Use $ORIGIN so the plugin can find libflintdb.so in the same directory
-	LDFLAGS += -Wl,-rpath=$(ARROW_HOME)/lib -Wl,-rpath,'$$ORIGIN'
+	LDFLAGS += -Wl,-rpath=$(ARROW_PREFIX)/lib -Wl,-rpath,'$$ORIGIN'
 endif
 
 CPP_SOURCES = parquet_plugin.cpp
@@ -85,7 +108,7 @@ install: $(TARGET)
 # Test if Arrow is available
 test-arrow:
 	@echo "Testing Arrow installation..."
-	@echo "ARROW_HOME: $(ARROW_HOME)"
-	@test -d "$(ARROW_HOME)/include/arrow" || (echo "Error: Arrow headers not found in $(ARROW_HOME)/include/arrow"; exit 1)
-	@test -f "$(ARROW_HOME)/lib/libarrow.dylib" -o -f "$(ARROW_HOME)/lib/libarrow.so" -o -f "$(ARROW_HOME)/lib/libarrow.dll.a" -o -f "$(ARROW_HOME)/bin/libarrow.dll" || (echo "Error: Arrow library not found in $(ARROW_HOME)/lib or $(ARROW_HOME)/bin"; exit 1)
+	@echo "ARROW_PREFIX: $(ARROW_PREFIX)"
+	@test -d "$(ARROW_PREFIX)/include/arrow" || (echo "Error: Arrow headers not found in $(ARROW_PREFIX)/include/arrow"; exit 1)
+	@test -f "$(ARROW_PREFIX)/lib/libarrow.dylib" -o -f "$(ARROW_PREFIX)/lib/libarrow.so" -o -f "$(ARROW_PREFIX)/lib/libarrow.dll.a" -o -f "$(ARROW_PREFIX)/bin/libarrow.dll" || (echo "Error: Arrow library not found in $(ARROW_PREFIX)/lib or $(ARROW_PREFIX)/bin"; exit 1)
 	@echo "Arrow installation OK"
