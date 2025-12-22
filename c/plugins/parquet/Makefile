@@ -22,20 +22,27 @@ CXXFLAGS = -std=c++17 -fPIC -O2 -Wall
 CFLAGS = -fPIC -O2 -Wall -DNDEBUG -Wno-format-truncation
 LDFLAGS = -shared
 
+# Platform detection (used for sensible default dependency prefixes)
+UNAME_S := $(shell uname -s)
+
 # Try to detect Arrow installation
-ARROW_HOME ?= $(shell brew --prefix apache-arrow 2>/dev/null || echo /usr/local)
+# - macOS: Homebrew prefix
+# - MSYS2 UCRT64: /ucrt64
+# - Linux: /usr/local (common for source installs)
+ifneq ($(findstring _NT-,$(UNAME_S)),)
+	ARROW_HOME ?= /ucrt64
+else
+	ARROW_HOME ?= $(shell brew --prefix apache-arrow 2>/dev/null || echo /usr/local)
+endif
 ARROW_INCLUDE = -I$(ARROW_HOME)/include -I../../src
 ARROW_LIBS = -L$(ARROW_HOME)/lib -larrow -lparquet
 
 # Link against main FlintDB library
 FlintDB_LIB = -L../../lib -lflintdb
 
-# macOS specific
-UNAME_S := $(shell uname -s)
-
-# Windows (MSYS2) native build
-ifeq ($(OS),Windows_NT)
-    TARGET = libflintdb_parquet.dll
+# Windows (MSYS2) native build: uname contains *_NT-* (e.g., UCRT64_NT-10.0-22631)
+ifneq ($(findstring _NT-,$(UNAME_S)),)
+	TARGET = libflintdb_parquet.dll
 else ifeq ($(UNAME_S),Darwin)
     TARGET = libflintdb_parquet.dylib
     LDFLAGS += -dynamiclib -install_name @rpath/libflintdb_parquet.dylib
@@ -80,5 +87,5 @@ test-arrow:
 	@echo "Testing Arrow installation..."
 	@echo "ARROW_HOME: $(ARROW_HOME)"
 	@test -d "$(ARROW_HOME)/include/arrow" || (echo "Error: Arrow headers not found in $(ARROW_HOME)/include/arrow"; exit 1)
-	@test -f "$(ARROW_HOME)/lib/libarrow.dylib" -o -f "$(ARROW_HOME)/lib/libarrow.so" || (echo "Error: Arrow library not found in $(ARROW_HOME)/lib"; exit 1)
+	@test -f "$(ARROW_HOME)/lib/libarrow.dylib" -o -f "$(ARROW_HOME)/lib/libarrow.so" -o -f "$(ARROW_HOME)/lib/libarrow.dll.a" -o -f "$(ARROW_HOME)/bin/libarrow.dll" || (echo "Error: Arrow library not found in $(ARROW_HOME)/lib or $(ARROW_HOME)/bin"; exit 1)
 	@echo "Arrow installation OK"

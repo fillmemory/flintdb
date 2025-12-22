@@ -24,8 +24,18 @@ endif
 CFLAGS = -fPIC -O2 -Wall -DNDEBUG
 LDFLAGS = -shared
 
+# Platform detection (used for sensible default dependency prefixes)
+UNAME_S := $(shell uname -s)
+
 # Try to detect cJSON installation
-CJSON_HOME ?= $(shell brew --prefix cjson 2>/dev/null || echo /usr/local)
+# - macOS: Homebrew prefix
+# - MSYS2 UCRT64: /ucrt64
+# - Linux: /usr/local (common for source installs)
+ifneq ($(findstring _NT-,$(UNAME_S)),)
+	CJSON_HOME ?= /ucrt64
+else
+	CJSON_HOME ?= $(shell brew --prefix cjson 2>/dev/null || echo /usr/local)
+endif
 CJSON_INCLUDE = -I$(CJSON_HOME)/include -I../../src
 CJSON_LIBS = -L$(CJSON_HOME)/lib -lcjson
 
@@ -33,11 +43,8 @@ CJSON_LIBS = -L$(CJSON_HOME)/lib -lcjson
 FlintDB_LIB = -L../../lib -lflintdb
 ZLIB_LIB = -lz
 
-# macOS specific
-UNAME_S := $(shell uname -s)
-
-# Windows (MSYS2) native build
-ifeq ($(OS),Windows_NT)
+# Windows (MSYS2) native build: uname contains *_NT-* (e.g., UCRT64_NT-10.0-22631)
+ifneq ($(findstring _NT-,$(UNAME_S)),)
 	TARGET = libflintdb_jsonl.dll
 else ifeq ($(CROSS_COMPILE),mingw)
     # MinGW cross-compilation
@@ -82,5 +89,5 @@ test-cjson:
 	@echo "Testing cJSON installation..."
 	@echo "CJSON_HOME: $(CJSON_HOME)"
 	@test -d "$(CJSON_HOME)/include/cjson" || (echo "Error: cJSON headers not found in $(CJSON_HOME)/include/cjson"; exit 1)
-	@test -f "$(CJSON_HOME)/lib/libcjson.dylib" -o -f "$(CJSON_HOME)/lib/libcjson.so" || (echo "Error: cJSON library not found in $(CJSON_HOME)/lib"; exit 1)
+	@test -f "$(CJSON_HOME)/lib/libcjson.dylib" -o -f "$(CJSON_HOME)/lib/libcjson.so" -o -f "$(CJSON_HOME)/lib/libcjson.dll.a" -o -f "$(CJSON_HOME)/bin/libcjson.dll" || (echo "Error: cJSON library not found in $(CJSON_HOME)/lib or $(CJSON_HOME)/bin"; exit 1)
 	@echo "cJSON installation OK"
