@@ -214,7 +214,7 @@ static i64 time_us() {
 static void log_access(const char *remote_addr, const char *method, const char *path, int status, i64 elapsed_us, const char *q) {
     time_t now = time(NULL);
     struct tm tm;
-    localtime_r(&now, &tm);
+    flintdb_localtime_r(&now, &tm);
     char timestamp[32];
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &tm);
     printf("%s %s\t%s %s\t%d\t%.3fms\t%s\n", timestamp, remote_addr, method, path, status, elapsed_us / 1000.0, q==NULL? "" : q);

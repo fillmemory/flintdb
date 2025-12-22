@@ -1998,7 +1998,7 @@ static struct flintdb_row *make_row(struct flintdb_meta *m) {
     time_t now = 1700000000; // fixed
     // normalize to midnight (local time) to be stable across encode/decode
     struct tm tmv;
-    localtime_r(&now, &tmv);
+    flintdb_localtime_r(&now, &tmv);
     tmv.tm_hour = 0;
     tmv.tm_min = 0;
     tmv.tm_sec = 0;
@@ -4900,7 +4900,7 @@ static void tc_date_to_yyyy_mm_dd(time_t t, char *out, size_t cap) {
     if (!out || cap == 0)
         return;
     struct tm tmv;
-    localtime_r(&t, &tmv);
+    flintdb_localtime_r(&t, &tmv);
     // normalize to date only
     tmv.tm_hour = 0;
     tmv.tm_min = 0;

@@ -55,11 +55,11 @@ static const char * ensure_temp_dir(void) {
         struct stat st;
         if (stat(path, &st) != 0) {
             // Attempt to create; ignore errors (will surface on file operations later)
-            mkdir(path, 0777);
+            mkdirs(path, 0777);
         } else if (!S_ISDIR(st.st_mode)) {
             // If path exists but not a directory, attempt to recreate as directory with suffix
             strncat(path, "_dir", sizeof(path) - strlen(path) - 1);
-            mkdir(path, 0777);
+            mkdirs(path, 0777);
         }
         initialized = 1;
     }
@@ -1465,7 +1465,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
                 char mod_buf[64];
                 time_t secs = fst.st_mtime;
                 struct tm tmv;
-                localtime_r(&secs, &tmv);
+                flintdb_localtime_r(&secs, &tmv);
                 strftime(mod_buf, sizeof(mod_buf), "%Y-%m-%d %H:%M:%S", &tmv);
                 r->string_set(r, 4, mod_buf, e);
                 if (e && *e) {
@@ -1547,7 +1547,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
                 char mod_buf[64];
                 time_t secs = fst.st_mtime;
                 struct tm tmv;
-                localtime_r(&secs, &tmv);
+                flintdb_localtime_r(&secs, &tmv);
                 strftime(mod_buf, sizeof(mod_buf), "%Y-%m-%d %H:%M:%S", &tmv);
                 r->string_set(r, 4, mod_buf, e);
                 if (e && *e) {

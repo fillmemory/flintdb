@@ -90,6 +90,17 @@ static inline void flintdb_timespec_utc(struct timespec *ts) {
 #endif
 }
 
+// Thread-safe localtime wrapper
+// - POSIX: localtime_r
+// - Windows: localtime_s
+static inline void flintdb_localtime_r(const time_t *t, struct tm *out) {
+#if defined(_WIN32)
+  localtime_s(out, t);
+#else
+  localtime_r(t, out);
+#endif
+}
+
 #define STOPWATCH_START(watch) struct timespec watch; flintdb_timespec_utc(&watch);
 // #define STOPWATCH_ELAPSED(watch) time_elapsed(&watch);
 
