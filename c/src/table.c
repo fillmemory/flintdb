@@ -968,9 +968,8 @@ static const struct flintdb_row * table_read_unlocked(struct flintdb_table *me, 
     }
 
     struct buffer *buf = priv->storage->read(priv->storage, rowid, e);
-    if (e && *e) {
-        return NULL;
-    }
+    if (e && *e) THROW_S(e);
+    if (!buf) THROW(e, "table_read_unlocked: storage read returned NULL buffer");
 
     struct flintdb_row *out = NULL;
     if (table_row_from_buffer(me, buf, &out, e) != 0) {
@@ -982,6 +981,9 @@ static const struct flintdb_row * table_read_unlocked(struct flintdb_table *me, 
     out->rowid = rowid;
     cache->put(cache, rowid, (valtype)out, row_cache_dealloc);
     return out;
+
+EXCEPTION:
+    return NULL;
 }
 
 HOT_PATH

@@ -843,32 +843,29 @@ static inline i64 align_down_i64(i64 x, i64 a) {
     return (a <= 0) ? x : (x / a) * a;
 }
 
-static inline void storage_dio_page_init_freelist(struct storage *me, struct buffer *page, i64 page_base_abs) {
-    assert(me);
-    assert(page);
-    assert(page->array);
+static inline i64 align_up_i64(i64 x, i64 a) {
+    if (a <= 0) return x;
+    return ((x + a - 1) / a) * a;
+}
 
-    // Only safe when a page is composed of whole blocks.
-    assert(me->block_bytes > 0);
-    assert((page->capacity % me->block_bytes) == 0);
-    assert(page_base_abs >= (i64)HEADER_BYTES);
-    assert(((page_base_abs - (i64)HEADER_BYTES) % (i64)me->block_bytes) == 0);
+// Pick a DIO inflate chunk size (mmap_bytes) that satisfies:
+// - divisible by block_bytes (so per-block initialization is exact)
+// - divisible by OS_PAGE_SIZE (so cache / IO alignment assumptions hold)
+static inline i64 storage_dio_chunk_bytes(i64 block_bytes, i64 target_bytes) {
+    if (block_bytes <= 0) return align_up_i64(target_bytes, (i64)OS_PAGE_SIZE);
+    if (target_bytes < block_bytes) target_bytes = block_bytes;
 
-    memset(page->array, 0, (size_t)page->capacity);
+    i64 blocks = (target_bytes + block_bytes - 1) / block_bytes; // ceil
+    if (blocks < 1) blocks = 1;
+    i64 length = blocks * block_bytes;
 
-    const i32 blocks = (i32)((i64)page->capacity / (i64)me->block_bytes);
-    const i64 first = (page_base_abs - (i64)HEADER_BYTES) / (i64)me->block_bytes;
-    const i16 z16 = 0;
-    const i32 z32 = 0;
-    for (i32 x = 0; x < blocks; x++) {
-        char *blk = page->array + ((i64)x * (i64)me->block_bytes);
-        blk[0] = STATUS_EMPTY;
-        blk[1] = MARK_AS_UNUSED;
-        memcpy(blk + 2, &z16, 2);
-        memcpy(blk + 4, &z32, 4);
-        i64 next_ptr = first + (i64)x + 1;
-        memcpy(blk + 8, &next_ptr, 8);
+    // Increase by whole blocks until we land on an OS page boundary.
+    // This loop is bounded by OS_PAGE_SIZE / gcd(OS_PAGE_SIZE, block_bytes).
+    while ((length % (i64)OS_PAGE_SIZE) != 0) {
+        blocks++;
+        length += block_bytes;
     }
+    return length;
 }
 
 static inline void storage_dio_commit(struct storage *me, u8 force, char **e) {
@@ -918,11 +915,33 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
         valtype found = me->cache->get(me->cache, (keytype)page_base);
         if (HASHMAP_INVALID_VAL != found) {
             struct buffer *page = (struct buffer *)found;
-            if (page && ((u32)page->capacity) >= (u32)OS_PAGE_SIZE && (page_off + (u32)BLOCK_HEADER_BYTES) <= (u32)page->capacity) {
-                u8 status = (u8)page->array[page_off + 0];
-                u8 mark = (u8)page->array[page_off + 1];
+            if (page && ((u32)page->capacity) >= (u32)OS_PAGE_SIZE) {
+                u8 hdr[BLOCK_HEADER_BYTES];
+                if (page_off + (u32)BLOCK_HEADER_BYTES <= (u32)page->capacity) {
+                    memcpy(hdr, page->array + page_off, (size_t)BLOCK_HEADER_BYTES);
+                } else {
+                    const u32 first = (u32)page->capacity - page_off;
+                    memcpy(hdr, page->array + page_off, (size_t)first);
+                    const i64 page2_base = page_base + (i64)OS_PAGE_SIZE;
+                    valtype found2 = me->cache->get(me->cache, (keytype)page2_base);
+                    if (HASHMAP_INVALID_VAL != found2) {
+                        struct buffer *page2 = (struct buffer *)found2;
+                        if (page2 && ((u32)page2->capacity) >= (u32)OS_PAGE_SIZE) {
+                            memcpy(hdr + first, page2->array, (size_t)((u32)BLOCK_HEADER_BYTES - first));
+                        } else {
+                            ssize_t rn = pread(me->fd, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
+                            if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
+                        }
+                    } else {
+                        ssize_t rn = pread(me->fd, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
+                        if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
+                    }
+                }
+
+                u8 status = hdr[0];
+                u8 mark = hdr[1];
                 i64 next = 0;
-                memcpy(&next, page->array + page_off + 8, 8);
+                memcpy(&next, hdr + 8, 8);
                 storage_dio_fixup_uninitialized_meta(offset, &status, mark, &next);
                 if (status_out) *status_out = status;
                 if (next_out) *next_out = next;
@@ -976,11 +995,33 @@ static inline int storage_dio_block_header_get(struct storage *me, i64 offset, u
         valtype found = me->cache->get(me->cache, (keytype)page_base);
         if (HASHMAP_INVALID_VAL != found) {
             struct buffer *page = (struct buffer *)found;
-            if (page && ((u32)page->capacity) >= (u32)OS_PAGE_SIZE && (page_off + (u32)BLOCK_HEADER_BYTES) <= (u32)page->capacity) {
-                u8 status = (u8)page->array[page_off + 0];
-                u8 mark = (u8)page->array[page_off + 1];
+            if (page && ((u32)page->capacity) >= (u32)OS_PAGE_SIZE) {
+                u8 hdr[BLOCK_HEADER_BYTES];
+                if (page_off + (u32)BLOCK_HEADER_BYTES <= (u32)page->capacity) {
+                    memcpy(hdr, page->array + page_off, (size_t)BLOCK_HEADER_BYTES);
+                } else {
+                    const u32 first = (u32)page->capacity - page_off;
+                    memcpy(hdr, page->array + page_off, (size_t)first);
+                    const i64 page2_base = page_base + (i64)OS_PAGE_SIZE;
+                    valtype found2 = me->cache->get(me->cache, (keytype)page2_base);
+                    if (HASHMAP_INVALID_VAL != found2) {
+                        struct buffer *page2 = (struct buffer *)found2;
+                        if (page2 && ((u32)page2->capacity) >= (u32)OS_PAGE_SIZE) {
+                            memcpy(hdr + first, page2->array, (size_t)((u32)BLOCK_HEADER_BYTES - first));
+                        } else {
+                            ssize_t rn = pread(me->fd, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
+                            if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
+                        }
+                    } else {
+                        ssize_t rn = pread(me->fd, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
+                        if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
+                    }
+                }
+
+                u8 status = hdr[0];
+                u8 mark = hdr[1];
                 i64 next = 0;
-                memcpy(&next, page->array + page_off + 8, 8);
+                memcpy(&next, hdr + 8, 8);
                 storage_dio_fixup_uninitialized_meta(offset, &status, mark, &next);
                 if (status_out) *status_out = status;
                 if (mark_out) *mark_out = mark;
@@ -1121,6 +1162,10 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
         const i64 page_base = align_down_i64(o, (i64)OS_PAGE_SIZE);
         const u32 page_off = (u32)(o - page_base);
 
+        const u32 need = (u32)me->block_bytes;
+        const u32 first = (page_off + need <= (u32)OS_PAGE_SIZE) ? need : ((u32)OS_PAGE_SIZE - page_off);
+        const u32 second = need - first;
+
         valtype found = me->cache->get(me->cache, (keytype)page_base);
         if (HASHMAP_INVALID_VAL != found) {
             struct buffer *cached = (struct buffer *)found;
@@ -1130,11 +1175,34 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
                 return -1;
             }
             bb->clear(bb);
-            if ((page_off + (u32)me->block_bytes) <= (u32)cached->capacity) {
-                memcpy(bb->array, cached->array + page_off, (size_t)bb->capacity);
-            } else {
-                // Should not happen; fall back to zero-fill.
+            if (!cached || ((u32)cached->capacity) < (u32)OS_PAGE_SIZE) {
                 memset(bb->array, 0, (size_t)bb->capacity);
+            } else {
+                memcpy(bb->array, cached->array + page_off, (size_t)first);
+                if (second > 0) {
+                    const i64 page2_base = page_base + (i64)OS_PAGE_SIZE;
+                    valtype found2 = me->cache->get(me->cache, (keytype)page2_base);
+                    if (HASHMAP_INVALID_VAL != found2) {
+                        struct buffer *cached2 = (struct buffer *)found2;
+                        if (cached2 && ((u32)cached2->capacity) >= (u32)OS_PAGE_SIZE) {
+                            memcpy(bb->array + first, cached2->array, (size_t)second);
+                        } else {
+                            ssize_t rn = pread(me->fd, bb->array + first, (size_t)second, o + (i64)first);
+                            if (rn != (ssize_t)second) {
+                                bb->free(bb);
+                                if (out) *out = NULL;
+                                return -1;
+                            }
+                        }
+                    } else {
+                        ssize_t rn = pread(me->fd, bb->array + first, (size_t)second, o + (i64)first);
+                        if (rn != (ssize_t)second) {
+                            bb->free(bb);
+                            if (out) *out = NULL;
+                            return -1;
+                        }
+                    }
+                }
             }
             if (out) *out = bb;
             return (ssize_t)bb->capacity;
@@ -1431,55 +1499,89 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
 #endif
 
     // Non-O_DIRECT path: merge block writes into an OS_PAGE_SIZE page cache.
-    // This reduces tree inserts and allocations dramatically for sequential workloads.
-    const i64 page_base = align_down_i64(absolute, (i64)OS_PAGE_SIZE);
-    const u32 page_off = (u32)(absolute - page_base);
+    // IMPORTANT: block_bytes can straddle two pages if it does not divide OS_PAGE_SIZE.
+    // Keep cache coherent by updating both pages when needed.
+    if (cache) {
+        const i64 page_base = align_down_i64(absolute, (i64)OS_PAGE_SIZE);
+        const u32 page_off = (u32)(absolute - page_base);
+        const u32 need = (u32)nbytes;
+        const u32 first = (page_off + need <= (u32)OS_PAGE_SIZE) ? need : ((u32)OS_PAGE_SIZE - page_off);
+        const u32 second = need - first;
 
-    if (page_off + (u32)nbytes <= (u32)OS_PAGE_SIZE) {
-        struct buffer *page = NULL;
-        if (cache) {
-            valtype found = cache->get(cache, (keytype)page_base);
-            if (HASHMAP_INVALID_VAL != found) {
-                page = (struct buffer *)found;
-            }
+        // Page 1 (base)
+        struct buffer *page1 = NULL;
+        valtype found1 = cache->get(cache, (keytype)page_base);
+        if (HASHMAP_INVALID_VAL != found1) {
+            page1 = (struct buffer *)found1;
         }
-
-        if (!page) {
-            page = buffer_alloc_aligned((u32)OS_PAGE_SIZE, (u32)OS_PAGE_SIZE);
-            if (!page) {
+        if (!page1) {
+            page1 = buffer_alloc_aligned((u32)OS_PAGE_SIZE, (u32)OS_PAGE_SIZE);
+            if (!page1) {
                 heap->free(heap);
                 return -1;
             }
-
-            // Read existing page contents (RMW).
-            ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
+            ssize_t r = pread(me->fd, page1->array, page1->capacity, page_base);
             if (r < 0) {
-                page->free(page);
+                page1->free(page1);
                 heap->free(heap);
                 return -1;
             }
             if (r == 0) {
-                memset(page->array, 0, (size_t)page->capacity);
-            } else if ((u32)r < (u32)page->capacity) {
-                memset(page->array + r, 0, (size_t)page->capacity - (size_t)r);
+                memset(page1->array, 0, (size_t)page1->capacity);
+            } else if ((u32)r < (u32)page1->capacity) {
+                memset(page1->array + r, 0, (size_t)page1->capacity - (size_t)r);
             }
+            if (!cache->put(cache, (keytype)page_base, (valtype)page1, storage_cache_free)) {
+                // Fallback: write-through the block.
+                ssize_t written = pwrite_all(me->fd, heap->array, (size_t)nbytes, absolute);
+                page1->free(page1);
+                heap->free(heap);
+                return written;
+            }
+        }
 
-            if (cache) {
-                if (!cache->put(cache, (keytype)page_base, (valtype)page, storage_cache_free)) {
+        memcpy(page1->array + page_off, heap->array, (size_t)first);
+
+        // Page 2 (next) if straddling
+        if (second > 0) {
+            const i64 page2_base = page_base + (i64)OS_PAGE_SIZE;
+            struct buffer *page2 = NULL;
+            valtype found2 = cache->get(cache, (keytype)page2_base);
+            if (HASHMAP_INVALID_VAL != found2) {
+                page2 = (struct buffer *)found2;
+            }
+            if (!page2) {
+                page2 = buffer_alloc_aligned((u32)OS_PAGE_SIZE, (u32)OS_PAGE_SIZE);
+                if (!page2) {
+                    heap->free(heap);
+                    return -1;
+                }
+                ssize_t r2 = pread(me->fd, page2->array, page2->capacity, page2_base);
+                if (r2 < 0) {
+                    page2->free(page2);
+                    heap->free(heap);
+                    return -1;
+                }
+                if (r2 == 0) {
+                    memset(page2->array, 0, (size_t)page2->capacity);
+                } else if ((u32)r2 < (u32)page2->capacity) {
+                    memset(page2->array + r2, 0, (size_t)page2->capacity - (size_t)r2);
+                }
+                if (!cache->put(cache, (keytype)page2_base, (valtype)page2, storage_cache_free)) {
                     // Fallback: write-through the block.
                     ssize_t written = pwrite_all(me->fd, heap->array, (size_t)nbytes, absolute);
-                    page->free(page);
+                    page2->free(page2);
                     heap->free(heap);
                     return written;
                 }
             }
+            memcpy(page2->array, heap->array + first, (size_t)second);
         }
 
-        memcpy(page->array + page_off, heap->array, (size_t)nbytes);
         heap->free(heap);
 
         u32 limit = (priv && priv->page_cache_limit) ? priv->page_cache_limit : 8192u;
-        if (cache && (u32)cache->count_get(cache) >= limit) {
+        if ((u32)cache->count_get(cache) >= limit) {
             if (storage_dio_pflush(me) < 0) {
                 return -1;
             }
@@ -1487,7 +1589,7 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
         return (ssize_t)nbytes;
     }
 
-    // Should be unreachable (block fits in OS_PAGE_SIZE); correctness fallback.
+    // No cache: write-through.
     ssize_t written = pwrite_all(me->fd, heap->array, (size_t)nbytes, absolute);
     heap->free(heap);
     return written;
@@ -1959,13 +2061,20 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
 
     DEBUG("DIO OPEN: file=%s, mode=%d, block_bytes=%d", opts.file, opts.mode, opts.block_bytes);
 
-    // Round up to DIO_SECTOR_SIZE alignment
+    // DIO block layout: [BLOCK_HEADER_BYTES + opts.block_bytes].
+    // opts.block_bytes may be small/non-aligned (e.g. row_bytes), so we must compute
+    // inflate chunk sizes (mmap_bytes) that are compatible with OS page alignment.
     me->block_bytes = (opts.compact <= 0) ? (BLOCK_HEADER_BYTES + opts.block_bytes) : (BLOCK_HEADER_BYTES + (opts.compact));
     me->clean = CALLOC(1, me->block_bytes);
-    me->increment = (opts.increment <= 0) ? DEFAULT_INCREMENT_BYTES : opts.increment;
-    me->mmap_bytes = me->block_bytes * (me->increment / me->block_bytes);
-    assert(me->increment % OS_PAGE_SIZE == 0); // O_DIRECT requires aligned sizes
-    assert(me->mmap_bytes % OS_PAGE_SIZE == 0); // O_DIRECT requires aligned sizes
+
+    // Align increment to OS_PAGE_SIZE for predictable ftruncate/write patterns.
+    i64 inc = (opts.increment <= 0) ? (i64)DEFAULT_INCREMENT_BYTES : (i64)opts.increment;
+    if (inc < (i64)me->block_bytes) inc = (i64)me->block_bytes;
+    inc = align_up_i64(inc, (i64)OS_PAGE_SIZE);
+    me->increment = (i32)inc;
+
+    // mmap_bytes must be divisible by both block_bytes and OS_PAGE_SIZE.
+    me->mmap_bytes = (i32)storage_dio_chunk_bytes((i64)me->block_bytes, (i64)me->increment);
 
     memcpy(&me->opts, &opts, sizeof(struct storage_opts));
 
