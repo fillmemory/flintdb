@@ -33,7 +33,6 @@ jobs:
           mingw-w64-x86_64-zlib
           mingw-w64-x86_64-arrow
           mingw-w64-x86_64-cjson
-          mingw-w64-x86_64-gperftools
           mingw-w64-x86_64-jemalloc
           mingw-w64-x86_64-dlfcn
 
