@@ -31,7 +31,8 @@ ifeq ($(CROSS_COMPILE),win64)
 
 	# Flags for Windows cross-compilation
 	CFLAGS_BASE = -Wall -Wextra -I./c $(CFLAGS_CROSS) -O3 -s -std=$(STD) -finput-charset=UTF-8 -fexec-charset=UTF-8 -Wformat=0 -Wno-unused-parameter -Wno-strict-aliasing -Wno-use-after-free -D_GNU_SOURCE
-	LDFLAGS_BASE = -lc -lm -lpthread -lz -s $(LDFLAGS_CROSS)
+	# MinGW does not provide a standalone -lc; link against default CRT.
+	LDFLAGS_BASE = -lm -lpthread -lz -lws2_32 -s $(LDFLAGS_CROSS)
 else
 # Native build configuration
 ifeq ($(OS),Windows_NT)
@@ -58,7 +59,8 @@ $(error ERROR: MinGW64 is NOT supported. Please use MSYS2 UCRT64 shell instead. 
 	# Add -s to strip symbols for smaller binaries
 	# Force UTF-8 for source input and runtime multibyte encoding (MinGW GCC)
 	CFLAGS_BASE = -Wall -Wextra -I./c -O3 -s -std=$(STD) -finput-charset=UTF-8 -fexec-charset=UTF-8 -Wformat=0 -Wno-unused-parameter -Wno-strict-aliasing -Wno-use-after-free -D_GNU_SOURCE
-	LDFLAGS_BASE = -lc -lm -lpthread -lz -s
+	# MinGW does not provide a standalone -lc; link against default CRT.
+	LDFLAGS_BASE = -lm -lpthread -lz -lws2_32 -s
 	else
 $(error ERROR: Only MSYS2 UCRT64 is supported on Windows. Native Windows build (cmd.exe, PowerShell) is NOT supported. Please install MSYS2 from https://www.msys2.org/ and use UCRT64 shell)
 	endif
