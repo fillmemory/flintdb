@@ -102,8 +102,8 @@ final class MMAPStorage implements Storage {
         if (alignedInc <= 0) {
             throw new IOException("Invalid aligned chunk size calculation");
         }
-        // Drop compatibility: always use the aligned increment for MMAP chunk sizing.
-        options.increment = alignedInc;
+        // Use aligned chunk sizing for mapping/allocation.
+        // Whether we persist aligned increment is decided below (fresh file only).
         this.MMAP_BYTES = alignedInc;
         this.CLEAN = new byte[BLOCK_DATA_BYTES];
 
@@ -127,6 +127,8 @@ final class MMAPStorage implements Storage {
             lock();
 
         if (channel.size() == 0) {
+            // New file: drop compatibility by persisting aligned increment.
+            options.increment = alignedInc;
             HEADER = HEAD();
             cmheader = head(CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES);
             commit(true);
@@ -142,9 +144,10 @@ final class MMAPStorage implements Storage {
             int inc = bb.getInt(); // increment chunk size
             if (inc <= 0)
                 throw new IOException("Invalid increment size: " + inc + ", " + options.file); // old version inc = 1024 * 1024 * 10;
-            if (inc != options.increment) {
-                throw new IOException("Incompatible storage increment: header=" + inc + ", expected=" + options.increment + ", file=" + options.file);
-            }
+            // Existing file: honor the persisted increment (C DIO may store 16MB) and
+            // compute aligned chunk bytes for mapping (C DIO inflates mmap_bytes).
+            options.increment = inc;
+            this.MMAP_BYTES = alignedChunkBytes(BLOCK_BYTES, inc);
             bb.position(bb.position() + R24.length); // reserved
             short blksize = bb.getShort(); // BLOCK Data Max Size (exclude BLOCK Header)
             if (blksize != BLOCK_DATA_BYTES) {
