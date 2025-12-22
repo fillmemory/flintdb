@@ -15,7 +15,6 @@
 #include <unistd.h>
 #include <limits.h>
 #include <time.h>
-#include <sys/stat.h>
 #include <sys/file.h>
 
 int flintdb_os_page_size(void) {

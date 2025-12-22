@@ -12,6 +12,10 @@
 #endif
 #include <ctype.h>
 
+// File permission/mode macros (S_IRUSR, S_IRWXU, ...)
+// Needed by open()/mkdir() call sites across the codebase.
+#include <sys/stat.h>
+
 #ifndef PATH_CHAR
 #define PATH_CHAR '/'
 #endif
