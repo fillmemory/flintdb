@@ -8,11 +8,67 @@
 #include <io.h> // get_osfhandle
 #include <time.h>
 #include <pthread.h>
+#include <sys/stat.h>
 
 #include "types.h"
 
 
 #define PATH_CHAR '\\'
+
+// FlintDB-specific page protection aliases used by runtime_win32.c
+#ifndef PAGE_FLINTDB_RDWR
+#define PAGE_FLINTDB_RDWR PAGE_READWRITE
+#endif
+#ifndef PAGE_FLINTDB_RDONLY
+#define PAGE_FLINTDB_RDONLY PAGE_READONLY
+#endif
+
+// MinGW/MSYS2 headers don't always expose POSIX S_I* names.
+// Provide fallbacks on Windows so code can compile consistently.
+#ifndef S_IRUSR
+#  ifdef _S_IREAD
+#    define S_IRUSR _S_IREAD
+#  else
+#    define S_IRUSR 0400
+#  endif
+#endif
+#ifndef S_IWUSR
+#  ifdef _S_IWRITE
+#    define S_IWUSR _S_IWRITE
+#  else
+#    define S_IWUSR 0200
+#  endif
+#endif
+#ifndef S_IXUSR
+#  ifdef _S_IEXEC
+#    define S_IXUSR _S_IEXEC
+#  else
+#    define S_IXUSR 0100
+#  endif
+#endif
+
+// Group/other bits don't have meaningful equivalents for Windows CRT open(); keep them defined.
+#ifndef S_IRGRP
+#  define S_IRGRP 0
+#endif
+#ifndef S_IWGRP
+#  define S_IWGRP 0
+#endif
+#ifndef S_IXGRP
+#  define S_IXGRP 0
+#endif
+#ifndef S_IROTH
+#  define S_IROTH 0
+#endif
+#ifndef S_IWOTH
+#  define S_IWOTH 0
+#endif
+#ifndef S_IXOTH
+#  define S_IXOTH 0
+#endif
+#ifndef S_IRWXU
+#  define S_IRWXU (S_IRUSR | S_IWUSR | S_IXUSR)
+#endif
 
 #ifndef _DIRENT_H_
 #define _DIRENT_H_

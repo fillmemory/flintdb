@@ -44,6 +44,8 @@ void mkdirs(const char *path, mode_t mode) {
     char *p = NULL;
     size_t len;
 
+    (void)mode; // MinGW mkdir() takes only one argument; mode is not used on Windows.
+
     snprintf(tmp, sizeof(tmp),"%s",path);
     len = strlen(tmp);
     if (tmp[len - 1] == '\\')
@@ -51,10 +53,10 @@ void mkdirs(const char *path, mode_t mode) {
     for (p = tmp + 1; *p; p++)
         if (*p == '\\') {
             *p = 0;
-            mkdir(tmp, mode);
+            mkdir(tmp);
             *p = '\\';
         }
-    mkdir(tmp, mode);
+    mkdir(tmp);
 }
 
 void rmdirs(const char *path) {
