@@ -51,7 +51,7 @@ final class MMAPStorage implements Storage {
     private final DirectBufferPool bufferPool;
 
     static int alignedChunkBytes(final int blockBytes, final int targetBytes) {
-        final int pageBytes = HEADER_BYTES;
+        final int pageBytes = Storage.osPageBytes();
         if (blockBytes <= 0) {
             final long up = ((long) (targetBytes + pageBytes - 1) / (long) pageBytes) * (long) pageBytes;
             return up > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) up;

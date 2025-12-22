@@ -18,6 +18,32 @@
 #include <sys/stat.h>
 #include <sys/file.h>
 
+int flintdb_os_page_size(void) {
+#ifndef _WIN32
+	static int cached = 0;
+	if (cached > 0) return cached;
+
+	long sz = -1;
+#ifdef _SC_PAGESIZE
+	sz = sysconf(_SC_PAGESIZE);
+#elif defined(_SC_PAGE_SIZE)
+	sz = sysconf(_SC_PAGE_SIZE);
+#endif
+	if (sz <= 0) {
+		sz = (long)getpagesize();
+	}
+	if (sz <= 0) {
+		sz = 4096;
+	}
+	cached = (int)sz;
+	return cached;
+#else
+	// runtime_win32.h provides getpagesize().
+	int sz = getpagesize();
+	return (sz > 0) ? sz : 4096;
+#endif
+}
+
 __thread char TL_ERROR[ERROR_BUFSZ] = {0}; // thread-local error buffer
 
 char* l_now(char* buff, size_t bsz) {

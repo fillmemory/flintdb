@@ -128,11 +128,55 @@ public interface Storage extends Closeable {
 	static final String TYPE_MEMORY = "MEMORY"; // XX:MaxDirectMemorySize=20G
 	static final String TYPE_DEFAULT = TYPE_MMAP;
 
-	static final int HEADER_BYTES = (16384); // getpagesize()
+	// FlintDB on-disk file header size. Keep this stable for compatibility across platforms.
+	static final int FILE_HEADER_BYTES = 16384;
+	static final int HEADER_BYTES = FILE_HEADER_BYTES;
 	static final int COMMON_HEADER_BYTES = (8 + 8 + 8 + 2 + 4 + 24 + 2 + 8);
 	static final int CUSTOM_HEADER_BYTES = (HEADER_BYTES - COMMON_HEADER_BYTES);
 	static final int BLOCK_HEADER_BYTES = (1 + 1 + 2 + 4 + 8);
 	static final int DEFAULT_INCREMENT_BYTES = 16 * 1024 * 1024;
+
+	/**
+	 * Runtime OS page size (e.g., 4096 on many Intel macOS/Linux, 16384 on many Apple Silicon macOS).
+	 * This is used for in-memory alignment decisions only; it does not change the on-disk file format.
+	 */
+	static int osPageBytes() {
+		return OsPageBytesHolder.VALUE;
+	}
+
+	final class OsPageBytesHolder {
+		static final int VALUE = detect();
+
+		private static int detect() {
+			final String override = System.getProperty("FLINTDB_OS_PAGE_BYTES");
+			if (override != null) {
+				try {
+					final int v = Integer.parseInt(override.trim());
+					if (v > 0) return v;
+				} catch (Throwable ignore) {
+					// ignore
+				}
+			}
+
+			// Best-effort: use Unsafe.pageSize() via reflection to avoid hard dependency.
+			try {
+				final Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+				final java.lang.reflect.Field f = unsafeClass.getDeclaredField("theUnsafe");
+				f.setAccessible(true);
+				final Object unsafe = f.get(null);
+				final java.lang.reflect.Method m = unsafeClass.getMethod("pageSize");
+				final Object out = m.invoke(unsafe);
+				if (out instanceof Integer) {
+					final int v = (Integer) out;
+					if (v > 0) return v;
+				}
+			} catch (Throwable ignore) {
+				// ignore
+			}
+
+			return 4096;
+		}
+	}
 
 	/**
 	 * Options for configuring the storage.

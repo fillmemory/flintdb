@@ -18,6 +18,11 @@
 #include "storage.h"
 #include "runtime.h"
 
+static inline i32 flintdb_page_bytes(void) {
+    i32 p = (i32)flintdb_os_page_size();
+    return (p > 0) ? p : 4096;
+}
+
 
 #define COMMON_HEADER_BYTES (8 + 8 + 8 + 2 + 4 + 24 + 2 + 8)
 #define CUSTOM_HEADER_BYTES (HEADER_BYTES - COMMON_HEADER_BYTES)
@@ -146,7 +151,7 @@ static struct buffer * storage_mmap(struct storage *me, i64 offset, i32 length, 
         _ftruncate(me->fd, limit);
     }
 
-    i32 page_size = OS_PAGE_SIZE; // 16Kb fixed // getpagesize(); // sysconf(_SC_PAGESIZE)
+    i32 page_size = flintdb_page_bytes();
     i64 page_offset = offset % page_size;
     i64 map_offset = offset - page_offset;
     i64 map_size = length + page_offset;
@@ -902,9 +907,10 @@ static inline i64 align_up_i64(i64 x, i64 a) {
 
 // Pick a DIO inflate chunk size (mmap_bytes) that satisfies:
 // - divisible by block_bytes (so per-block initialization is exact)
-// - divisible by OS_PAGE_SIZE (so cache / IO alignment assumptions hold)
+// - divisible by OS page size (so cache / IO alignment assumptions hold)
 static inline i64 storage_dio_chunk_bytes(i64 block_bytes, i64 target_bytes) {
-    if (block_bytes <= 0) return align_up_i64(target_bytes, (i64)OS_PAGE_SIZE);
+    const i64 os_page = (i64)flintdb_page_bytes();
+    if (block_bytes <= 0) return align_up_i64(target_bytes, os_page);
     if (target_bytes < block_bytes) target_bytes = block_bytes;
 
     i64 blocks = (target_bytes + block_bytes - 1) / block_bytes; // ceil
@@ -912,8 +918,8 @@ static inline i64 storage_dio_chunk_bytes(i64 block_bytes, i64 target_bytes) {
     i64 length = blocks * block_bytes;
 
     // Increase by whole blocks until we land on an OS page boundary.
-    // This loop is bounded by OS_PAGE_SIZE / gcd(OS_PAGE_SIZE, block_bytes).
-    while ((length % (i64)OS_PAGE_SIZE) != 0) {
+    // This loop is bounded by os_page / gcd(os_page, block_bytes).
+    while ((length % os_page) != 0) {
         blocks++;
         length += block_bytes;
     }
@@ -961,24 +967,25 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
 #ifdef DIO_CACHE_SIZE
     // If write-back cache is enabled, honor read-your-writes for metadata too.
     if (me->cache) {
-        // Page cache: keyed by OS_PAGE_SIZE-aligned page base.
-        const i64 page_base = align_down_i64(absolute, (i64)OS_PAGE_SIZE);
+        const i64 os_page = (i64)flintdb_page_bytes();
+        // Page cache: keyed by OS page-size-aligned page base.
+        const i64 page_base = align_down_i64(absolute, os_page);
         const u32 page_off = (u32)(absolute - page_base);
         valtype found = me->cache->get(me->cache, (keytype)page_base);
         if (HASHMAP_INVALID_VAL != found) {
             struct buffer *page = (struct buffer *)found;
-            if (page && ((u32)page->capacity) >= (u32)OS_PAGE_SIZE) {
+            if (page && ((u32)page->capacity) >= (u32)os_page) {
                 u8 hdr[BLOCK_HEADER_BYTES];
                 if (page_off + (u32)BLOCK_HEADER_BYTES <= (u32)page->capacity) {
                     memcpy(hdr, page->array + page_off, (size_t)BLOCK_HEADER_BYTES);
                 } else {
                     const u32 first = (u32)page->capacity - page_off;
                     memcpy(hdr, page->array + page_off, (size_t)first);
-                    const i64 page2_base = page_base + (i64)OS_PAGE_SIZE;
+                    const i64 page2_base = page_base + os_page;
                     valtype found2 = me->cache->get(me->cache, (keytype)page2_base);
                     if (HASHMAP_INVALID_VAL != found2) {
                         struct buffer *page2 = (struct buffer *)found2;
-                        if (page2 && ((u32)page2->capacity) >= (u32)OS_PAGE_SIZE) {
+                        if (page2 && ((u32)page2->capacity) >= (u32)os_page) {
                             memcpy(hdr + first, page2->array, (size_t)((u32)BLOCK_HEADER_BYTES - first));
                         } else {
                             ssize_t rn = PREAD_FUNC(me, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
@@ -1042,23 +1049,24 @@ static inline int storage_dio_block_header_get(struct storage *me, i64 offset, u
 
 #ifdef DIO_CACHE_SIZE
     if (me->cache) {
-        const i64 page_base = align_down_i64(absolute, (i64)OS_PAGE_SIZE);
+        const i64 os_page = (i64)flintdb_page_bytes();
+        const i64 page_base = align_down_i64(absolute, os_page);
         const u32 page_off = (u32)(absolute - page_base);
         valtype found = me->cache->get(me->cache, (keytype)page_base);
         if (HASHMAP_INVALID_VAL != found) {
             struct buffer *page = (struct buffer *)found;
-            if (page && ((u32)page->capacity) >= (u32)OS_PAGE_SIZE) {
+            if (page && ((u32)page->capacity) >= (u32)os_page) {
                 u8 hdr[BLOCK_HEADER_BYTES];
                 if (page_off + (u32)BLOCK_HEADER_BYTES <= (u32)page->capacity) {
                     memcpy(hdr, page->array + page_off, (size_t)BLOCK_HEADER_BYTES);
                 } else {
                     const u32 first = (u32)page->capacity - page_off;
                     memcpy(hdr, page->array + page_off, (size_t)first);
-                    const i64 page2_base = page_base + (i64)OS_PAGE_SIZE;
+                    const i64 page2_base = page_base + os_page;
                     valtype found2 = me->cache->get(me->cache, (keytype)page2_base);
                     if (HASHMAP_INVALID_VAL != found2) {
                         struct buffer *page2 = (struct buffer *)found2;
-                        if (page2 && ((u32)page2->capacity) >= (u32)OS_PAGE_SIZE) {
+                        if (page2 && ((u32)page2->capacity) >= (u32)os_page) {
                             memcpy(hdr + first, page2->array, (size_t)((u32)BLOCK_HEADER_BYTES - first));
                         } else {
                             ssize_t rn = PREAD_FUNC(me, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
@@ -1210,12 +1218,12 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
 #ifdef DIO_CACHE_SIZE
     // If write-back cache is enabled, honor read-your-writes.
     if (me->cache) {
-        // Page cache: keyed by OS_PAGE_SIZE-aligned page base.
-        const i64 page_base = align_down_i64(o, (i64)OS_PAGE_SIZE);
+        const i64 os_page = (i64)flintdb_page_bytes();
+        const i64 page_base = align_down_i64(o, os_page);
         const u32 page_off = (u32)(o - page_base);
 
         const u32 need = (u32)me->block_bytes;
-        const u32 first = (page_off + need <= (u32)OS_PAGE_SIZE) ? need : ((u32)OS_PAGE_SIZE - page_off);
+        const u32 first = (page_off + need <= (u32)os_page) ? need : ((u32)os_page - page_off);
         const u32 second = need - first;
 
         valtype found = me->cache->get(me->cache, (keytype)page_base);
@@ -1227,16 +1235,16 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
                 return -1;
             }
             bb->clear(bb);
-            if (!cached || ((u32)cached->capacity) < (u32)OS_PAGE_SIZE) {
+            if (!cached || ((u32)cached->capacity) < (u32)os_page) {
                 memset(bb->array, 0, (size_t)bb->capacity);
             } else {
                 memcpy(bb->array, cached->array + page_off, (size_t)first);
                 if (second > 0) {
-                    const i64 page2_base = page_base + (i64)OS_PAGE_SIZE;
+                    const i64 page2_base = page_base + os_page;
                     valtype found2 = me->cache->get(me->cache, (keytype)page2_base);
                     if (HASHMAP_INVALID_VAL != found2) {
                         struct buffer *cached2 = (struct buffer *)found2;
-                        if (cached2 && ((u32)cached2->capacity) >= (u32)OS_PAGE_SIZE) {
+                        if (cached2 && ((u32)cached2->capacity) >= (u32)os_page) {
                             memcpy(bb->array + first, cached2->array, (size_t)second);
                         } else {
                             ssize_t rn = PREAD_FUNC(me, bb->array + first, (size_t)second, o + (i64)first);
@@ -1355,7 +1363,7 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
     int steps = 0;
 
     size_t batch_cap = (size_t)me->mmap_bytes;
-    const size_t unit = (size_t)OS_PAGE_SIZE;
+    const size_t unit = (size_t)flintdb_page_bytes();
     if (batch_cap < unit) batch_cap = unit;
     batch_cap = (batch_cap / unit) * unit;
     if (batch_cap == 0) batch_cap = unit;
@@ -1550,14 +1558,15 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
     }
 #endif
 
-    // Non-O_DIRECT path: merge block writes into an OS_PAGE_SIZE page cache.
-    // IMPORTANT: block_bytes can straddle two pages if it does not divide OS_PAGE_SIZE.
+    // Non-O_DIRECT path: merge block writes into an OS page-size page cache.
+    // IMPORTANT: block_bytes can straddle two pages if it does not divide OS page size.
     // Keep cache coherent by updating both pages when needed.
     if (cache) {
-        const i64 page_base = align_down_i64(absolute, (i64)OS_PAGE_SIZE);
+        const i64 os_page = (i64)flintdb_page_bytes();
+        const i64 page_base = align_down_i64(absolute, os_page);
         const u32 page_off = (u32)(absolute - page_base);
         const u32 need = (u32)nbytes;
-        const u32 first = (page_off + need <= (u32)OS_PAGE_SIZE) ? need : ((u32)OS_PAGE_SIZE - page_off);
+        const u32 first = (page_off + need <= (u32)os_page) ? need : ((u32)os_page - page_off);
         const u32 second = need - first;
 
         // Page 1 (base)
@@ -1567,7 +1576,7 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
             page1 = (struct buffer *)found1;
         }
         if (!page1) {
-            page1 = buffer_alloc_aligned((u32)OS_PAGE_SIZE, (u32)OS_PAGE_SIZE);
+            page1 = buffer_alloc_aligned((u32)os_page, (u32)os_page);
             if (!page1) {
                 heap->free(heap);
                 return -1;
@@ -1596,14 +1605,14 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
 
         // Page 2 (next) if straddling
         if (second > 0) {
-            const i64 page2_base = page_base + (i64)OS_PAGE_SIZE;
+            const i64 page2_base = page_base + os_page;
             struct buffer *page2 = NULL;
             valtype found2 = cache->get(cache, (keytype)page2_base);
             if (HASHMAP_INVALID_VAL != found2) {
                 page2 = (struct buffer *)found2;
             }
             if (!page2) {
-                page2 = buffer_alloc_aligned((u32)OS_PAGE_SIZE, (u32)OS_PAGE_SIZE);
+                page2 = buffer_alloc_aligned((u32)os_page, (u32)os_page);
                 if (!page2) {
                     heap->free(heap);
                     return -1;
@@ -1687,7 +1696,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
         const i32 blocks = length / me->block_bytes;
 
         // Pick an alignment that is compatible with Linux O_DIRECT when enabled.
-        u32 alignment = (u32)OS_PAGE_SIZE;
+        u32 alignment = (u32)flintdb_page_bytes();
 #if defined(__linux__) && defined(O_DIRECT)
         {
             struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
@@ -2119,22 +2128,23 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     me->block_bytes = (opts.compact <= 0) ? (BLOCK_HEADER_BYTES + opts.block_bytes) : (BLOCK_HEADER_BYTES + (opts.compact));
     me->clean = CALLOC(1, me->block_bytes);
 
-    // Align increment to OS_PAGE_SIZE for predictable ftruncate/write patterns.
+    // Align increment to OS page size for predictable ftruncate/write patterns.
     i64 inc = (opts.increment <= 0) ? (i64)DEFAULT_INCREMENT_BYTES : (i64)opts.increment;
     if (inc < (i64)me->block_bytes) inc = (i64)me->block_bytes;
-    inc = align_up_i64(inc, (i64)OS_PAGE_SIZE);
+    inc = align_up_i64(inc, (i64)flintdb_page_bytes());
     me->increment = (i32)inc;
 
-    // mmap_bytes must be divisible by both block_bytes and OS_PAGE_SIZE.
+    // mmap_bytes must be divisible by both block_bytes and OS page size.
     me->mmap_bytes = (i32)storage_dio_chunk_bytes((i64)me->block_bytes, (i64)me->increment);
 
     // Optional diagnostic: print sizing/rounding decisions even in NDEBUG builds.
     const char *env_openlog = getenv("FLINTDB_STORAGE_OPEN_LOG");
     if (env_openlog && atoi(env_openlog) > 0) {
-        const i32 pages_per_chunk = (OS_PAGE_SIZE > 0) ? (me->mmap_bytes / OS_PAGE_SIZE) : 0;
+        const i32 os_page = flintdb_page_bytes();
+        const i32 pages_per_chunk = (os_page > 0) ? (me->mmap_bytes / os_page) : 0;
         const i32 blocks_per_chunk = (me->block_bytes > 0) ? (me->mmap_bytes / me->block_bytes) : 0;
         LOG("DIO OPEN(SIZE): file=%s, mode=%d, data_block_bytes=%d, block_bytes=%d, increment=%d, mmap_bytes=%d, os_page=%d, pages_per_chunk=%d, blocks_per_chunk=%d",
-            opts.file, opts.mode, opts.block_bytes, me->block_bytes, me->increment, me->mmap_bytes, OS_PAGE_SIZE, pages_per_chunk, blocks_per_chunk);
+            opts.file, opts.mode, opts.block_bytes, me->block_bytes, me->increment, me->mmap_bytes, os_page, pages_per_chunk, blocks_per_chunk);
     }
 
     memcpy(&me->opts, &opts, sizeof(struct storage_opts));

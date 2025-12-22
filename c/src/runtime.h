@@ -92,6 +92,10 @@ u64 time_elapsed(struct timespec *watch);
 f64 time_ops(i64 rows, struct timespec *watch);
 char * time_dur(u64 ms, char *buf, i32 len);
 
+// Returns the OS virtual memory page size in bytes (e.g., 4096 on many Intel macOS/Linux,
+// 16384 on many Apple Silicon macOS). Cached after first call.
+int flintdb_os_page_size(void);
+
 static inline int strempty(const char *s) { return !s || !*s; }
 
 static inline int suffix(const char *str, const char *suffix) {

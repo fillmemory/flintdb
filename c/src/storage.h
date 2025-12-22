@@ -66,8 +66,12 @@ struct storage {
 
 int storage_open(struct storage * s, struct storage_opts opts, char **e);
 
-#define OS_PAGE_SIZE 16384 // 16KB
-#define HEADER_BYTES OS_PAGE_SIZE 
+// FlintDB on-disk file header size. Keep this stable for compatibility.
+// NOTE: This is NOT necessarily the OS VM page size (which can be 4KB or 16KB depending on platform).
+#define FLINTDB_FILE_HEADER_BYTES 16384
+// Legacy name kept for compatibility within the codebase; represents file header granularity.
+#define OS_PAGE_SIZE FLINTDB_FILE_HEADER_BYTES
+#define HEADER_BYTES FLINTDB_FILE_HEADER_BYTES
 #define BLOCK_HEADER_BYTES (1 + 1 + 2 + 4 + 8) // 16 
 
 #define TYPE_MMAP "MMAP"
