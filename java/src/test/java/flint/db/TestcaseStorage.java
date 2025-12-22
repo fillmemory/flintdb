@@ -23,6 +23,8 @@ public class TestcaseStorage {
 		//   ./testcase.sh -c flint.db.TestcaseStorage 2000000
 		//   ./testcase.sh -c flint.db.TestcaseStorage boundary
 		//   ./testcase.sh -c flint.db.TestcaseStorage boundary 2097152
+		//   ./testcase.sh -c flint.db.TestcaseStorage boundary-mem 2097152
+		//   ./testcase.sh -c flint.db.TestcaseStorage boundary-all 2097152
 		String a0 = null;
 		String a1 = null;
 		if (args != null && args.length > 0) {
@@ -46,12 +48,19 @@ public class TestcaseStorage {
 		}
 
 		if (a0 != null) {
-			if ("boundary".equalsIgnoreCase(a0)) {
+			if ("boundary".equalsIgnoreCase(a0) || "boundary-mem".equalsIgnoreCase(a0) || "boundary-all".equalsIgnoreCase(a0)) {
+				final boolean runAll = "boundary-all".equalsIgnoreCase(a0);
+				final boolean useMemory = "boundary-mem".equalsIgnoreCase(a0);
 				int max = 2 * 1024 * 1024;
 				if (a1 != null) {
 					max = Integer.parseInt(a1);
 				}
-				testcase_storage_boundary(max);
+				if (runAll) {
+					testcase_storage_boundary(max, false);
+					testcase_storage_boundary(max, true);
+					return;
+				}
+				testcase_storage_boundary(max, useMemory);
 				return;
 			}
 			// Backward-compatible: treat single numeric arg as max for testcase_storage1.
@@ -270,8 +279,8 @@ public class TestcaseStorage {
 	 *
 	 * With max = 2*1024*1024 blocks, total payload aligns with 64 * 16MB chunks.
 	 */
-	static void testcase_storage_boundary(int max) throws Exception {
-		final File file = new File("temp/storage-j-boundary.bin");
+	static void testcase_storage_boundary(int max, boolean useMemory) throws Exception {
+		final File file = new File(useMemory ? "temp/storage-j-boundary-mem.bin" : "temp/storage-j-boundary.bin");
 		file.getParentFile().mkdirs();
 		file.delete();
 
@@ -280,12 +289,15 @@ public class TestcaseStorage {
 
 		try (var CLOSER = new IO.Closer()) {
 			var watch = new IO.StopWatch();
-			var s = Storage.create(
-					new Storage.Options()
-							.file(file)
-							.blockBytes(DATA_BLOCK_BYTES)
-							.increment(INCREMENT)
-							.mutable(true));
+			var opt = new Storage.Options()
+					.file(file)
+					.blockBytes(DATA_BLOCK_BYTES)
+					.increment(INCREMENT)
+					.mutable(true);
+			if (useMemory) {
+				opt.storage(Storage.TYPE_MEMORY);
+			}
+			var s = Storage.create(opt);
 			CLOSER.register(s);
 
 			for (int i = 0; i < max; i++) {
@@ -301,9 +313,11 @@ public class TestcaseStorage {
 				System.out.println("storage.read : " + i + ", " + new String(data));
 			}
 
-			long expectedBytes = 16_384L + (64L * 16L * 1024L * 1024L);
+			final long chunkBytes = 64L * 16L * 1024L * 1024L;
+			// Note: MemoryStorage.bytes() returns only allocated chunk bytes (header excluded).
+			final long expectedBytes = useMemory ? chunkBytes : (16_384L + chunkBytes);
 			System.out.println("elapsed : " + watch.elapsed() + ", ops : " + watch.ops(max));
-			System.out.println("count: " + s.count() + ", bytes: " + s.bytes() + ", expected(boundary): " + expectedBytes);
+			System.out.println("count: " + s.count() + ", bytes: " + s.bytes() + ", expected(boundary): " + expectedBytes + ", storage: " + (useMemory ? "MEMORY" : "MMAP"));
 		}
 	}
 }

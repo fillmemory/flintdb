@@ -6,6 +6,8 @@ set -euo pipefail
 cd "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # ./testcase.sh TESTCASE_BUFFER --mtrace
 # ./testcase.sh TESTCASE_STORAGE --mtrace
+# ./testcase.sh TESTCASE_STORAGE_DIO --mtrace
+# ./testcase.sh TESTCASE_STORAGE_ALL --mtrace
 # ./testcase.sh TESTCASE_BPLUSTREE --mtrace
 # ./testcase.sh TESTCASE_BPLUSTREE_DELETE --mtrace
 # ./testcase.sh TESTCASE_BPLUSTREE_DELETE2 --mtrace
@@ -40,6 +42,8 @@ CASES=(
 
     TESTCASE_BUFFER
     TESTCASE_STORAGE
+    TESTCASE_STORAGE_DIO
+    TESTCASE_STORAGE_ALL
 
     TESTCASE_BPLUSTREE
     TESTCASE_BPLUSTREE_DELETE2
@@ -147,6 +151,30 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Convenience wrapper: run both storage implementations back-to-back.
+# Keeps compile-time testcase selection unchanged by simply invoking the
+# script twice.
+if [[ "$TESTCASE" == "TESTCASE_STORAGE_ALL" ]]; then
+    declare -a RUN_FLAGS
+    RUN_FLAGS=()
+    if [[ $MTRACE -eq 1 ]]; then RUN_FLAGS+=("--mtrace"); fi
+    if [[ $FLAG_DEBUG -eq 1 ]]; then RUN_FLAGS+=("--debug"); fi
+    if [[ $FLAG_NDEBUG -eq 1 ]]; then RUN_FLAGS+=("--ndebug"); fi
+
+    echo "== RUN: TESTCASE_STORAGE =="
+    CMD=("./testcase.sh" TESTCASE_STORAGE)
+    if [[ ${#RUN_FLAGS[@]} -gt 0 ]]; then CMD+=("${RUN_FLAGS[@]}"); fi
+    if [[ ${#FORWARD_ARGS[@]} -gt 0 ]]; then CMD+=(-- "${FORWARD_ARGS[@]}"); fi
+    "${CMD[@]}"
+
+    echo "== RUN: TESTCASE_STORAGE_DIO =="
+    CMD=("./testcase.sh" TESTCASE_STORAGE_DIO)
+    if [[ ${#RUN_FLAGS[@]} -gt 0 ]]; then CMD+=("${RUN_FLAGS[@]}"); fi
+    if [[ ${#FORWARD_ARGS[@]} -gt 0 ]]; then CMD+=(-- "${FORWARD_ARGS[@]}"); fi
+    "${CMD[@]}"
+    exit 0
+fi
 
 CC=gcc
 STD=c2x # c99, c11, c17, c23

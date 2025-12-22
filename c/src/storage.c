@@ -2076,7 +2076,7 @@ static void storage_dio_close(struct storage *me) {
 }
 
 /**
- * @brief Direct I/O storage
+ * @brief Direct I/O storage (env overrides: FLINTDB_DIO_OS_CACHE=1, FLINTDB_DIO_O_DIRECT=1, FLINTDB_DIO_PAGE_CACHE=8192)
  * 
  * @param me 
  * @param opts 
@@ -2087,7 +2087,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     if (!me)
         return -1;
 
-    DEBUG("DIO OPEN: file=%s, mode=%d, block_bytes=%d", opts.file, opts.mode, opts.block_bytes);
+    DEBUG("DIO OPEN: file=%s, mode=%d, block_bytes=%d, FLINTDB_DIO_PAGE_CACHE=%d", opts.file, opts.mode, opts.block_bytes, getenv("FLINTDB_DIO_PAGE_CACHE") ? atoi(getenv("FLINTDB_DIO_PAGE_CACHE")) : -1);
 
     // DIO block layout: [BLOCK_HEADER_BYTES + opts.block_bytes].
     // opts.block_bytes may be small/non-aligned (e.g. row_bytes), so we must compute

@@ -114,4 +114,4 @@ FLINTDB_BULK_INSERT_COMMIT_INTERVAL=20000 FLINTDB_DIO_PAGE_CACHE=1048576 ./bin/f
 
 #  LIMIT 300000
 
-# ls -l ../temp/c/tpch_lineitem*
+ls -l ../temp/c/tpch_lineitem*
