@@ -110,7 +110,7 @@ echo $SQL_CREATE_TABLE
 # ) CACHE=1M, STORAGE=MEMORY, COMPACT=140
 
 echo "INSERT FROM"
-FLINTDB_BULK_INSERT_COMMIT_INTERVAL=20000 ./bin/flintdb "INSERT INTO ../temp/c/tpch_lineitem.flintdb FROM ../temp/tpch/lineitem.tbl.gz ${LIMIT}" -status
+FLINTDB_BULK_INSERT_COMMIT_INTERVAL=20000 FLINTDB_DIO_PAGE_CACHE=1048576 ./bin/flintdb "INSERT INTO ../temp/c/tpch_lineitem.flintdb FROM ../temp/tpch/lineitem.tbl.gz ${LIMIT}" -status
 
 #  LIMIT 300000
 

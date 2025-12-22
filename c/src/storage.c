@@ -2245,7 +2245,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     }
 
     #ifdef STORAGE_DIO_USE_BUFFER_POOL
-    LOG("Initializing DIO buffer pool: block_bytes=%d", me->block_bytes);
+    DEBUG("Initializing DIO buffer pool: block_bytes=%d", me->block_bytes);
     me->pool = buffer_pool_safe_create(STORAGE_DIO_USE_BUFFER_POOL, me->block_bytes, 0); // 256K blocks
     #endif
 
