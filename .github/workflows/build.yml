@@ -1,0 +1,62 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'c/**'
+      - '.github/workflows/build.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'c/**'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up MSYS2 (Windows)
+      if: runner.os == 'Windows'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-zlib
+          mingw-w64-x86_64-arrow
+          mingw-w64-x86_64-cjson
+          mingw-w64-x86_64-gperftools
+          mingw-w64-x86_64-jemalloc
+
+    - name: Install dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential zlib1g-dev libarrow-dev libcjson-dev libgoogle-perftools-dev libjemalloc-dev
+
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew update
+        brew install zlib apache-arrow cjson gperftools jemalloc
+
+    - name: Build the project
+      run: |
+        cd c
+        ./build.sh -all
+      shell: msys2 {0} # for Windows
+
+    - name: List build artifacts
+      run: |
+        cd c
+        ls -l bin lib
+      shell: bash

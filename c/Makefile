@@ -11,6 +11,29 @@
 # Enable parallel builds by default
 MAKEFLAGS += -j$(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
+# Cross-compilation setup. Overrides host-based detection.
+# Usage: make CROSS_COMPILE=win64
+ifeq ($(CROSS_COMPILE),win64)
+	CC = x86_64-w64-mingw32-gcc
+	AR = x86_64-w64-mingw32-ar
+	PLATFORM = msys
+	STD = c11
+
+	# For cross-compiling, MINGW_SYSROOT should be set to the root of the
+	# mingw-w64 toolchain directory that contains include/ and lib/.
+	# e.g. make CROSS_COMPILE=win64 MINGW_SYSROOT=/path/to/x86_64-w64-mingw32
+	CFLAGS_CROSS =
+	LDFLAGS_CROSS =
+	ifdef MINGW_SYSROOT
+		CFLAGS_CROSS += -I"$(MINGW_SYSROOT)/include"
+		LDFLAGS_CROSS += -L"$(MINGW_SYSROOT)/lib"
+	endif
+
+	# Flags for Windows cross-compilation
+	CFLAGS_BASE = -Wall -Wextra -I./c $(CFLAGS_CROSS) -O3 -s -std=$(STD) -finput-charset=UTF-8 -fexec-charset=UTF-8 -Wformat=0 -Wno-unused-parameter -Wno-strict-aliasing -Wno-use-after-free -D_GNU_SOURCE
+	LDFLAGS_BASE = -lc -lm -lpthread -lz -s $(LDFLAGS_CROSS)
+else
+# Native build configuration
 ifeq ($(OS),Windows_NT)
 	# Detect MSYS2 shell (MINGW64, UCRT64, MSYS, etc.)
 	UNAME_S := $(shell uname -s 2>/dev/null)
@@ -59,6 +82,7 @@ else
 			$(warning For async I/O performance, install: sudo apt-get install liburing-dev  or  sudo dnf install liburing-devel)
 		endif
 	endif
+endif
 endif
 
 # Optional: enable/disable NDEBUG (disabled by default for debug info)
@@ -142,28 +166,35 @@ TARGET_A   = $(LIB_DIR)/libflintdb.a
 
 BUILD_TIME := $(shell date +%Y%m%d%H%M%S)
 
-# Detect the platform
-ifeq ($(OS),Windows_NT)
-    # Check if we're in MSYS2 environment (POSIX layer on Windows)
-    UNAME_S := $(shell uname -s 2>/dev/null)
-    ifneq ($(findstring _NT-,$(UNAME_S)),)
-        # MSYS2 environment - use POSIX behavior
-        PLATFORM = msys
-        TARGET_SO = $(LIB_DIR)/flintdb.dll
-        TARGET_CLI = $(BIN_DIR)/flintdb.exe
-    else
-        $(error ERROR: Only MSYS2 UCRT64 is supported on Windows)
-    endif
-else
-    UNAME_S := $(shell uname -s)
-    ifeq ($(UNAME_S),Linux)
-        PLATFORM = linux
-    endif
-    ifeq ($(UNAME_S),Darwin)
-        PLATFORM = macos
-		TARGET_SO = $(LIB_DIR)/libflintdb.dylib
-		TARGET_A  = $(LIB_DIR)/libflintdb.a
-    endif
+# Detect the platform, unless already set by cross-compilation
+ifndef PLATFORM
+	ifeq ($(OS),Windows_NT)
+	    # Check if we're in MSYS2 environment (POSIX layer on Windows)
+	    UNAME_S := $(shell uname -s 2>/dev/null)
+	    ifneq ($(findstring _NT-,$(UNAME_S)),)
+	        # MSYS2 environment - use POSIX behavior
+	        PLATFORM = msys
+	    else
+	        $(error ERROR: Only MSYS2 UCRT64 is supported on Windows)
+	    endif
+	else
+	    UNAME_S := $(shell uname -s)
+	    ifeq ($(UNAME_S),Linux)
+	        PLATFORM = linux
+	    endif
+	    ifeq ($(UNAME_S),Darwin)
+	        PLATFORM = macos
+	    endif
+	endif
+endif
+
+# Set target extensions based on platform
+ifeq ($(PLATFORM),msys)
+    TARGET_SO = $(LIB_DIR)/flintdb.dll
+    TARGET_CLI = $(BIN_DIR)/flintdb.exe
+else ifeq ($(PLATFORM),macos)
+	TARGET_SO = $(LIB_DIR)/libflintdb.dylib
+	TARGET_A  = $(LIB_DIR)/libflintdb.a
 endif
 
 # Platform-specific flags

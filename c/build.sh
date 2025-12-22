@@ -12,6 +12,7 @@
 # How to build 
 # ./build.sh 
 # ./build.sh -all   # to build with plugins
+# ./build.sh --win64 # to cross-compile for Windows x64
 #
 # How to run
 # cd bin && ./flintdb 
@@ -22,6 +23,7 @@ set -e
 # Parse command line options
 BUILD_PLUGINS=0
 ENABLE_MTRACE=0
+CROSS_COMPILE_WIN64=0
 
 for arg in "$@"; do
     case "$arg" in
@@ -31,10 +33,28 @@ for arg in "$@"; do
         -mtrace|--mtrace)
             ENABLE_MTRACE=1
             ;;
+        -win64|--win64)
+            CROSS_COMPILE_WIN64=1
+            ;;
     esac
 done
 
-if [ $BUILD_PLUGINS -eq 1 ]; then
+MAKE_ARGS=""
+if [ $CROSS_COMPILE_WIN64 -eq 1 ]; then
+    echo "=== FlintDB Cross-Compile Build for Windows x64 ==="
+    MAKE_ARGS="CROSS_COMPILE=win64"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # Auto-detect Homebrew mingw-w64 sysroot on macOS
+        MINGW_PREFIX=$(brew --prefix mingw-w64 2>/dev/null)
+        if [ -n "$MINGW_PREFIX" ]; then
+            SYSROOT_PATH="$MINGW_PREFIX/x86_64-w64-mingw32"
+            if [ -d "$SYSROOT_PATH" ]; then
+                echo "Found mingw-w64 sysroot: $SYSROOT_PATH"
+                MAKE_ARGS="$MAKE_ARGS MINGW_SYSROOT=$SYSROOT_PATH"
+            fi
+        fi
+    fi
+elif [ $BUILD_PLUGINS -eq 1 ]; then
     echo "=== FlintDB Plugin System Build (with plugins) ==="
 elif [ $ENABLE_MTRACE -eq 1 ]; then
     echo "=== FlintDB Build (with memory tracing) ==="
@@ -45,16 +65,31 @@ fi
 # Check prerequisites
 echo ""
 echo "[1/3] Checking prerequisites..."
-if ! command -v gcc &>/dev/null && ! command -v clang &>/dev/null; then
-    echo "Error: No C compiler found (gcc or clang required)"
-    exit 1
-fi
-echo "C compiler found: $(command -v gcc || command -v clang)"
-
-if echo '#include <zlib.h>' | gcc -E - &>/dev/null; then
-    echo "zlib found"
+COMPILER_TO_CHECK=""
+if [ $CROSS_COMPILE_WIN64 -eq 1 ]; then
+    if ! command -v x86_64-w64-mingw32-gcc &>/dev/null; then
+        echo "Error: Cross-compiler x86_64-w64-mingw32-gcc not found."
+        echo "On macOS, install with: brew install mingw-w64"
+        exit 1
+    fi
+    COMPILER_TO_CHECK="x86_64-w64-mingw32-gcc"
+    echo "C compiler found: $(command -v $COMPILER_TO_CHECK)"
 else
-    echo "Error: zlib development files not found"
+    if ! command -v gcc &>/dev/null && ! command -v clang &>/dev/null; then
+        echo "Error: No C compiler found (gcc or clang required)"
+        exit 1
+    fi
+    COMPILER_TO_CHECK=$(command -v gcc || command -v clang)
+    echo "C compiler found: $COMPILER_TO_CHECK"
+fi
+
+if echo '#include <zlib.h>' | $COMPILER_TO_CHECK -E - &>/dev/null; then
+    echo "zlib found for target"
+else
+    echo "Error: zlib.h development files not found for target compiler ($COMPILER_TO_CHECK)"
+    if [ $CROSS_COMPILE_WIN64 -eq 1 ]; then
+        echo "Ensure the mingw-w64 toolchain has zlib available."
+    fi
     exit 1
 fi
 echo ""
@@ -95,9 +130,9 @@ echo ""
 echo "[2/3] Building FlintDB core library..."
 make clean
 if [ $ENABLE_MTRACE -eq 1 ]; then
-    make BUILD_SO=1 ALLOCATOR=$ALLOCATOR CFLAGS="-DMTRACE=1"
+    make BUILD_SO=1 ALLOCATOR=$ALLOCATOR CFLAGS="-DMTRACE=1" $MAKE_ARGS
 else
-    make BUILD_SO=1 ALLOCATOR=$ALLOCATOR NDEBUG=1
+    make BUILD_SO=1 ALLOCATOR=$ALLOCATOR NDEBUG=1 $MAKE_ARGS
 fi
 # make clean
 
