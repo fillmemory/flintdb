@@ -1,6 +1,7 @@
 name: Windows Build Only
 
 on:
+  workflow_dispatch: # 이 한 줄만 있으면 수동 버튼이 생깁니다.
   push:
     branches: [ "main" ]
     paths:
@@ -28,6 +29,7 @@ jobs:
         update: true
         # 필요한 패키지들 (dlfcn 포함)
         install: >-
+          make
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-make
           mingw-w64-x86_64-zlib

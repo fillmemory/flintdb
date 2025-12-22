@@ -94,6 +94,27 @@ else
 fi
 echo ""
 
+# Detect make command (Linux/macOS: make; MSYS2/MinGW: mingw32-make)
+MAKE_CMD=""
+if command -v make &>/dev/null; then
+    MAKE_CMD="make"
+elif command -v gmake &>/dev/null; then
+    MAKE_CMD="gmake"
+elif command -v mingw32-make &>/dev/null; then
+    MAKE_CMD="mingw32-make"
+else
+    echo "Error: make not found (make/gmake/mingw32-make required)"
+    if [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* || "$OSTYPE" == "win32"* ]]; then
+        echo "On MSYS2, install with: pacman -S --needed mingw-w64-x86_64-make"
+    else
+        echo "On Ubuntu/Debian, install with: sudo apt-get install build-essential"
+        echo "On RHEL/Fedora, install with: sudo yum install make"
+        echo "On macOS, install with: xcode-select --install"
+    fi
+    exit 1
+fi
+echo "Using make command: $MAKE_CMD"
+
 
 # Detect available memory allocator
 ALLOCATOR=none
@@ -128,11 +149,11 @@ echo ""
 
 # 1. Build main FlintDB library
 echo "[2/3] Building FlintDB core library..."
-make clean
+"$MAKE_CMD" clean
 if [ $ENABLE_MTRACE -eq 1 ]; then
-    make BUILD_SO=1 ALLOCATOR=$ALLOCATOR CFLAGS="-DMTRACE=1" $MAKE_ARGS
+    "$MAKE_CMD" BUILD_SO=1 ALLOCATOR=$ALLOCATOR CFLAGS="-DMTRACE=1" $MAKE_ARGS
 else
-    make BUILD_SO=1 ALLOCATOR=$ALLOCATOR NDEBUG=1 $MAKE_ARGS
+    "$MAKE_CMD" BUILD_SO=1 ALLOCATOR=$ALLOCATOR NDEBUG=1 $MAKE_ARGS
 fi
 # make clean
 
@@ -162,7 +183,7 @@ if [ $BUILD_PLUGINS -eq 1 ]; then
                     echo "  ✗ Warning: $plugin_name build failed. Continuing..."
                 fi
             elif [ -f "Makefile" ]; then
-                if make; then
+                if "$MAKE_CMD"; then
                     INSTALLED_PLUGINS=$((INSTALLED_PLUGINS + 1))
                     echo "  ✓ $plugin_name built successfully"
                 else
