@@ -1467,7 +1467,7 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
     // Keep previous behavior (no fsync) unless explicitly enabled.
     const char *env_fsync = getenv("FLINTDB_DIO_FSYNC");
     if (env_fsync && env_truthy(env_fsync)) {
-        fsync(fd);
+        flintdb_fsync(fd);
     }
     return total_bytes;
 #else

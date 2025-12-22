@@ -627,14 +627,14 @@ static void wal_do_sync(struct wal_impl *impl) {
         if (mode == WAL_SYNC_FULL) {
             fcntl(impl->fd, F_FULLFSYNC);
         } else {
-            fsync(impl->fd);
+            flintdb_fsync(impl->fd);
         }
     #else
         if (mode == WAL_SYNC_FULL) {
-            fsync(impl->fd);
+            flintdb_fsync(impl->fd);
         } else {
             // Linux/Unix/MinGW: fdatasync is faster than fsync (doesn't update metadata)
-            fdatasync(impl->fd);
+            flintdb_fdatasync(impl->fd);
         }
     #endif
 }

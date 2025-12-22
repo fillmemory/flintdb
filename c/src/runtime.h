@@ -11,6 +11,7 @@
 # include "runtime_win32.h"
 #endif
 #include <ctype.h>
+#include <unistd.h>
 
 // File permission/mode macros (S_IRUSR, S_IRWXU, ...)
 // Needed by open()/mkdir() call sites across the codebase.
@@ -98,6 +99,31 @@ static inline void flintdb_localtime_r(const time_t *t, struct tm *out) {
   localtime_s(out, t);
 #else
   localtime_r(t, out);
+#endif
+}
+
+// Cross-platform file flush helpers
+static inline int flintdb_fsync(int fd) {
+#if defined(_WIN32)
+  HANDLE h = (HANDLE)_get_osfhandle(fd);
+  if (h == INVALID_HANDLE_VALUE) {
+    return -1;
+  }
+  return FlushFileBuffers(h) ? 0 : -1;
+#else
+  return fsync(fd);
+#endif
+}
+
+static inline int flintdb_fdatasync(int fd) {
+#if defined(_WIN32)
+  // No fdatasync on Windows CRT; best-effort full flush.
+  return flintdb_fsync(fd);
+#elif defined(__APPLE__)
+  // macOS doesn't guarantee fdatasync; use fsync.
+  return fsync(fd);
+#else
+  return fdatasync(fd);
 #endif
 }
 
