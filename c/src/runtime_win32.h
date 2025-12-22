@@ -97,4 +97,52 @@ extern int getpagesize(void);
 
 #endif // FLINTDB_OS_RUNTIME_WIN32_FUNCTIONS_H
 
+
+// MinGW/MSYS2 headers don't always expose POSIX S_I* names.
+// Provide fallbacks on Windows so code can still compile.
+#if defined(_WIN32)
+#ifndef S_IRUSR
+#  ifdef _S_IREAD
+#    define S_IRUSR _S_IREAD
+#  else
+#    define S_IRUSR 0400
+#  endif
+#endif
+#ifndef S_IWUSR
+#  ifdef _S_IWRITE
+#    define S_IWUSR _S_IWRITE
+#  else
+#    define S_IWUSR 0200
+#  endif
+#endif
+#ifndef S_IXUSR
+#  ifdef _S_IEXEC
+#    define S_IXUSR _S_IEXEC
+#  else
+#    define S_IXUSR 0100
+#  endif
+#endif
+#ifndef S_IRGRP
+#  define S_IRGRP 0
+#endif
+#ifndef S_IWGRP
+#  define S_IWGRP 0
+#endif
+#ifndef S_IXGRP
+#  define S_IXGRP 0
+#endif
+#ifndef S_IROTH
+#  define S_IROTH 0
+#endif
+#ifndef S_IWOTH
+#  define S_IWOTH 0
+#endif
+#ifndef S_IXOTH
+#  define S_IXOTH 0
+#endif
+#ifndef S_IRWXU
+#  define S_IRWXU (S_IRUSR | S_IWUSR | S_IXUSR)
+#endif
+#endif // defined(_WIN32)
+
 #endif // _WIN32
