@@ -303,8 +303,10 @@ int webui_run(int argc, char **argv, char **e) {
     }
 #endif
 
-    // Ignore SIGHUP to run as daemon
+    // Ignore SIGHUP to run as daemon (not available on all Windows toolchains)
+#ifdef SIGHUP
     signal(SIGHUP, SIG_IGN);
+#endif
     
     // Check cJSON availability at startup
     if (!cjson_try_load()) {
