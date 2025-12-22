@@ -12,7 +12,6 @@ import java.util.Map;
 public class TestcaseMultiThreads {
 
     static class ThreadInfo {
-        Thread thread;
         int threadNum;
         Table table;
         
