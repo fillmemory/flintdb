@@ -2137,9 +2137,9 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     if (!me->priv) THROW(e, "Cannot allocate DIO private data");
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
 
-#ifdef _WIN32
-    priv->hfile = (HANDLE)_get_osfhandle(me->fd);
-#endif
+    #ifdef _WIN32
+        priv->hfile = (HANDLE)_get_osfhandle(me->fd);
+    #endif
 
     // Default cache sizing (used by both O_DIRECT and non-O_DIRECT page caching).
     // Can be overridden on Linux O_DIRECT via FLINTDB_DIO_DIRECT_PAGE_CACHE.
