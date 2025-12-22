@@ -2,16 +2,6 @@ name: Windows Build Only
 
 on:
   workflow_dispatch: # 이 한 줄만 있으면 수동 버튼이 생깁니다.
-  push:
-    branches: [ "main" ]
-    paths:
-      - 'c/**'
-      - '.github/workflows/build.yml'
-  pull_request:
-    branches: [ "main" ]
-    paths:
-      - 'c/**'
-      - '.github/workflows/build.yml'
 
 jobs:
   build-windows:
