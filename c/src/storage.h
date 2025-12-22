@@ -85,4 +85,7 @@ int storage_open(struct storage * s, struct storage_opts opts, char **e);
 #define TYPE_MEMORY "MEMORY"
 #define TYPE_DEFAULT TYPE_MMAP
 
+
+
+
 #endif // FLINTDB_STORAGE_H
