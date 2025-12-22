@@ -47,6 +47,9 @@
 
 const i64 NEXT_END = -1;
 
+// Forward declaration (used by MMAP open-time optional alignment).
+static inline i64 storage_dio_chunk_bytes(i64 block_bytes, i64 target_bytes);
+
 static inline int _ftruncate(i32 fd, off_t length) {
     #ifdef __linux__
         int rc = posix_fallocate(fd, 0, (off_t)length);
@@ -454,9 +457,14 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
 
     me->block_bytes = (opts.compact <= 0) ? (BLOCK_HEADER_BYTES + opts.block_bytes) : (BLOCK_HEADER_BYTES + (opts.compact));
     me->clean = CALLOC(1, me->block_bytes);
-    me->increment = (opts.increment <= 0) ? DEFAULT_INCREMENT_BYTES : opts.increment;
-    me->mmap_bytes = me->block_bytes * (me->increment / me->block_bytes);
-
+    const i64 aligned = storage_dio_chunk_bytes((i64)me->block_bytes, (i64)((opts.increment <= 0) ? DEFAULT_INCREMENT_BYTES : opts.increment));
+    if (aligned <= 0)
+        THROW(e, "Invalid aligned chunk size calculation");
+    if (aligned > INT32_MAX)
+        THROW(e, "Aligned chunk size too large: %lld", aligned);
+    me->increment = (i32)aligned;
+    me->mmap_bytes = (i32)aligned;
+        
     memcpy(&me->opts, &opts, sizeof(struct storage_opts));
 
     char dir[PATH_MAX] = {0};
@@ -471,6 +479,7 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
 
     struct stat st;
     fstat(me->fd, &st);
+
     if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES)
         _ftruncate(me->fd, (off_t)HEADER_BYTES);
 
@@ -529,6 +538,16 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
         }
         me->count = bb.i64_get(&bb, e);
         assert(me->count > -1);
+    }
+
+    // Optional diagnostic: print sizing/rounding decisions even in NDEBUG builds.
+    // Log after header init/read so values reflect the actual persisted configuration.
+    const char *env_openlog = getenv("FLINTDB_STORAGE_OPEN_LOG");
+    if (env_openlog && atoi(env_openlog) > 0) {
+        const i32 pages_per_chunk = (OS_PAGE_SIZE > 0) ? (me->mmap_bytes / OS_PAGE_SIZE) : 0;
+        const i32 blocks_per_chunk = (me->block_bytes > 0) ? (me->mmap_bytes / me->block_bytes) : 0;
+        LOG("MMAP OPEN: file=%s, mode=%d, data_block_bytes=%d, block_bytes=%d, increment=%d, mmap_bytes=%d, os_page=%d, pages_per_chunk=%d, blocks_per_chunk=%d",
+            opts.file, opts.mode, opts.block_bytes, me->block_bytes, me->increment, me->mmap_bytes, OS_PAGE_SIZE, pages_per_chunk, blocks_per_chunk);
     }
 
     return 0;
@@ -786,8 +805,13 @@ static int storage_mem_open(struct storage * me, struct storage_opts opts, char 
 
     me->block_bytes = (opts.compact <= 0) ? (BLOCK_HEADER_BYTES + opts.block_bytes) : (BLOCK_HEADER_BYTES + (opts.compact));
     me->clean = CALLOC(1, me->block_bytes);
-    me->increment = (opts.increment <= 0) ? DEFAULT_INCREMENT_BYTES : opts.increment;
-    me->mmap_bytes = me->block_bytes * (me->increment / me->block_bytes);
+    const i64 aligned = storage_dio_chunk_bytes((i64)me->block_bytes, (i64)((opts.increment <= 0) ? DEFAULT_INCREMENT_BYTES : opts.increment));
+    if (aligned <= 0)
+        THROW(e, "Invalid aligned chunk size calculation");
+    if (aligned > INT32_MAX)
+        THROW(e, "Aligned chunk size too large: %lld", aligned);
+    me->increment = (i32)aligned;
+    me->mmap_bytes = (i32)aligned;
 
     memcpy(&me->opts, &opts, sizeof(struct storage_opts));
 
@@ -2103,6 +2127,15 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
 
     // mmap_bytes must be divisible by both block_bytes and OS_PAGE_SIZE.
     me->mmap_bytes = (i32)storage_dio_chunk_bytes((i64)me->block_bytes, (i64)me->increment);
+
+    // Optional diagnostic: print sizing/rounding decisions even in NDEBUG builds.
+    const char *env_openlog = getenv("FLINTDB_STORAGE_OPEN_LOG");
+    if (env_openlog && atoi(env_openlog) > 0) {
+        const i32 pages_per_chunk = (OS_PAGE_SIZE > 0) ? (me->mmap_bytes / OS_PAGE_SIZE) : 0;
+        const i32 blocks_per_chunk = (me->block_bytes > 0) ? (me->mmap_bytes / me->block_bytes) : 0;
+        LOG("DIO OPEN(SIZE): file=%s, mode=%d, data_block_bytes=%d, block_bytes=%d, increment=%d, mmap_bytes=%d, os_page=%d, pages_per_chunk=%d, blocks_per_chunk=%d",
+            opts.file, opts.mode, opts.block_bytes, me->block_bytes, me->increment, me->mmap_bytes, OS_PAGE_SIZE, pages_per_chunk, blocks_per_chunk);
+    }
 
     memcpy(&me->opts, &opts, sizeof(struct storage_opts));
 

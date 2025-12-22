@@ -50,6 +50,31 @@ final class MMAPStorage implements Storage {
     // Direct IoBuffer Pool for temporary buffer allocation optimization
     private final DirectBufferPool bufferPool;
 
+    static int alignedChunkBytes(final int blockBytes, final int targetBytes) {
+        final int pageBytes = HEADER_BYTES;
+        if (blockBytes <= 0) {
+            final long up = ((long) (targetBytes + pageBytes - 1) / (long) pageBytes) * (long) pageBytes;
+            return up > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) up;
+        }
+
+        int desired = targetBytes;
+        if (desired < blockBytes) desired = blockBytes;
+
+        long blocks = ((long) desired + (long) blockBytes - 1L) / (long) blockBytes; // ceil
+        if (blocks < 1L) blocks = 1L;
+        long length = blocks * (long) blockBytes;
+
+        // Increase by whole blocks until we land on a page boundary.
+        while ((length % (long) pageBytes) != 0L) {
+            blocks++;
+            length += (long) blockBytes;
+            if (length > Integer.MAX_VALUE) {
+                return Integer.MAX_VALUE;
+            }
+        }
+        return (int) length;
+    }
+
     private final Map<Integer, IoBuffer> mbb = new java.util.LinkedHashMap<>(64, 1f, false) {
     	private static final long serialVersionUID = 1L;
     	private final int MAX_CACHE_SIZE = 16;
@@ -71,7 +96,15 @@ final class MMAPStorage implements Storage {
         // this.EXTRA_HEADER_BYTES = options.EXTRA_HEADER_BYTES;
         this.BLOCK_BYTES = ((short) (BLOCK_HEADER_BYTES + (options.compact <= 0 ? (options.BLOCK_BYTES) : options.compact)));
         this.BLOCK_DATA_BYTES = BLOCK_BYTES - BLOCK_HEADER_BYTES;
-        this.MMAP_BYTES = BLOCK_BYTES * (options.increment / BLOCK_BYTES);
+
+        final int targetInc = options.increment <= 0 ? DEFAULT_INCREMENT_BYTES : options.increment;
+        final int alignedInc = alignedChunkBytes(BLOCK_BYTES, targetInc);
+        if (alignedInc <= 0) {
+            throw new IOException("Invalid aligned chunk size calculation");
+        }
+        // Drop compatibility: always use the aligned increment for MMAP chunk sizing.
+        options.increment = alignedInc;
+        this.MMAP_BYTES = alignedInc;
         this.CLEAN = new byte[BLOCK_DATA_BYTES];
 
         // Initialize DirectBufferPool with optimal size for this storage
@@ -109,9 +142,8 @@ final class MMAPStorage implements Storage {
             int inc = bb.getInt(); // increment chunk size
             if (inc <= 0)
                 throw new IOException("Invalid increment size: " + inc + ", " + options.file); // old version inc = 1024 * 1024 * 10;
-            if (inc != (options.increment)) {
-                options.increment = inc;
-                this.MMAP_BYTES = BLOCK_BYTES * (options.increment / BLOCK_BYTES);
+            if (inc != options.increment) {
+                throw new IOException("Incompatible storage increment: header=" + inc + ", expected=" + options.increment + ", file=" + options.file);
             }
             bb.position(bb.position() + R24.length); // reserved
             short blksize = bb.getShort(); // BLOCK Data Max Size (exclude BLOCK Header)
@@ -588,7 +620,15 @@ final class MemoryStorage implements Storage {
         // this.EXTRA_HEADER_BYTES = options.EXTRA_HEADER_BYTES;
         this.BLOCK_BYTES = ((short) (BLOCK_HEADER_BYTES + (options.compact <= 0 ? (options.BLOCK_BYTES) : options.compact)));
         this.BLOCK_DATA_BYTES = BLOCK_BYTES - BLOCK_HEADER_BYTES;
-        this.MBB_BYTES = BLOCK_BYTES * (options.increment / BLOCK_BYTES);
+
+        final int targetInc = options.increment <= 0 ? DEFAULT_INCREMENT_BYTES : options.increment;
+        final int alignedInc = MMAPStorage.alignedChunkBytes(BLOCK_BYTES, targetInc);
+        if (alignedInc <= 0) {
+            throw new IOException("Invalid aligned chunk size calculation");
+        }
+        // Drop compatibility: always use the aligned increment for chunk sizing.
+        options.increment = alignedInc;
+        this.MBB_BYTES = alignedInc;
         this.HEADER = IoBuffer.allocateDirect(CUSTOM_HEADER_BYTES + COMMON_HEADER_BYTES);
         this.CLEAN = new byte[BLOCK_DATA_BYTES];
 
@@ -983,6 +1023,12 @@ final class MemoryStorage implements Storage {
         return !options.mutable;
     }
 
+    /**
+     * Transfer MemoryStorage to File for fast persistence (MemoryStorage -> MMAPStorage)
+     * @param storage
+     * @param dest
+     * @throws IOException
+     */
     static void transfer(final MemoryStorage storage, final File dest) throws IOException {
         final Set<java.nio.file.OpenOption> opt = new java.util.HashSet<>();
         opt.add(java.nio.file.StandardOpenOption.CREATE_NEW);

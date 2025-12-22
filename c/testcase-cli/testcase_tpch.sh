@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
 			;;
 		-storage=*)
 			STORAGE_OPTION="STORAGE=${1#-storage=}"
-			shift 2
+			shift
 			;;
 		*)
 			shift

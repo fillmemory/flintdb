@@ -63,7 +63,8 @@ public interface Storage extends Closeable {
 
 	public static Storage create(final Options options) throws IOException {
 		switch (options.storage) {
-		case TYPE_V1:
+		case TYPE_MMAP:
+		case TYPE_DIO:
 			return new MMAPStorage(options);
 		case TYPE_MEMORY:
 			return new MemoryStorage(options);
@@ -102,7 +103,8 @@ public interface Storage extends Closeable {
 	}
 
 	static boolean supported(final String type) {
-		return TYPE_V1.equals(type) 
+		return TYPE_MMAP.equals(type) 
+		|| TYPE_DIO.equals(type) // direct I/O for C extension
 		|| TYPE_MEMORY.equals(type)
 		// || TYPE_V2.equals(type)
 		|| compressed(type);
@@ -115,8 +117,8 @@ public interface Storage extends Closeable {
 		|| TYPE_SNAPPY.equals(compress);
 	}
 
-	static final String TYPE_V1 = "MMAP";
-	static final String TYPE_V2 = "V2"; // reserved for future use
+	static final String TYPE_MMAP = "MMAP";
+	static final String TYPE_DIO = "DIO"; // direct I/O for C extension
 
 	static final String TYPE_Z = "Z";
 	static final String TYPE_LZ4 = "LZ4";
@@ -124,7 +126,7 @@ public interface Storage extends Closeable {
 	static final String TYPE_SNAPPY = "SNAPPY";
 
 	static final String TYPE_MEMORY = "MEMORY"; // XX:MaxDirectMemorySize=20G
-	static final String TYPE_DEFAULT = TYPE_V1;
+	static final String TYPE_DEFAULT = TYPE_MMAP;
 
 	static final int HEADER_BYTES = (16384); // getpagesize()
 	static final int COMMON_HEADER_BYTES = (8 + 8 + 8 + 2 + 4 + 24 + 2 + 8);
