@@ -13,7 +13,9 @@
 #include <string.h>
 #include <sys/fcntl.h>
 #include <unistd.h>
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
 
 /**
  * FlintDB Parquet File Handler (C implementation)
