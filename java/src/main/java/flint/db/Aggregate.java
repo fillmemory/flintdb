@@ -21,9 +21,6 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.locks.Lock;
 
-import flint.db.Aggregate.GROUPKEY;
-
-
 /**
  * Main class for aggregation operations (Function and Groupby processing)
  * Processes database aggregation queries in memory and returns results
@@ -116,16 +113,6 @@ public final class Aggregate implements AutoCloseable {
 	 */
 	public static File tempdir() {
 		return new File("temp", Aggregate.class.getSimpleName().toLowerCase());
-	}
-
-	/**
-	 * Generates a random positive integer
-	 * @return Random integer between 0 and Integer.MAX_VALUE
-	 */
-	private static int randomUInt() {
-		final int min = 0;
-		final int max = Integer.MAX_VALUE;
-		return new SecureRandom().ints(min, max).findFirst().getAsInt();
 	}
 
 	/**
@@ -331,22 +318,6 @@ public final class Aggregate implements AutoCloseable {
 	 */
 	public static boolean between(final String d, final String s, final String e) {
 		return d.compareTo(s) >= 0 && d.compareTo(e) <= 0;
-	}
-
-	/**
-	 * Joins array elements with delimiter to create string
-	 * @param delim Delimiter
-	 * @param a Object array to join
-	 * @return Joined string
-	 */
-	private static String join(final String delim, final Object[] a) {
-		StringBuilder s = new StringBuilder();
-		for (int i = 0; i < a.length; i++) {
-			if (i > 0)
-				s.append(delim);
-			s.append(a[i]);
-		}
-		return s.toString();
 	}
 
 	/**
@@ -1442,11 +1413,11 @@ public final class Aggregate implements AutoCloseable {
 		 */
 		@Override
 		public void row(GROUPKEY key, Row r) {
-			final String[] columns = columns();
+			final String[] a = columns();
 			String s = "";
-			if (columns != null) {
-				for (int i = 0; i < columns.length; i++) {
-					final Object v = r.get(columns[i]);
+			if (a != null) {
+				for (int i = 0; i < a.length; i++) {
+					final Object v = r.get(a[i]);
 					if (v != null) {
 						s += "#" + v;
 					}
@@ -1869,189 +1840,6 @@ public final class Aggregate implements AutoCloseable {
 					(((long) data[index + 6] & 0xff) << 48) | //
 					(((long) data[index + 7] & 0xff) << 56); //
 		}
-	}
-
-	/**
-	 * MurmurHash3 hash algorithm implementation
-	 * Original source: https://commons.apache.org/proper/commons-codec/jacoco/org.apache.commons.codec.digest/MurmurHash3.java
-	 * 
-	 * @see https://en.wikipedia.org/wiki/MurmurHash
-	 */
-	static final class MurMurHash3 {
-		private static final long C1 = 0x87c37b91114253d5L;
-		private static final long C2 = 0x4cf5ad432745937fL;
-		private static final int R1 = 31;
-		private static final int R2 = 27;
-		private static final int R3 = 33;
-		private static final int M = 5;
-		private static final int N1 = 0x52dce729;
-		private static final int N2 = 0x38495ab5;
-
-		/**
-		 * Returns 128-bit hash as 64-bit array
-		 * @param data Data to hash
-		 * @return Long array [2] representing 128-bit hash
-		 */
-		public static long[] hash128x64(final byte[] data) {
-			return hash128x64Internal(data, 0, data.length, 104729 & 0xffffffffL);
-		}
-
-		private static long[] hash128x64Internal(final byte[] data, final int offset, final int length, final long seed) {
-			long h1 = seed;
-			long h2 = seed;
-			final int nblocks = length >> 4;
-
-			// body
-			for (int i = 0; i < nblocks; i++) {
-				final int index = offset + (i << 4);
-				long k1 = getLittleEndianLong(data, index);
-				long k2 = getLittleEndianLong(data, index + 8);
-
-				// mix functions for k1
-				k1 *= C1;
-				k1 = Long.rotateLeft(k1, R1);
-				k1 *= C2;
-				h1 ^= k1;
-				h1 = Long.rotateLeft(h1, R2);
-				h1 += h2;
-				h1 = h1 * M + N1;
-
-				// mix functions for k2
-				k2 *= C2;
-				k2 = Long.rotateLeft(k2, R3);
-				k2 *= C1;
-				h2 ^= k2;
-				h2 = Long.rotateLeft(h2, R1);
-				h2 += h1;
-				h2 = h2 * M + N2;
-			}
-
-			// tail
-			long k1 = 0;
-			long k2 = 0;
-			final int index = offset + (nblocks << 4);
-			switch (offset + length - index) {
-			case 15:
-				k2 ^= ((long) data[index + 14] & 0xff) << 48;
-			case 14:
-				k2 ^= ((long) data[index + 13] & 0xff) << 40;
-			case 13:
-				k2 ^= ((long) data[index + 12] & 0xff) << 32;
-			case 12:
-				k2 ^= ((long) data[index + 11] & 0xff) << 24;
-			case 11:
-				k2 ^= ((long) data[index + 10] & 0xff) << 16;
-			case 10:
-				k2 ^= ((long) data[index + 9] & 0xff) << 8;
-			case 9:
-				k2 ^= data[index + 8] & 0xff;
-				k2 *= C2;
-				k2 = Long.rotateLeft(k2, R3);
-				k2 *= C1;
-				h2 ^= k2;
-
-			case 8:
-				k1 ^= ((long) data[index + 7] & 0xff) << 56;
-			case 7:
-				k1 ^= ((long) data[index + 6] & 0xff) << 48;
-			case 6:
-				k1 ^= ((long) data[index + 5] & 0xff) << 40;
-			case 5:
-				k1 ^= ((long) data[index + 4] & 0xff) << 32;
-			case 4:
-				k1 ^= ((long) data[index + 3] & 0xff) << 24;
-			case 3:
-				k1 ^= ((long) data[index + 2] & 0xff) << 16;
-			case 2:
-				k1 ^= ((long) data[index + 1] & 0xff) << 8;
-			case 1:
-				k1 ^= data[index] & 0xff;
-				k1 *= C1;
-				k1 = Long.rotateLeft(k1, R1);
-				k1 *= C2;
-				h1 ^= k1;
-			}
-
-			// finalization
-			h1 ^= length;
-			h2 ^= length;
-
-			h1 += h2;
-			h2 += h1;
-
-			h1 = fmix64(h1);
-			h2 = fmix64(h2);
-
-			h1 += h2;
-			h2 += h1;
-
-			return new long[] { h1, h2 };
-		}
-
-		private static long fmix64(long hash) {
-			hash ^= (hash >>> 33);
-			hash *= 0xff51afd7ed558ccdL;
-			hash ^= (hash >>> 33);
-			hash *= 0xc4ceb9fe1a85ec53L;
-			hash ^= (hash >>> 33);
-			return hash;
-		}
-
-		private static long getLittleEndianLong(final byte[] data, final int index) {
-			return (((long) data[index] & 0xff)) | //
-					(((long) data[index + 1] & 0xff) << 8) | //
-					(((long) data[index + 2] & 0xff) << 16) | //
-					(((long) data[index + 3] & 0xff) << 24) | //
-					(((long) data[index + 4] & 0xff) << 32) | //
-					(((long) data[index + 5] & 0xff) << 40) | //
-					(((long) data[index + 6] & 0xff) << 48) | //
-					(((long) data[index + 7] & 0xff) << 56); //
-		}
-	}
-
-	/**
-	 * xxHash64 hash algorithm implementation
-	 * Fast performance 64-bit hash function
-	 * @param data Data to hash
-	 * @param seed Seed value
-	 * @return 64-bit hash value
-	 */
-	public static long xxHash64(byte[] data, long seed) {
-		final long PRIME1 = 0x9E3779B185EBCA87L;
-		final long PRIME2 = 0xC2B2AE3D27D4EB4FL;
-		final long PRIME3 = 0x165667B19E3779F9L;
-		final long PRIME4 = 0x85EBCA77C2B2AE63L;
-		final long PRIME5 = 0x27D4EB2F165667C5L;
-	
-		long hash = seed + PRIME5 + data.length;
-	
-		for (byte b : data) {
-			hash ^= (b & 0xFF) * PRIME1;
-			hash = Long.rotateLeft(hash, 31) * PRIME2;
-		}
-	
-		hash ^= hash >>> 33;
-		hash *= PRIME3;
-		hash ^= hash >>> 29;
-		hash *= PRIME4;
-		hash ^= hash >>> 32;
-	
-		return hash;
-	}
-
-	/**
-	 * FarmHash64 hash algorithm implementation (simple FNV hash based)
-	 * High-speed hash function optimized for string hashing
-	 * @param data Data to hash
-	 * @return 64-bit hash value
-	 */
-	public static long farmHash64(byte[] data) {
-		long hash = 0xcbf29ce484222325L; // FNV offset basis
-		for (byte b : data) {
-			hash ^= b;
-			hash *= 0x100000001b3L; // FNV prime
-		}
-		return hash;
 	}
 
 	/**
