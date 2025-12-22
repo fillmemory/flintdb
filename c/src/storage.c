@@ -884,8 +884,8 @@ struct storage_dio_priv {
 };
 
 #ifdef _WIN32
-    #define PREAD_FUNC(me, buf, size, offset)  pread_win32(me->priv->hfile, buf, size, offset)
-    #define PWRITE_FUNC(me, buf, size, offset) pwrite_win32(me->priv->hfile, buf, size, offset)
+    #define PREAD_FUNC(me, buf, size, offset)  pread_win32(((struct storage_dio_priv *)((me)->priv))->hfile, buf, size, offset)
+    #define PWRITE_FUNC(me, buf, size, offset) pwrite_win32(((struct storage_dio_priv *)((me)->priv))->hfile, buf, size, offset)
 #else
     #define PREAD_FUNC(me, buf, size, offset)  pread(me->fd, buf, size, offset)
     #define PWRITE_FUNC(me, buf, size, offset) pwrite(me->fd, buf, size, offset)
