@@ -328,7 +328,7 @@ static struct node * bplustree_root_get(struct bplustree *me, char **e) {
 
     struct buffer *bb = me->storage->read(me->storage, ROOT_SEEK_OFFSET, NULL);
     if (!bb) {
-        LOG("bplustree_root_get: failed to read root at offset %lld", ROOT_SEEK_OFFSET);
+        LOG("bplustree_root_get: failed to read root at offset %ld", ROOT_SEEK_OFFSET);
         // Fresh table: root hasn't been written yet
         return NULL;
     }

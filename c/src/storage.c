@@ -331,6 +331,10 @@ static inline void storage_mmap_write_priv(struct storage *me, i64 offset, u8 ma
     i32 remaining = in->remaining(in);
     i64 next_last = NEXT_END;
 
+    // Only delete an existing overflow chain when overwriting a previously-set record.
+    // On fresh inserts, the on-disk "next" pointer is the free-list link and must not be followed.
+    int overwriting = -1; // unknown until we see the first block
+
     while (1) {
         struct buffer p = {0};
         struct buffer c = {0};
@@ -343,6 +347,10 @@ static inline void storage_mmap_write_priv(struct storage *me, i64 offset, u8 ma
         c.i16_get(&c, NULL);     // data length
         c.i32_get(&c, NULL);     // total length
         i64 next = c.i64_get(&c, NULL);
+
+        if (overwriting < 0) {
+            overwriting = (STATUS_SET == status) ? 1 : 0;
+        }
 
         p.i8_put(&p, STATUS_SET, NULL);
         p.i8_put(&p, curr_mark, NULL);
@@ -374,7 +382,7 @@ static inline void storage_mmap_write_priv(struct storage *me, i64 offset, u8 ma
         remaining -= chunk;
         next_last = next;
         if (remaining <= 0) {
-            if (next_last > NEXT_END && next_last != curr) {
+            if (overwriting == 1 && next_last > NEXT_END && next_last != curr) {
                 storage_mmap_delete(me, next_last, e);
             }
             storage_commit(me, STORAGE_COMMIT_DEFAULT, e); // was 1
@@ -674,6 +682,10 @@ static inline void storage_mem_write_priv(struct storage *me, i64 offset, u8 mar
     i32 remaining = in->remaining(in);
     i64 next_last = NEXT_END;
 
+    // Only delete an existing overflow chain when overwriting a previously-set record.
+    // On fresh inserts, the in-block "next" pointer is a free-list link.
+    int overwriting = -1; // unknown until we see the first block
+
     while (1) {
         struct buffer p = {0};
         struct buffer c = {0};
@@ -685,6 +697,10 @@ static inline void storage_mem_write_priv(struct storage *me, i64 offset, u8 mar
         c.i16_get(&c, NULL);
         c.i32_get(&c, NULL);
         i64 next = c.i64_get(&c, NULL);
+
+        if (overwriting < 0) {
+            overwriting = (STATUS_SET == status) ? 1 : 0;
+        }
 
         p.i8_put(&p, STATUS_SET, NULL);
         p.i8_put(&p, curr_mark, NULL);
@@ -714,7 +730,7 @@ static inline void storage_mem_write_priv(struct storage *me, i64 offset, u8 mar
         remaining -= chunk;
         next_last = next;
         if (remaining <= 0) {
-            if (next_last > NEXT_END && next_last != curr) {
+            if (overwriting == 1 && next_last > NEXT_END && next_last != curr) {
                 storage_mem_delete(me, next_last, e);
             }
             storage_commit(me, STORAGE_COMMIT_DEFAULT, e);

@@ -390,6 +390,25 @@ int main(int argc, char **argv) {
         r->free(r);
     }
 
+    i64 matches = 0;
+    for (i64 i = 0; i < (count); i++) {
+        struct buffer *r = s.read(&s, i, &e);
+        if (r != NULL) {
+            int remaining = r->remaining(r);
+            memcpy(str, r->array_get(r, remaining, NULL), remaining);
+            str[remaining] = '\0';
+            char expected[1000];
+            sprintf(expected, "Hello, %s! %03lld", "PRODUCT_NAME", i + 1);
+            if (strcmp(str, expected) == 0) {
+                matches++;
+            } else {
+                printf("Data mismatch at index %lld: expected '%s', got '%s'\n", i, expected, str);
+            }
+            r->free(r);
+        }
+    }
+    printf("iterated count : %lld, %lld \n", matches, count);
+
     s.close(&s);
 
     unlink(opts.file);
@@ -446,6 +465,25 @@ int main(int argc, char **argv) {
         printf("read : %d - %s \n", remaining, str);
         r->free(r);
     }
+
+    i64 matches = 0;
+    for (i64 i = 0; i < (count); i++) {
+        struct buffer *r = s.read(&s, i, &e);
+        if (r != NULL) {
+            int remaining = r->remaining(r);
+            memcpy(str, r->array_get(r, remaining, NULL), remaining);
+            str[remaining] = '\0';
+            char expected[1000];
+            sprintf(expected, "Hello, %s! %03lld", "PRODUCT_NAME", i + 1);
+            if (strcmp(str, expected) == 0) {
+                matches++;
+            } else {
+                printf("Data mismatch at index %lld: expected '%s', got '%s'\n", i, expected, str);
+            }
+            r->free(r);
+        }
+    }
+    printf("iterated count : %lld, %lld \n", matches, count);
 
     s.close(&s);
 
