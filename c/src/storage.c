@@ -16,7 +16,7 @@
 #include <sys/stat.h>
 
 #include "storage.h"
-
+#include "runtime.h"
 
 
 #define COMMON_HEADER_BYTES (8 + 8 + 8 + 2 + 4 + 24 + 2 + 8)
@@ -833,7 +833,19 @@ struct storage_dio_priv {
     u32 direct_align;     // e.g., 4096
     u32 direct_io_bytes;  // e.g., 4096 (must be multiple of direct_align)
     u32 page_cache_limit; // max cached pages before flush
+
+    #ifdef _WIN32
+    HANDLE hfile; 
+    #endif
 };
+
+#ifdef _WIN32
+    #define PREAD_FUNC(me, buf, size, offset)  pread_win32(me->priv->hfile, buf, size, offset)
+    #define PWRITE_FUNC(me, buf, size, offset) pwrite_win32(me->priv->hfile, buf, size, offset)
+#else
+    #define PREAD_FUNC(me, buf, size, offset)  pread(me->fd, buf, size, offset)
+    #define PWRITE_FUNC(me, buf, size, offset) pwrite(me->fd, buf, size, offset)
+#endif
 
 static inline int env_truthy(const char *v) {
     return v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0 || strcasecmp(v, "yes") == 0);
@@ -929,11 +941,11 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
                         if (page2 && ((u32)page2->capacity) >= (u32)OS_PAGE_SIZE) {
                             memcpy(hdr + first, page2->array, (size_t)((u32)BLOCK_HEADER_BYTES - first));
                         } else {
-                            ssize_t rn = pread(me->fd, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
+                            ssize_t rn = PREAD_FUNC(me, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
                             if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
                         }
                     } else {
-                        ssize_t rn = pread(me->fd, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
+                        ssize_t rn = PREAD_FUNC(me, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
                         if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
                     }
                 }
@@ -968,7 +980,7 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
 #endif
 
     u8 hdr[BLOCK_HEADER_BYTES];
-    ssize_t n = pread(me->fd, hdr, (size_t)BLOCK_HEADER_BYTES, absolute);
+    ssize_t n = PREAD_FUNC(me, hdr, (size_t)BLOCK_HEADER_BYTES, absolute);
     if (n != (ssize_t)BLOCK_HEADER_BYTES) {
         return -1;
     }
@@ -1009,11 +1021,11 @@ static inline int storage_dio_block_header_get(struct storage *me, i64 offset, u
                         if (page2 && ((u32)page2->capacity) >= (u32)OS_PAGE_SIZE) {
                             memcpy(hdr + first, page2->array, (size_t)((u32)BLOCK_HEADER_BYTES - first));
                         } else {
-                            ssize_t rn = pread(me->fd, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
+                            ssize_t rn = PREAD_FUNC(me, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
                             if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
                         }
                     } else {
-                        ssize_t rn = pread(me->fd, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
+                        ssize_t rn = PREAD_FUNC(me, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
                         if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
                     }
                 }
@@ -1033,7 +1045,7 @@ static inline int storage_dio_block_header_get(struct storage *me, i64 offset, u
 #endif
 
     u8 hdr[BLOCK_HEADER_BYTES];
-    ssize_t n = pread(me->fd, hdr, (size_t)BLOCK_HEADER_BYTES, absolute);
+    ssize_t n = PREAD_FUNC(me, hdr, (size_t)BLOCK_HEADER_BYTES, absolute);
     if (n != (ssize_t)BLOCK_HEADER_BYTES) {
         return -1;
     }
@@ -1068,7 +1080,7 @@ static inline struct buffer *storage_dio_odirect_page_get(struct storage *me, st
     struct buffer *page = buffer_alloc_aligned(io, priv->direct_align);
     if (!page) return NULL;
 
-    ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
+    ssize_t r = PREAD_FUNC(me, page->array, page->capacity, page_base);
     if (r < 0) {
         page->free(page);
         return NULL;
@@ -1130,7 +1142,7 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
             if (out) *out = NULL;
             return -1;
         }
-        ssize_t n = pread(me->fd, page->array, page->capacity, page_base);
+        ssize_t n = PREAD_FUNC(me, page->array, page->capacity, page_base);
         if (n <= 0) {
             page->free(page);
             if (out) *out = NULL;
@@ -1187,7 +1199,7 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
                         if (cached2 && ((u32)cached2->capacity) >= (u32)OS_PAGE_SIZE) {
                             memcpy(bb->array + first, cached2->array, (size_t)second);
                         } else {
-                            ssize_t rn = pread(me->fd, bb->array + first, (size_t)second, o + (i64)first);
+                            ssize_t rn = PREAD_FUNC(me, bb->array + first, (size_t)second, o + (i64)first);
                             if (rn != (ssize_t)second) {
                                 bb->free(bb);
                                 if (out) *out = NULL;
@@ -1195,7 +1207,7 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
                             }
                         }
                     } else {
-                        ssize_t rn = pread(me->fd, bb->array + first, (size_t)second, o + (i64)first);
+                        ssize_t rn = PREAD_FUNC(me, bb->array + first, (size_t)second, o + (i64)first);
                         if (rn != (ssize_t)second) {
                             bb->free(bb);
                             if (out) *out = NULL;
@@ -1227,7 +1239,7 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
 
     //struct buffer *bb = buffer_alloc(me->block_bytes);
     struct buffer *bb = BUFFER_POOL_BORROW(me->block_bytes);
-    ssize_t n = pread(me->fd, bb->array, bb->capacity, o);
+    ssize_t n = PREAD_FUNC(me, bb->array, bb->capacity, o);
 #if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
     // Best-effort: drop cache for the range we just touched.
     // This is safer than O_DIRECT (which requires strict alignment of buffers/offsets).
@@ -1247,10 +1259,10 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
     return n;
 }
 
-static inline ssize_t pwrite_all(int fd, char *buf, size_t bytes, i64 absolute) {
+static inline ssize_t pwrite_all(struct storage *me, char *buf, size_t bytes, i64 absolute) {
     size_t total_written = 0;
     while (total_written < bytes) {
-        ssize_t written = pwrite(fd, buf + total_written, bytes - total_written, absolute + total_written);
+        ssize_t written = PWRITE_FUNC(me, buf + total_written, bytes - total_written, absolute + total_written);
         if (written < 0) {
             return -1; // Error
         }
@@ -1282,7 +1294,7 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
             i64 abs = (i64)itr.key; // page base
             struct buffer *page = (struct buffer *)itr.val;
             // Page buffers are aligned and sized for O_DIRECT.
-            ssize_t n = pwrite_all(fd, page->array, page->capacity, abs);
+            ssize_t n = pwrite_all(me, page->array, page->capacity, abs);
             if (n < 0) return -1;
             total_bytes += (unsigned long long)n;
         }
@@ -1339,7 +1351,7 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
         // If this block isn't the next contiguous offset, flush current run.
         if (abs != expected_abs || (run_len + (size_t)heap->capacity) > batch_cap) {
             if (run_len > 0) {
-                ssize_t wn = pwrite_all(fd, batch, run_len, run_base);
+                ssize_t wn = pwrite_all(me, batch, run_len, run_base);
                 if (wn < 0) {
                     FREE(batch);
                     return -1;
@@ -1365,7 +1377,7 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 
         // Flush full batch.
         if (run_len == batch_cap) {
-            ssize_t wn = pwrite_all(fd, batch, run_len, run_base);
+            ssize_t wn = pwrite_all(me, batch, run_len, run_base);
             if (wn < 0) {
                 FREE(batch);
                 return -1;
@@ -1384,7 +1396,7 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 
     // Flush tail.
     if (run_len > 0) {
-        ssize_t wn = pwrite_all(fd, batch, run_len, run_base);
+        ssize_t wn = pwrite_all(me, batch, run_len, run_base);
         if (wn < 0) {
             FREE(batch);
             return -1;
@@ -1455,7 +1467,7 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
             }
 
             // Read existing page contents (RMW).
-            ssize_t r = pread(me->fd, page->array, page->capacity, page_base);
+            ssize_t r = PREAD_FUNC(me, page->array, page->capacity, page_base);
             if (r < 0) {
                 page->free(page);
                 heap->free(heap);
@@ -1470,7 +1482,7 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
             // Insert into cache (cache owns page).
             if (!cache->put(cache, (keytype)page_base, (valtype)page, storage_cache_free)) {
                 // If insertion fails, fall back to write-through page.
-                ssize_t written = pwrite_all(me->fd, page->array, page->capacity, page_base);
+                ssize_t written = pwrite_all(me, page->array, page->capacity, page_base);
                 page->free(page);
                 if (written < 0) {
                     heap->free(heap);
@@ -1520,7 +1532,7 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
                 heap->free(heap);
                 return -1;
             }
-            ssize_t r = pread(me->fd, page1->array, page1->capacity, page_base);
+            ssize_t r = PREAD_FUNC(me, page1->array, page1->capacity, page_base);
             if (r < 0) {
                 page1->free(page1);
                 heap->free(heap);
@@ -1533,7 +1545,7 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
             }
             if (!cache->put(cache, (keytype)page_base, (valtype)page1, storage_cache_free)) {
                 // Fallback: write-through the block.
-                ssize_t written = pwrite_all(me->fd, heap->array, (size_t)nbytes, absolute);
+                ssize_t written = pwrite_all(me, heap->array, (size_t)nbytes, absolute);
                 page1->free(page1);
                 heap->free(heap);
                 return written;
@@ -1556,7 +1568,7 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
                     heap->free(heap);
                     return -1;
                 }
-                ssize_t r2 = pread(me->fd, page2->array, page2->capacity, page2_base);
+                ssize_t r2 = PREAD_FUNC(me, page2->array, page2->capacity, page2_base);
                 if (r2 < 0) {
                     page2->free(page2);
                     heap->free(heap);
@@ -1569,7 +1581,7 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
                 }
                 if (!cache->put(cache, (keytype)page2_base, (valtype)page2, storage_cache_free)) {
                     // Fallback: write-through the block.
-                    ssize_t written = pwrite_all(me->fd, heap->array, (size_t)nbytes, absolute);
+                    ssize_t written = pwrite_all(me, heap->array, (size_t)nbytes, absolute);
                     page2->free(page2);
                     heap->free(heap);
                     return written;
@@ -1590,11 +1602,11 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
     }
 
     // No cache: write-through.
-    ssize_t written = pwrite_all(me->fd, heap->array, (size_t)nbytes, absolute);
+    ssize_t written = pwrite_all(me, heap->array, (size_t)nbytes, absolute);
     heap->free(heap);
     return written;
 #else
-    ssize_t written = pwrite_all(me->fd, heap->array, heap->capacity, absolute);
+    ssize_t written = pwrite_all(me, heap->array, heap->capacity, absolute);
     heap->free(heap);
     return written;
 #endif
@@ -1665,7 +1677,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
                 memcpy(blk + 8, &next_ptr, 8);
             }
 
-            ssize_t wn = pwrite_all(me->fd, chunk->array, (size_t)length, abs_first);
+            ssize_t wn = pwrite_all(me, chunk->array, (size_t)length, abs_first);
             if (wn < 0) {
                 chunk->free(chunk);
                 THROW(e, "storage_dio_file_inflate: pwrite failed at abs=%lld (%d bytes)", abs_first, length);
@@ -1893,7 +1905,7 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
 
                 // If we couldn't cache the page, write-through immediately.
                 if (!cached) {
-                    ssize_t wn = pwrite_all(me->fd, page->array, page->capacity, page_base);
+                    ssize_t wn = pwrite_all(me, page->array, page->capacity, page_base);
                     page->free(page);
                     if (wn < 0) THROW(e, "storage_dio_write_priv: O_DIRECT page pwrite failed at abs=%lld", page_base);
                 } else {
