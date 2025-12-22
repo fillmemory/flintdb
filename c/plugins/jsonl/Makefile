@@ -35,7 +35,11 @@ ZLIB_LIB = -lz
 
 # macOS specific
 UNAME_S := $(shell uname -s)
-ifeq ($(CROSS_COMPILE),mingw)
+
+# Windows (MSYS2) native build
+ifeq ($(OS),Windows_NT)
+	TARGET = libflintdb_jsonl.dll
+else ifeq ($(CROSS_COMPILE),mingw)
     # MinGW cross-compilation
     TARGET = libflintdb_jsonl.dll
     LDFLAGS += -static-libgcc

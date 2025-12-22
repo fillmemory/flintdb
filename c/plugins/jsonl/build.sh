@@ -4,6 +4,8 @@ set -e
 
 echo "Building FlintDB JsonL Plugin..."
 
+MAKE_BIN="${MAKE_CMD:-make}"
+
 # Check if Apache Arrow is installed
 if command -v pkg-config &> /dev/null; then
     if pkg-config --exists arrow; then
@@ -24,20 +26,26 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 fi
 
 # Build the plugin with adapter
-make clean
+"$MAKE_BIN" clean
 
 # Build plugin library
-make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+"$MAKE_BIN" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
 
 # Copy plugin to lib directory
 mkdir -p ../../lib
+
+# Windows/MSYS2: plugins are typically built as .dll (sometimes .so under POSIX layers)
+UNAME_S=$(uname -s 2>/dev/null || echo "")
 if [[ "$OSTYPE" == "darwin"* ]]; then
     cp libflintdb_*.dylib ../../lib/ 2>/dev/null || true
+elif [[ "$UNAME_S" == *"_NT-"* ]] || [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]]; then
+    cp libflintdb_*.dll ../../lib/ 2>/dev/null || true
+    cp libflintdb_*.so ../../lib/ 2>/dev/null || true
 else
     cp libflintdb_*.so ../../lib/ 2>/dev/null || true
 fi
 
-make clean
+"$MAKE_BIN" clean
 
 echo ""
 echo "Build successful!"

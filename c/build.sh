@@ -176,16 +176,26 @@ if [ $BUILD_PLUGINS -eq 1 ]; then
             
             # Try different build methods
             if [ -f "build.sh" ]; then
-                if bash build.sh; then
-                    INSTALLED_PLUGINS=$((INSTALLED_PLUGINS + 1))
-                    echo "  ✓ $plugin_name built successfully"
+                if MAKE_CMD="$MAKE_CMD" bash build.sh; then
+                    # Verify the plugin artifact actually landed in ../../lib
+                    if ls "../../lib/libflintdb_${plugin_name}."* >/dev/null 2>&1 || ls "../../lib/libflintdb_${plugin_name}_"* >/dev/null 2>&1; then
+                        INSTALLED_PLUGINS=$((INSTALLED_PLUGINS + 1))
+                        echo "  ✓ $plugin_name built successfully"
+                    else
+                        echo "  ✗ Warning: $plugin_name build succeeded but no plugin library was installed into lib/"
+                    fi
                 else
                     echo "  ✗ Warning: $plugin_name build failed. Continuing..."
                 fi
             elif [ -f "Makefile" ]; then
                 if "$MAKE_CMD"; then
-                    INSTALLED_PLUGINS=$((INSTALLED_PLUGINS + 1))
-                    echo "  ✓ $plugin_name built successfully"
+                    # Verify the plugin artifact actually landed in ../../lib
+                    if ls "../../lib/libflintdb_${plugin_name}."* >/dev/null 2>&1 || ls "../../lib/libflintdb_${plugin_name}_"* >/dev/null 2>&1; then
+                        INSTALLED_PLUGINS=$((INSTALLED_PLUGINS + 1))
+                        echo "  ✓ $plugin_name built successfully"
+                    else
+                        echo "  ✗ Warning: $plugin_name build succeeded but no plugin library was installed into lib/"
+                    fi
                 else
                     echo "  ✗ Warning: $plugin_name build failed. Continuing..."
                 fi

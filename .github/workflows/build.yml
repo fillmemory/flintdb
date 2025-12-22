@@ -57,8 +57,35 @@ jobs:
         echo "--- Checking lib directory ---"
         ls -R lib || echo "lib directory not found"
 
+    - name: Verify expected binaries (exe + core dll + plugin dlls)
+      shell: msys2 {0}
+      run: |
+        set -e
+        cd c
+        missing=0
+        for f in \
+          bin/flintdb.exe \
+          lib/flintdb.dll \
+          lib/libflintdb_jsonl.dll \
+          lib/libflintdb_parquet.dll
+        do
+          if [ ! -f "$f" ]; then
+            echo "::error file=$f::Missing expected build output: $f"
+            missing=1
+          fi
+        done
+        if [ "$missing" -ne 0 ]; then
+          echo "--- bin (detailed) ---"
+          ls -al bin || true
+          echo "--- lib (detailed) ---"
+          ls -al lib || true
+          exit 1
+        fi
+        echo "All expected binaries are present."
+
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: windows-binary-files
         # 빌드된 결과물이 들어있는 경로를 지정하세요. 

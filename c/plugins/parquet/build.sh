@@ -4,6 +4,8 @@ set -e
 
 echo "Building FlintDB Parquet Plugin..."
 
+MAKE_BIN="${MAKE_CMD:-make}"
+
 # Check if Apache Arrow is installed
 if command -v pkg-config &> /dev/null; then
     if pkg-config --exists arrow; then
@@ -32,7 +34,7 @@ if [ -z "$ARROW_HOME" ]; then
 fi
 
 # Test Arrow installation
-make test-arrow || {
+"$MAKE_BIN" test-arrow || {
     echo ""
     echo "ERROR: Apache Arrow not found or not properly installed"
     echo ""
@@ -47,20 +49,26 @@ make test-arrow || {
 }
 
 # Build the plugin with adapter
-make clean
+"$MAKE_BIN" clean
 
 # Build plugin library
-make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+"$MAKE_BIN" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
 
 # Copy plugin to lib directory
 mkdir -p ../../lib
+
+# Windows/MSYS2: plugins are typically built as .dll (sometimes .so under POSIX layers)
+UNAME_S=$(uname -s 2>/dev/null || echo "")
 if [[ "$OSTYPE" == "darwin"* ]]; then
     cp libflintdb_parquet.dylib ../../lib/ 2>/dev/null || true
+elif [[ "$UNAME_S" == *"_NT-"* ]] || [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]]; then
+    cp libflintdb_parquet.dll ../../lib/ 2>/dev/null || true
+    cp libflintdb_parquet.so ../../lib/ 2>/dev/null || true
 else
     cp libflintdb_parquet.so ../../lib/ 2>/dev/null || true
 fi
 
-make clean
+"$MAKE_BIN" clean
 
 echo ""
 echo "Build successful!"

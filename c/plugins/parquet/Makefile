@@ -28,11 +28,15 @@ ARROW_INCLUDE = -I$(ARROW_HOME)/include -I../../src
 ARROW_LIBS = -L$(ARROW_HOME)/lib -larrow -lparquet
 
 # Link against main FlintDB library
-FlintDB_LIB = -L../../lib -lFlintDB
+FlintDB_LIB = -L../../lib -lflintdb
 
 # macOS specific
 UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Darwin)
+
+# Windows (MSYS2) native build
+ifeq ($(OS),Windows_NT)
+    TARGET = libflintdb_parquet.dll
+else ifeq ($(UNAME_S),Darwin)
     TARGET = libflintdb_parquet.dylib
     LDFLAGS += -dynamiclib -install_name @rpath/libflintdb_parquet.dylib
 	# rpath for dependencies: Arrow/Parquet and the core FlintDB next to this plugin
