@@ -270,7 +270,9 @@ final class MMAPStorage implements Storage {
                 p.put(xbb);
             }
 
-            if (next > NEXT_END)
+            // Only delete an existing overflow chain when overwriting.
+            // On fresh inserts, `next` is a free-list link.
+            if (STATUS_SET == status && next > NEXT_END)
                 delete(next);
 
             commit();
@@ -392,6 +394,8 @@ final class MMAPStorage implements Storage {
         IoBuffer b = null;
         long next = NEXT_END;
 
+        boolean overwriting = false;
+
         int sz = 0;
         for (int n = 0, i = 0; (n = stream.read(bb)) > -1; sz += n, i++) {
             if (b != null) {
@@ -406,6 +410,10 @@ final class MMAPStorage implements Storage {
             c.getShort(); // Data Length
             c.getInt(); // Total Length
             next = c.getLong();
+
+            if (0 == i) {
+                overwriting = (STATUS_SET == status);
+            }
 
             p.put(STATUS_SET);
             p.put(0 == i ? MARK_AS_DATA : MARK_AS_NEXT);
@@ -434,7 +442,8 @@ final class MMAPStorage implements Storage {
         h.position(4);
         h.putInt(sz);
 
-        if (next > NEXT_END)
+        // Only delete an existing overflow chain when overwriting.
+        if (overwriting && next > NEXT_END)
             delete(next);
         commit();
     }
@@ -724,7 +733,9 @@ final class MemoryStorage implements Storage {
                 p.put(xbb);
             }
 
-            if (next > NEXT_END)
+            // Only delete an existing overflow chain when overwriting.
+            // On fresh inserts, `next` is a free-list link.
+            if (STATUS_SET == status && next > NEXT_END)
                 delete(next);
 
             commit();
@@ -846,6 +857,8 @@ final class MemoryStorage implements Storage {
         IoBuffer b = null;
         long next = -1;
 
+        boolean overwriting = false;
+
         int sz = 0;
         for (int n = 0, i = 0; (n = stream.read(bb)) > -1; sz += n, i++) {
             if (b != null) {
@@ -860,6 +873,10 @@ final class MemoryStorage implements Storage {
             c.getShort(); // Data Length
             c.getInt(); // Total Length
             next = c.getLong();
+
+            if (0 == i) {
+                overwriting = (STATUS_SET == status);
+            }
 
             p.put(STATUS_SET);
             p.put(0 == i ? MARK_AS_DATA : MARK_AS_NEXT);
@@ -888,7 +905,8 @@ final class MemoryStorage implements Storage {
         h.position(4);
         h.putInt(sz);
 
-        if (next > NEXT_END)
+        // Only delete an existing overflow chain when overwriting.
+        if (overwriting && next > NEXT_END)
             delete(next);
         commit();
     }

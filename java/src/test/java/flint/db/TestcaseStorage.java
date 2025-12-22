@@ -18,7 +18,49 @@ public class TestcaseStorage {
 		//testcase_mmap3_full();
 		//testcase_mmap3_stress();
 
-		testcase_storage1();
+		// Usage examples:
+		//   ./testcase.sh -c flint.db.TestcaseStorage
+		//   ./testcase.sh -c flint.db.TestcaseStorage 2000000
+		//   ./testcase.sh -c flint.db.TestcaseStorage boundary
+		//   ./testcase.sh -c flint.db.TestcaseStorage boundary 2097152
+		String a0 = null;
+		String a1 = null;
+		if (args != null && args.length > 0) {
+			// java/testcase.sh forwards all CLI args to main(), including its own flags.
+			for (int i = 0; i < args.length; i++) {
+				final String a = args[i];
+				if (a == null) continue;
+				if ("--build".equals(a)) continue;
+				if ("-c".equals(a)) { // skip class name
+					i++;
+					continue;
+				}
+				if (a.startsWith("-")) continue;
+				if (a0 == null) {
+					a0 = a;
+				} else if (a1 == null) {
+					a1 = a;
+					break;
+				}
+			}
+		}
+
+		if (a0 != null) {
+			if ("boundary".equalsIgnoreCase(a0)) {
+				int max = 2 * 1024 * 1024;
+				if (a1 != null) {
+					max = Integer.parseInt(a1);
+				}
+				testcase_storage_boundary(max);
+				return;
+			}
+			// Backward-compatible: treat single numeric arg as max for testcase_storage1.
+			int max = Integer.parseInt(a0);
+			testcase_storage1(max);
+			return;
+		}
+
+		testcase_storage1(1_000_000);
 	}
 
 	public static void testcase_mmap3_stress() throws Exception {
@@ -188,7 +230,7 @@ public class TestcaseStorage {
 	}
 
 
-	static void testcase_storage1() throws Exception {
+	static void testcase_storage1(int max) throws Exception {
 		var file = new File("temp/storage-j.bin");
 		file.getParentFile().mkdirs();
 		file.delete();
@@ -203,9 +245,8 @@ public class TestcaseStorage {
 			);
 			CLOSER.register(s); 
 
-			int max = 1_000_000;
 			for(int i=0; i<max; i++) {
-				var bb = IoBuffer.wrap(String.format("Hello, FlintDB! %03d", i).getBytes());
+				var bb = IoBuffer.wrap(String.format("Hello, FlintDB! %07d", i).getBytes());
 				s.write(bb);
 			}
 
@@ -219,6 +260,50 @@ public class TestcaseStorage {
 
 			System.out.println("elapsed : " + watch.elapsed() + ", ops : " + watch.ops(max));
 			System.out.println("count: " + s.count() + ", bytes: " + s.bytes());
+		}
+	}
+
+	/**
+	 * Boundary testcase to match the C testcase parameters closely:
+	 * - data block bytes = 496 (so total block bytes = 512, incl. 16-byte header)
+	 * - increment = 16MB
+	 *
+	 * With max = 2*1024*1024 blocks, total payload aligns with 64 * 16MB chunks.
+	 */
+	static void testcase_storage_boundary(int max) throws Exception {
+		final File file = new File("temp/storage-j-boundary.bin");
+		file.getParentFile().mkdirs();
+		file.delete();
+
+		final int INCREMENT = 16 * 1024 * 1024;
+		final short DATA_BLOCK_BYTES = (short) (512 - 16);
+
+		try (var CLOSER = new IO.Closer()) {
+			var watch = new IO.StopWatch();
+			var s = Storage.create(
+					new Storage.Options()
+							.file(file)
+							.blockBytes(DATA_BLOCK_BYTES)
+							.increment(INCREMENT)
+							.mutable(true));
+			CLOSER.register(s);
+
+			for (int i = 0; i < max; i++) {
+				// Keep per-record size small so it stays single-block.
+				var bb = IoBuffer.wrap(String.format("Hello, PRODUCT_NAME! %07d", i + 1).getBytes());
+				s.write(bb);
+			}
+
+			for (int i = max - 10; i < max; i++) {
+				var bb = s.read(i);
+				var data = new byte[bb.remaining()];
+				bb.get(data, 0, bb.remaining());
+				System.out.println("storage.read : " + i + ", " + new String(data));
+			}
+
+			long expectedBytes = 16_384L + (64L * 16L * 1024L * 1024L);
+			System.out.println("elapsed : " + watch.elapsed() + ", ops : " + watch.ops(max));
+			System.out.println("count: " + s.count() + ", bytes: " + s.bytes() + ", expected(boundary): " + expectedBytes);
 		}
 	}
 }
