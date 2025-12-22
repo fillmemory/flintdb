@@ -87,5 +87,29 @@ int storage_open(struct storage * s, struct storage_opts opts, char **e);
 
 
 
+// Cross-platform file flush helpers
+static inline int flintdb_fsync(int fd) {
+#if defined(_WIN32)
+  HANDLE h = (HANDLE)_get_osfhandle(fd);
+  if (h == INVALID_HANDLE_VALUE) {
+    return -1;
+  }
+  return FlushFileBuffers(h) ? 0 : -1;
+#else
+  return fsync(fd);
+#endif
+}
+
+static inline int flintdb_fdatasync(int fd) {
+#if defined(_WIN32)
+  // No fdatasync on Windows CRT; best-effort full flush.
+  return flintdb_fsync(fd);
+#elif defined(__APPLE__)
+  // macOS doesn't guarantee fdatasync; use fsync.
+  return fsync(fd);
+#else
+  return fdatasync(fd);
+#endif
+}
 
 #endif // FLINTDB_STORAGE_H
