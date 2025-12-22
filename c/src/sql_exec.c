@@ -2789,14 +2789,14 @@ static int evaluate_having_condition(const struct flintdb_row *row, const char *
     cond_copy[sizeof(cond_copy) - 1] = '\0';
     
     // Handle AND/OR operations
-    char *and_pos = strcasestr(cond_copy, " AND ");
+    char *and_pos = flintdb_strcasestr(cond_copy, " AND ");
     if (and_pos) {
         *and_pos = '\0';
         if (!evaluate_having_condition(row, cond_copy, e)) return 0;
         return evaluate_having_condition(row, and_pos + 5, e);
     }
     
-    char *or_pos = strcasestr(cond_copy, " OR ");
+    char *or_pos = flintdb_strcasestr(cond_copy, " OR ");
     if (or_pos) {
         *or_pos = '\0';
         if (evaluate_having_condition(row, cond_copy, e)) return 1;

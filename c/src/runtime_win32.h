@@ -144,7 +144,6 @@ extern char *strdup(const char *s);
 extern size_t strnlen(const char *s, size_t maxlen);
 extern int strcasecmp(const char *s1, const char *s2);
 extern int strncasecmp(const char *s1, const char *s2, size_t n);
-extern char *strcasestr(const char *haystack, const char *needle);
 extern char *strtok_r(char *str, const char *delim, char **saveptr);
 extern int ftruncate(int fd, off_t length);
 extern int getpagesize(void);

@@ -148,6 +148,31 @@ static inline int suffix(const char *str, const char *suffix) {
   return (str_len >= suffix_len) && (0 == strcmp(str + (str_len-suffix_len), suffix));
 }
 
+// Portable replacement for strcasestr (not available on all Windows toolchains).
+static inline char *flintdb_strcasestr(const char *haystack, const char *needle) {
+  if (!haystack || !needle)
+    return NULL;
+  if (*needle == '\0')
+    return (char *)haystack;
+
+  const size_t needle_len = strlen(needle);
+  for (const char *h = haystack; *h; h++) {
+    size_t i = 0;
+    while (i < needle_len) {
+      const unsigned char hc = (unsigned char)h[i];
+      const unsigned char nc = (unsigned char)needle[i];
+      if (hc == '\0')
+        break;
+      if (tolower(hc) != tolower(nc))
+        break;
+      i++;
+    }
+    if (i == needle_len)
+      return (char *)h;
+  }
+  return NULL;
+}
+
 i8  dir_exists(const char *path);
 i8  file_exists(const char *file);
 i64 file_length(const char *file);

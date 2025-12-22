@@ -414,7 +414,7 @@ int webui_run(int argc, char **argv, char **e) {
         } else { // POST
             // find content-length
             long clen = 0;
-            const char *cl = strcasestr(req, "Content-Length:");
+            const char *cl = flintdb_strcasestr(req, "Content-Length:");
             if (cl) {
                 clen = strtol(cl + 15, NULL, 10);
             }
