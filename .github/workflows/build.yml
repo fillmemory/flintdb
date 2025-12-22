@@ -1,4 +1,4 @@
-name: C/C++ CI
+name: Windows Build Only
 
 on:
   push:
@@ -6,24 +6,27 @@ on:
     paths:
       - 'c/**'
       - '.github/workflows/build.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'c/**'
+      - '.github/workflows/build.yml'
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+  build-windows:
+    # 윈도우 최신 환경만 사용
+    runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    # 1. 윈도우 환경 설정
-    - name: Set up MSYS2 (Windows)
-      if: runner.os == 'Windows'
+    - name: Set up MSYS2
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
         update: true
+        # 필요한 패키지들 (dlfcn 포함)
         install: >-
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-make
@@ -34,39 +37,30 @@ jobs:
           mingw-w64-x86_64-jemalloc
           mingw-w64-x86_64-dlfcn
 
-    # 2. 리눅스 의존성 설치
-    - name: Install dependencies (Ubuntu)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential zlib1g-dev libcjson-dev libgoogle-perftools-dev libjemalloc-dev
-        # arrow는 별도 레포 설정이 필요할 수 있으므로 실패 시 확인 필요
-
-    # 3. macOS 의존성 설치
-    - name: Install dependencies (macOS)
-      if: runner.os == 'macOS'
-      run: |
-        brew install zlib apache-arrow cjson gperftools jemalloc
-
-    # 4. 프로젝트 빌드 (Windows는 msys2 쉘, 나머지는 기본 bash)
-    - name: Build (Windows)
-      if: runner.os == 'Windows'
+    - name: Build with build.sh
       shell: msys2 {0}
       run: |
         cd c
-        ./build.sh -all
-
-    - name: Build (Linux & macOS)
-      if: runner.os != 'Windows'
-      run: |
-        cd c
+        # 윈도우 환경에서 실행 가능하도록 권한 부여 및 실행
         chmod +x build.sh
         ./build.sh -all
 
-    # 5. 결과물 확인 및 업로드 (성공 시 실행 파일을 다운로드할 수 있게 함)
-    - name: Upload Artifacts (Windows Only)
-      if: runner.os == 'Windows'
+    - name: Check build output
+      shell: msys2 {0}
+      run: |
+        cd c
+        echo "--- Checking bin directory ---"
+        ls -R bin || echo "bin directory not found"
+        echo "--- Checking lib directory ---"
+        ls -R lib || echo "lib directory not found"
+
+    - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: windows-binaries
-        path: c/bin/  # .exe 파일이 생성되는 경로로 수정하세요
+        name: windows-binary-files
+        # 빌드된 결과물이 들어있는 경로를 지정하세요. 
+        # 만약 c/bin 폴더에 .exe 파일들이 생긴다면 아래와 같이 설정합니다.
+        path: |
+          c/bin/
+          c/lib/
+        if-no-files-found: warn
