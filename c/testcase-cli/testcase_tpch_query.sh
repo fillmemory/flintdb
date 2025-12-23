@@ -6,7 +6,7 @@ echo "SELECT l_shipmode FROM TPCH lineitem table in FlintDB format"
 ./bin/flintdb "SELECT l_shipmode FROM ../temp/c/tpch_lineitem.flintdb LIMIT 10" -pretty
 
 echo "SELECT l_shipmode FROM TPCH lineitem table in TSV.GZ format"
-./bin/flintdb "SELECT l_shipmode FROM ../temp/tpch_lineitem.tsv.gz LIMIT 10" -pretty
+./bin/flintdb "SELECT l_shipmode FROM ../temp/tpch/lineitem.tbl.gz LIMIT 10" -pretty
 
 echo "GROUP BY queries on TPCH lineitem table"
 ./bin/flintdb "SELECT l_shipmode, COUNT(*), SUM(l_quantity), SUM(l_extendedprice) FROM ../temp/c/tpch_lineitem.flintdb GROUP BY l_shipmode LIMIT 10" -pretty
