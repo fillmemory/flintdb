@@ -871,8 +871,9 @@ EXCEPTION:
     #define BUFFER_POOL_BORROW(length) buffer_alloc(length);
 #endif
 
-#ifndef STORAGE_DIO_CACHE_SIZE // in blocks 
-    #define STORAGE_DIO_CACHE_SIZE (8192)
+#ifndef STORAGE_DIO_CACHE_BLOCKS 
+    #define STORAGE_DIO_CACHE_BLOCKS 1
+    // 1 : treemap, 256 * 1024 : hashmap
 #endif
 
 struct storage_dio_priv {
@@ -905,7 +906,7 @@ struct storage_dio_priv {
 #endif
 
 
-#ifdef STORAGE_DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_BLOCKS
 
 static inline int env_truthy(const char *v) {
     return v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0 || strcasecmp(v, "yes") == 0);
@@ -982,7 +983,7 @@ static inline void storage_dio_fixup_uninitialized_meta(i64 offset, u8 *status, 
 static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 *status_out, i64 *next_out) {
     const i64 absolute = storage_dio_file_offset(me, offset);
 
-#ifdef STORAGE_DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_BLOCKS
     // If write-back cache is enabled, honor read-your-writes for metadata too.
     if (me->cache) {
         const i64 os_page = (i64)flintdb_page_bytes();
@@ -1065,7 +1066,7 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
 static inline int storage_dio_block_header_get(struct storage *me, i64 offset, u8 *status_out, u8 *mark_out, i64 *next_out) {
     const i64 absolute = storage_dio_file_offset(me, offset);
 
-#ifdef STORAGE_DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_BLOCKS
     if (me->cache) {
         const i64 os_page = (i64)flintdb_page_bytes();
         const i64 page_base = align_down_i64(absolute, os_page);
@@ -1233,7 +1234,7 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
     }
 #endif
 
-#ifdef STORAGE_DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_BLOCKS
     // If write-back cache is enabled, honor read-your-writes.
     if (me->cache) {
         const i64 os_page = (i64)flintdb_page_bytes();
@@ -1343,7 +1344,7 @@ static inline ssize_t pwrite_all(struct storage *me, char *buf, size_t bytes, i6
 }
 
 static inline ssize_t storage_dio_pflush(struct storage *me) {
-#ifdef STORAGE_DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_BLOCKS
     int fd = me->fd;
     struct hashmap *cache = me->cache;
 
@@ -1495,7 +1496,7 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 }
 
 static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap, i64 absolute) {
-#ifdef STORAGE_DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_BLOCKS
     struct hashmap *cache = me->cache;
 
     if (!heap) {
@@ -2310,10 +2311,10 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     // DIO doesn't use cache - it bypasses OS page cache and uses direct I/O
     // Cache is only needed if storage_mmap is called, which is rare in DIO mode
     // me->cache = NULL;
-#ifdef STORAGE_DIO_CACHE_SIZE
-    // me->cache = hashmap_new(STORAGE_DIO_CACHE_SIZE, hashmap_int_hash, hashmap_int_cmpr); // batch write cache
+#ifdef STORAGE_DIO_CACHE_BLOCKS
+    // me->cache = hashmap_new(STORAGE_DIO_CACHE_BLOCKS, hashmap_int_hash, hashmap_int_cmpr); // batch write cache
     me->cache = treemap_new(hashmap_int_cmpr); // batch write cache
-    DEBUG("STORAGE_DIO_CACHE_SIZE=%d", STORAGE_DIO_CACHE_SIZE);
+    DEBUG("STORAGE_DIO_CACHE_BLOCKS=%d", STORAGE_DIO_CACHE_BLOCKS);
 #endif
 
     me->close = storage_dio_close;
