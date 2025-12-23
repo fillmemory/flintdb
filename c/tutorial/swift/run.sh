@@ -14,3 +14,5 @@ swiftc \
   -o tutorial
 
 echo "Built: ./tutorial"
+
+./tutorial

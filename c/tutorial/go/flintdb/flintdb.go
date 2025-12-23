@@ -398,6 +398,10 @@ func (t *Table) Read(rowid int64) (*Row, error) {
 	return &Row{inner: (*C.struct_flintdb_row)(unsafe.Pointer(row)), meta: t.meta, owned: false}, nil
 }
 
+func (t *Table) One(va ...interface{}) (*Row, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 type CursorInt64 struct {
 	inner *C.struct_flintdb_cursor_i64
 }
