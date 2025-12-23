@@ -244,7 +244,7 @@ EXCEPTION:
     WARN("storage_buffer_get error: %s", e);
 }
 
-static i32 storage_mmap_delete(struct storage *me, i64 offset, char **e) {
+static u8 storage_mmap_delete(struct storage *me, i64 offset, char **e) {
     struct buffer p = {0};
     struct buffer c = {0};
 
@@ -283,6 +283,11 @@ static i32 storage_mmap_delete(struct storage *me, i64 offset, char **e) {
 
 EXCEPTION:
     return 0;
+}
+
+static u8 storage_mmap_flush(struct storage *me, char **e) {
+    // no-op for mmap storage
+    return 1;
 }
 
 static struct buffer * storage_mmap_read(struct storage *me, i64 offset, char **e) {
@@ -507,6 +512,7 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
     me->write = storage_mmap_write;
     me->write_at = storage_mmap_write_at;
     me->delete = storage_mmap_delete;
+    me->flush = storage_mmap_flush;
     me->transaction = storage_transaction;
     me->mmap = storage_mmap;
     me->head = storage_head;
@@ -615,7 +621,7 @@ EXCEPTION:
     WARN("storage_mem_buffer_get error: %s", e);
 }
 
-static i32 storage_mem_delete(struct storage *me, i64 offset, char **e) {
+static u8 storage_mem_delete(struct storage *me, i64 offset, char **e) {
     struct buffer p = {0};
     struct buffer c = {0};
 
@@ -653,6 +659,11 @@ static i32 storage_mem_delete(struct storage *me, i64 offset, char **e) {
 
 EXCEPTION:
     return 0;
+}
+
+static u8 storage_mem_flush(struct storage *me, char **e) {
+    // no-op for memory storage
+    return 1;
 }
 
 static struct buffer * storage_mem_read(struct storage *me, i64 offset, char **e) {
@@ -833,6 +844,7 @@ static int storage_mem_open(struct storage * me, struct storage_opts opts, char 
     me->write = storage_mem_write;
     me->write_at = storage_mem_write_at;
     me->delete = storage_mem_delete;
+    me->flush = storage_mem_flush;
     me->transaction = storage_transaction;
     me->mmap = NULL;  // Not supported for memory storage
     me->head = storage_head;
@@ -859,8 +871,7 @@ EXCEPTION:
     #define BUFFER_POOL_BORROW(length) buffer_alloc(length);
 #endif
 
-#define DIO_CACHE_SIZE (1 * 1024 * 1024) // 1 million blocks
-
+// #define STORAGE_DIO_CACHE_SIZE (1 * 1024 * 1024) // 1 million blocks, (over 1.5x faster than no cache, but unstable when crashing)
 
 struct storage_dio_priv {
     int drop_os_cache; // best-effort OS page cache drop (Linux: posix_fadvise DONTNEED, macOS: F_NOCACHE)
@@ -891,6 +902,9 @@ struct storage_dio_priv {
     #define PWRITE_FUNC(me, buf, size, offset) pwrite(me->fd, buf, size, offset)
 #endif
 
+
+#ifdef STORAGE_DIO_CACHE_SIZE
+
 static inline int env_truthy(const char *v) {
     return v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0 || strcasecmp(v, "yes") == 0);
 }
@@ -899,10 +913,13 @@ static inline i64 align_down_i64(i64 x, i64 a) {
     return (a <= 0) ? x : (x / a) * a;
 }
 
+#endif
+
 static inline i64 align_up_i64(i64 x, i64 a) {
     if (a <= 0) return x;
     return ((x + a - 1) / a) * a;
 }
+
 
 // Pick a DIO inflate chunk size (mmap_bytes) that satisfies:
 // - divisible by block_bytes (so per-block initialization is exact)
@@ -963,7 +980,7 @@ static inline void storage_dio_fixup_uninitialized_meta(i64 offset, u8 *status, 
 static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 *status_out, i64 *next_out) {
     const i64 absolute = storage_dio_file_offset(me, offset);
 
-#ifdef DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_SIZE
     // If write-back cache is enabled, honor read-your-writes for metadata too.
     if (me->cache) {
         const i64 os_page = (i64)flintdb_page_bytes();
@@ -1046,7 +1063,7 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
 static inline int storage_dio_block_header_get(struct storage *me, i64 offset, u8 *status_out, u8 *mark_out, i64 *next_out) {
     const i64 absolute = storage_dio_file_offset(me, offset);
 
-#ifdef DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_SIZE
     if (me->cache) {
         const i64 os_page = (i64)flintdb_page_bytes();
         const i64 page_base = align_down_i64(absolute, os_page);
@@ -1214,7 +1231,7 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
     }
 #endif
 
-#ifdef DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_SIZE
     // If write-back cache is enabled, honor read-your-writes.
     if (me->cache) {
         const i64 os_page = (i64)flintdb_page_bytes();
@@ -1324,7 +1341,7 @@ static inline ssize_t pwrite_all(struct storage *me, char *buf, size_t bytes, i6
 }
 
 static inline ssize_t storage_dio_pflush(struct storage *me) {
-#ifdef DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_SIZE
     int fd = me->fd;
     struct hashmap *cache = me->cache;
 
@@ -1476,7 +1493,7 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 }
 
 static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap, i64 absolute) {
-#ifdef DIO_CACHE_SIZE
+#ifdef STORAGE_DIO_CACHE_SIZE
     struct hashmap *cache = me->cache;
 
     if (!heap) {
@@ -1806,7 +1823,7 @@ EXCEPTION:
     return NULL;
 }
 
-static i32 storage_dio_delete(struct storage *me, i64 offset, char **e) {
+static u8 storage_dio_delete(struct storage *me, i64 offset, char **e) {
     if (!me) return 0;
     if (offset <= NEXT_END) return 0;
 
@@ -1872,6 +1889,21 @@ static i32 storage_dio_delete(struct storage *me, i64 offset, char **e) {
         return 1;
     }
     return 0;
+
+EXCEPTION:
+    return 0;
+}
+
+static u8 storage_dio_flush(struct storage *me, char **e) {
+    if (!me) return 0;
+
+    if (storage_dio_pflush(me) < 0) {
+        THROW(e, "storage_dio_flush: pflush failed");
+    }
+
+    storage_dio_commit(me, STORAGE_COMMIT_FORCE, e);
+    if (e && *e) THROW_S(e);
+    return 1;
 
 EXCEPTION:
     return 0;
@@ -2186,6 +2218,12 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     }
 #endif
 
+#ifdef _WIN32
+    if (oscache == 0) {
+        LOG("Windows Direct I/O not supported; OS cache cannot be disabled");
+    }
+#endif
+
     me->fd = open(me->opts.file, open_flags, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
     if (me->fd < 0) {
         THROW(e, "Cannot open file %s: %s", me->opts.file, strerror(errno));
@@ -2270,9 +2308,10 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     // DIO doesn't use cache - it bypasses OS page cache and uses direct I/O
     // Cache is only needed if storage_mmap is called, which is rare in DIO mode
     // me->cache = NULL;
-#ifdef DIO_CACHE_SIZE
-    // me->cache = hashmap_new(DIO_CACHE_SIZE, hashmap_int_hash, hashmap_int_cmpr); // batch write cache
+#ifdef STORAGE_DIO_CACHE_SIZE
+    // me->cache = hashmap_new(STORAGE_DIO_CACHE_SIZE, hashmap_int_hash, hashmap_int_cmpr); // batch write cache
     me->cache = treemap_new(hashmap_int_cmpr); // batch write cache
+    DEBUG("STORAGE_DIO_CACHE_SIZE=%d", STORAGE_DIO_CACHE_SIZE);
 #endif
 
     me->close = storage_dio_close;
@@ -2282,6 +2321,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     me->write = storage_dio_write;
     me->write_at = storage_dio_write_at;
     me->delete   = storage_dio_delete;
+    me->flush = storage_dio_flush;
     me->transaction = storage_transaction;
     me->mmap = storage_mmap;
     me->head = storage_head;

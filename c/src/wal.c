@@ -260,24 +260,6 @@ static void wal_io_cleanup_macos(struct wal_impl *impl) {
 }
 #endif
 
-#ifdef _WIN32
-static ssize_t wal_write_all(int fd, const void *buf, size_t len) {
-    const char *p = (const char*)buf;
-    size_t remaining = len;
-    while (remaining > 0) {
-        ssize_t n = write(fd, p, remaining);
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return -1;
-        }
-        if (n == 0) return (ssize_t)(len - remaining);
-        p += n;
-        remaining -= (size_t)n;
-    }
-    return (ssize_t)len;
-}
-#endif
-
 // Forward declarations
 static ssize_t wal_pwrite_all_fd(int fd, HANDLE fh, const void *buf, size_t len, off_t offset);
 static ssize_t wal_pread_all_fd(int fd, HANDLE fh, void *buf, size_t len, off_t offset);
@@ -1285,7 +1267,7 @@ EXCEPTION:
  * 
  * On ROLLBACK: Backed-up data from deleted_page_backups will be restored
  */
-static i32 wal_storage_delete(struct storage *me, i64 offset, char **e) {
+static u8 wal_storage_delete(struct storage *me, i64 offset, char **e) {
     struct wal_storage *ws = (struct wal_storage*)me;
     
     // BACKUP BEFORE DELETE (for rollback capability)

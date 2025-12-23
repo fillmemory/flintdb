@@ -822,7 +822,7 @@ static int table_find_index_from_hint(const struct flintdb_table *me,
 
     char hint[SQL_OBJECT_STRING_LIMIT];
     const char *src = q->index;
-    strncpy(hint, src, sizeof(hint)-1); hint[sizeof(hint)-1] = '\0';
+    strncpy_safe(hint, src, sizeof(hint));
     // tokenize by space: name [order]
     char *save = NULL;
     char *name = strtok_r(hint, " ", &save);
@@ -1390,8 +1390,8 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
         .mode = mode,
         .compact = m.compact,
     };
-    strncpy(opts.file, file, sizeof(opts.file)-1);
-    strncpy(opts.type, strempty(m.storage) ? "" : m.storage, sizeof(opts.type)-1);
+    strncpy_safe(opts.file, file, sizeof(opts.file));
+    strncpy_safe(opts.type, strempty(m.storage) ? "" : m.storage, sizeof(opts.type));
     
     char wal_file[PATH_MAX] = {0};
     snprintf(wal_file, sizeof(wal_file), "%s%s", file, ".wal");
@@ -1439,8 +1439,8 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
     for(int i=0; i<m.indexes.length; i++) {
         struct sorter *s = &priv->sorters.s[i];
         s->table = table;
-        strncpy(s->name, m.indexes.a[i].name, sizeof(s->name)-1);
-        strncpy(s->algorithm, "bptree", sizeof(s->algorithm)-1); // currently only bptree is supported
+        strncpy_safe(s->name, m.indexes.a[i].name, sizeof(s->name));
+        strncpy_safe(s->algorithm, "bptree", sizeof(s->algorithm)); // currently only bptree is supported
 
         if (i == 0 && strncasecmp(PRIMARY_NAME, s->name, sizeof(PRIMARY_NAME)) != 0) 
             THROW(e, "The first index must set to primary key");

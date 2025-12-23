@@ -13,8 +13,15 @@
 #include <string.h>
 #include <sys/fcntl.h>
 #include <unistd.h>
-#ifndef _WIN32
-#include <dlfcn.h>
+// Use dlfcn where available (MSYS2/MinGW provides it via dlfcn-win32).
+#if defined(__has_include)
+#  if __has_include(<dlfcn.h>)
+#    include <dlfcn.h>
+#  endif
+#else
+#  ifndef _WIN32
+#    include <dlfcn.h>
+#  endif
 #endif
 
 /**

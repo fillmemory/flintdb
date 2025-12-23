@@ -60,12 +60,16 @@ endif
 ARROW_INCLUDE = -I$(ARROW_PREFIX)/include -I../../src
 ARROW_LIBS = -L$(ARROW_PREFIX)/lib -larrow -lparquet
 
+# dlopen/dlsym live in libdl on Linux, and in dlfcn-win32's libdl on MSYS2/MinGW.
+DL_LIBS =
+
 # Link against main FlintDB library
 FlintDB_LIB = -L../../lib -lflintdb
 
 # Windows (MSYS2) native build: uname contains *_NT-* (e.g., UCRT64_NT-10.0-22631)
 ifneq ($(findstring _NT-,$(UNAME_S)),)
 	TARGET = libflintdb_parquet.dll
+	DL_LIBS = -ldl
 else ifeq ($(UNAME_S),Darwin)
     TARGET = libflintdb_parquet.dylib
     LDFLAGS += -dynamiclib -install_name @rpath/libflintdb_parquet.dylib
@@ -73,6 +77,7 @@ else ifeq ($(UNAME_S),Darwin)
 	LDFLAGS += -Wl,-rpath,$(ARROW_PREFIX)/lib -Wl,-rpath,@loader_path
 else
     TARGET = libflintdb_parquet.so
+	DL_LIBS = -ldl
 	# Use $ORIGIN so the plugin can find libflintdb.so in the same directory
 	LDFLAGS += -Wl,-rpath=$(ARROW_PREFIX)/lib -Wl,-rpath,'$$ORIGIN'
 endif
@@ -87,7 +92,7 @@ HEADERS = parquet_plugin.h
 all: $(TARGET)
 
 $(TARGET): $(OBJECTS)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(ARROW_LIBS) $(FlintDB_LIB)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(ARROW_LIBS) $(DL_LIBS) $(FlintDB_LIB)
 	@echo "Built $@"
 
 %.o: %.cpp $(HEADERS)

@@ -45,7 +45,7 @@ static const char * ensure_temp_dir(void) {
     static char path[PATH_MAX];
     const char *envp = getenv("FLINTDB_TEMP_DIR");
     if (envp && *envp) {
-        strncpy(path, envp, sizeof(path) - 1);
+        strncpy_safe(path, envp, sizeof(path));
         path[sizeof(path) - 1] = '\0';
     } else {
         pid_t pid = getpid();
@@ -164,7 +164,7 @@ static void relativize_path(const char *abs, char *out, size_t cap) {
         return;
     char cwd[PATH_MAX] = {0};
     if (!getcwd(cwd, sizeof(cwd))) {
-        strncpy(out, abs, cap - 1);
+        strncpy_safe(out, abs, cap);
         out[cap - 1] = '\0';
         return;
     }
@@ -173,10 +173,10 @@ static void relativize_path(const char *abs, char *out, size_t cap) {
         const char *p = abs + cwd_len;
         if (*p == '/' || *p == '\\')
             p++;
-        strncpy(out, p, cap - 1);
+        strncpy_safe(out, p, cap);
         out[cap - 1] = '\0';
     } else {
-        strncpy(out, abs, cap - 1);
+        strncpy_safe(out, abs, cap);
         out[cap - 1] = '\0';
     }
 }
@@ -691,8 +691,8 @@ static int sql_exec_insert_from(const struct flintdb_sql *q, struct flintdb_tran
 
     char target[PATH_MAX] = {0};
     char from[PATH_MAX] = {0};
-    strncpy(target, q->table, sizeof(target) - 1);
-    strncpy(from, q->from, sizeof(from) - 1);
+    strncpy_safe(target, q->table, sizeof(target));
+    strncpy_safe(from, q->from, sizeof(from));
 
     enum fileformat fmt = detect_file_format(target);
 
@@ -1304,9 +1304,9 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
     // Determine directory to scan
     char base_dir[PATH_MAX] = {0};
     if (strempty(q->where)) {
-        strncpy(base_dir, ".", sizeof(base_dir) - 1);
+        strncpy_safe(base_dir, ".", sizeof(base_dir));
     } else {
-        strncpy(base_dir, q->where, sizeof(base_dir) - 1);
+        strncpy_safe(base_dir, q->where, sizeof(base_dir));
     }
 
     // Validate directory
@@ -1350,14 +1350,14 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
     int stack_len = 0;
     stack = (struct dir_stack_entry *)CALLOC(stack_cap, sizeof(struct dir_stack_entry));
     if (!stack) THROW(e, "Out of memory");
-    strncpy(stack[stack_len++].path, base_dir, PATH_MAX - 1);
+    strncpy_safe(stack[stack_len++].path, base_dir, PATH_MAX);
 
     int founds = 0;
 
     while (stack_len > 0) {
         // Pop
         char current[PATH_MAX];
-        strncpy(current, stack[--stack_len].path, sizeof(current) - 1);
+        strncpy_safe(current, stack[--stack_len].path, sizeof(current));
         current[sizeof(current) - 1] = '\0';
 
         DIR *d = opendir(current);
@@ -1387,7 +1387,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
                         stack = tmp;
                         stack_cap = new_cap;
                     }
-                    strncpy(stack[stack_len++].path, full, PATH_MAX - 1);
+                    strncpy_safe(stack[stack_len++].path, full, PATH_MAX);
                 }
                 continue; // directories are traversed, not listed
             }
@@ -1416,7 +1416,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
                     flintdb_meta_close(&m);
                     continue;
                 }
-                strncpy(fmt_str, "table", sizeof(fmt_str) - 1);
+                strncpy_safe(fmt_str, "table", sizeof(fmt_str));
                 // Acquire rows/bytes via table API
                 char *terr = NULL;
                 struct flintdb_table *t = flintdb_table_open(full, FLINTDB_RDONLY, NULL, &terr);
@@ -1491,13 +1491,13 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
             } else if (fmt != FORMAT_UNKNOWN) {
                 // Generic text/parquet/jsonl file
                 if (fmt == FORMAT_PARQUET) {
-                    strncpy(fmt_str, "parquet", sizeof(fmt_str) - 1);
+                    strncpy_safe(fmt_str, "parquet", sizeof(fmt_str));
                 } else if (fmt == FORMAT_TSV) {
-                    strncpy(fmt_str, "tsv", sizeof(fmt_str) - 1);
+                    strncpy_safe(fmt_str, "tsv", sizeof(fmt_str));
                 } else if (fmt == FORMAT_CSV) {
-                    strncpy(fmt_str, "csv", sizeof(fmt_str) - 1);
+                    strncpy_safe(fmt_str, "csv", sizeof(fmt_str));
                 } else {
-                    strncpy(fmt_str, "unknown", sizeof(fmt_str) - 1);
+                    strncpy_safe(fmt_str, "unknown", sizeof(fmt_str));
                 }
 
                 i64 rows = -1;
@@ -1757,7 +1757,7 @@ static struct flintdb_cursor_row *distinct_cursor_wrap(const struct flintdb_sql 
         if (priv->col_count > SQL_COLUMNS_LIMIT)
             priv->col_count = SQL_COLUMNS_LIMIT;
         for (int i = 0; i < priv->col_count; i++) {
-            strncpy(priv->cols[i], q->columns.name[i], SQL_OBJECT_STRING_LIMIT - 1);
+            strncpy_safe(priv->cols[i], q->columns.name[i], SQL_OBJECT_STRING_LIMIT);
             priv->cols[i][SQL_OBJECT_STRING_LIMIT - 1] = '\0';
         }
     }
@@ -2114,7 +2114,7 @@ static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_s
     // Build one-row result
     char alias[MAX_COLUMN_NAME_LIMIT];
     if (!sql_extract_alias(expr, alias, sizeof(alias))) {
-        strncpy(alias, "COUNT(*)", sizeof(alias) - 1);
+        strncpy_safe(alias, "COUNT(*)", sizeof(alias));
         alias[sizeof(alias) - 1] = '\0';
     }
     struct flintdb_meta *dm = (struct flintdb_meta *)CALLOC(1, sizeof(struct flintdb_meta));
@@ -2374,7 +2374,7 @@ static struct flintdb_sql_result * sql_exec_fast_count(const struct flintdb_sql 
     // Determine output column name (alias if provided, else default)
     char alias[MAX_COLUMN_NAME_LIMIT];
     if (!sql_extract_alias(expr, alias, sizeof(alias))) {
-        strncpy(alias, "COUNT(*)", sizeof(alias) - 1);
+        strncpy_safe(alias, "COUNT(*)", sizeof(alias));
         alias[sizeof(alias) - 1] = '\0';
     }
 
@@ -2785,7 +2785,7 @@ static int evaluate_having_condition(const struct flintdb_row *row, const char *
     if (!condition || !*condition) return 1;
     
     char cond_copy[1024];
-    strncpy(cond_copy, condition, sizeof(cond_copy) - 1);
+    strncpy_safe(cond_copy, condition, sizeof(cond_copy));
     cond_copy[sizeof(cond_copy) - 1] = '\0';
     
     // Handle AND/OR operations
@@ -2936,18 +2936,18 @@ static struct flintdb_sql_result * sql_exec_select_groupby_i64(const struct flin
 
         int fname_len = (int)(open_paren - expr);
         if (fname_len >= (int)sizeof(func_name))
-            fname_len = (int)sizeof(func_name) - 1;
-        strncpy(func_name, expr, fname_len);
-        func_name[fname_len] = '\0';
+            fname_len = (int)sizeof(func_name);
+        strncpy_safe(func_name, expr, fname_len);
+        // func_name[fname_len] = '\0';
         // trim spaces
         while (fname_len > 0 && (func_name[fname_len - 1] == ' ' || func_name[fname_len - 1] == '\t'))
             func_name[--fname_len] = '\0';
 
         int col_len = (int)(close_paren - open_paren - 1);
         if (col_len >= MAX_COLUMN_NAME_LIMIT)
-            col_len = MAX_COLUMN_NAME_LIMIT - 1;
-        strncpy(col_name, open_paren + 1, col_len);
-        col_name[col_len] = '\0';
+            col_len = MAX_COLUMN_NAME_LIMIT;
+        strncpy_safe(col_name, open_paren + 1, col_len);
+        // col_name[col_len] = '\0';
         // trim leading spaces
         char *sc = col_name;
         while (*sc == ' ' || *sc == '\t')
@@ -3259,8 +3259,8 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
 
         int fname_len = (int)(open_paren - expr);
         if (fname_len >= (int)sizeof(func_name))
-            fname_len = (int)sizeof(func_name) - 1;
-        strncpy(func_name, expr, fname_len);
+            fname_len = (int)sizeof(func_name);
+        strncpy_safe(func_name, expr, fname_len);
         func_name[fname_len] = '\0';
         // trim spaces
         while (fname_len > 0 && (func_name[fname_len - 1] == ' ' || func_name[fname_len - 1] == '\t'))
@@ -3268,8 +3268,8 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
 
         int col_len = (int)(close_paren - open_paren - 1);
         if (col_len >= MAX_COLUMN_NAME_LIMIT)
-            col_len = MAX_COLUMN_NAME_LIMIT - 1;
-        strncpy(col_name, open_paren + 1, col_len);
+            col_len = MAX_COLUMN_NAME_LIMIT;
+        strncpy_safe(col_name, open_paren + 1, col_len);
         col_name[col_len] = '\0';
         // trim leading spaces
         char *sc = col_name;
