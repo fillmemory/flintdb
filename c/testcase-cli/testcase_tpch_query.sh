@@ -37,7 +37,7 @@ echo "Java: SELECT * FROM TPCH lineitem table with gzip input:"
 time ../java/bin/flintdb "SELECT * FROM ../temp/tpch/lineitem.tbl.gz " > /dev/null
 
 echo "C: GROUP BY:"
-time ./bin/flintdb "SELECT l_shipmode, COUNT(*), SUM(l_quantity), SUM(l_extendedprice) FROM ../temp/tpch/lineitem.tbl.gz GROUP BY l_shipmode LIMIT 10 "
+./bin/flintdb "SELECT l_shipmode, COUNT(*), SUM(l_quantity), SUM(l_extendedprice) FROM ../temp/tpch/lineitem.tbl.gz GROUP BY l_shipmode ORDER BY l_shipmode LIMIT 10 " -pretty
 
 echo "Java: GROUP BY:"
-time ../java/bin/flintdb "SELECT l_shipmode, COUNT(*), SUM(l_quantity), SUM(l_extendedprice) FROM ../temp/tpch/lineitem.tbl.gz GROUP BY l_shipmode LIMIT 10 "
+../java/bin/flintdb "SELECT l_shipmode, COUNT(*), SUM(l_quantity), SUM(l_extendedprice) FROM ../temp/tpch/lineitem.tbl.gz GROUP BY l_shipmode LIMIT 10 " -pretty
