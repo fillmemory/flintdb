@@ -871,8 +871,8 @@ EXCEPTION:
     #define BUFFER_POOL_BORROW(length) buffer_alloc(length);
 #endif
 
-#ifndef STORAGE_DIO_CACHE_SIZE
-    #define STORAGE_DIO_CACHE_SIZE (8192) // blocks, (over 1.5x faster than no cache, but unstable when crashing)
+#ifndef STORAGE_DIO_CACHE_SIZE // in blocks 
+    #define STORAGE_DIO_CACHE_SIZE (8192)
 #endif
 
 struct storage_dio_priv {
