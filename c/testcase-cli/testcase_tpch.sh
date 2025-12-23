@@ -48,6 +48,11 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
+# NOTE: FLINTDB_DIO_PAGE_CACHE is interpreted as a *page count* (not bytes).
+# The storage layer uses it as an upper bound on cached OS pages for write-back/coalescing.
+# Keep the default sane to avoid runaway memory usage.
+DIO_PAGE_CACHE_PAGES="${FLINTDB_DIO_PAGE_CACHE:-8192}"
+
 # https://github.com/electrum/tpch-dbgen
 
 rm -f ../temp/c/tpch_lineitem.flintdb*
@@ -110,7 +115,7 @@ echo $SQL_CREATE_TABLE
 # ) CACHE=1M, STORAGE=MEMORY, COMPACT=140
 
 echo "INSERT FROM"
-FLINTDB_BULK_INSERT_COMMIT_INTERVAL=20000 FLINTDB_DIO_PAGE_CACHE=1048576 ./bin/flintdb "INSERT INTO ../temp/c/tpch_lineitem.flintdb FROM ../temp/tpch/lineitem.tbl.gz ${LIMIT}" -status
+FLINTDB_BULK_INSERT_COMMIT_INTERVAL=20000 FLINTDB_DIO_PAGE_CACHE=${DIO_PAGE_CACHE_PAGES} ./bin/flintdb "INSERT INTO ../temp/c/tpch_lineitem.flintdb FROM ../temp/tpch/lineitem.tbl.gz ${LIMIT}" -status
 
 #  LIMIT 300000
 
