@@ -119,9 +119,19 @@ int flintdb_os_page_size(void);
 static inline int strempty(const char *s) { return !s || !*s; }
 
 static inline char * strncpy_safe(char *dest, const char *src, size_t dest_size) { // avoid compiler warnings
-    memcpy(dest, src, dest_size - 1);
-    dest[dest_size - 1] = '\0';
+  if (!dest || dest_size == 0)
     return dest;
+  if (!src) {
+    dest[0] = '\0';
+    return dest;
+  }
+  size_t i = 0;
+  // Copy at most dest_size-1 bytes and always NUL-terminate.
+  for (; i + 1 < dest_size && src[i] != '\0'; i++) {
+    dest[i] = src[i];
+  }
+  dest[i] = '\0';
+  return dest;
 }
 
 static inline int suffix(const char *str, const char *suffix) {

@@ -99,6 +99,17 @@ CFLAGS_SO  = -fPIC -DFLINTDB_SHARED -DFLINTDB_BUILD
 #LDFLAGS = -lc -lm -lpthread -lz -llz4 -lzstd -lsnappy -L/usr/local/lib -flto
 LDFLAGS = $(LDFLAGS_BASE)
 
+# Optional: enable sanitizers (e.g., address, undefined)
+# Usage examples:
+#   make SANITIZE=address NDEBUG=0
+#   make SANITIZE=undefined NDEBUG=0
+SANITIZE ?=
+ifneq ($(strip $(SANITIZE)),)
+	# Ensure sanitizer stack traces are useful and avoid LTO interactions.
+	CFLAGS  += -O1 -g -fno-omit-frame-pointer -fsanitize=$(SANITIZE) -fno-lto
+	LDFLAGS += -fsanitize=$(SANITIZE) -fno-lto
+endif
+
 LIB_CURRENT_VERSION ?= 0.1.0
 LIB_COMPAT_VERSION  ?= 0.1.0
 LIB_BASENAME ?= libflintdb.dylib

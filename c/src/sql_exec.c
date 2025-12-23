@@ -2935,25 +2935,35 @@ static struct flintdb_sql_result * sql_exec_select_groupby_i64(const struct flin
             THROW(e, "Malformed aggregate expression: %s", expr);
 
         int fname_len = (int)(open_paren - expr);
+        if (fname_len < 0)
+            fname_len = 0;
         if (fname_len >= (int)sizeof(func_name))
-            fname_len = (int)sizeof(func_name);
-        strncpy_safe(func_name, expr, fname_len);
-        // func_name[fname_len] = '\0';
+            fname_len = (int)sizeof(func_name) - 1;
+        if (fname_len > 0)
+            memcpy(func_name, expr, (size_t)fname_len);
+        func_name[fname_len] = '\0';
         // trim spaces
         while (fname_len > 0 && (func_name[fname_len - 1] == ' ' || func_name[fname_len - 1] == '\t'))
             func_name[--fname_len] = '\0';
 
         int col_len = (int)(close_paren - open_paren - 1);
+        if (col_len < 0)
+            col_len = 0;
         if (col_len >= MAX_COLUMN_NAME_LIMIT)
-            col_len = MAX_COLUMN_NAME_LIMIT;
-        strncpy_safe(col_name, open_paren + 1, col_len);
-        // col_name[col_len] = '\0';
+            col_len = MAX_COLUMN_NAME_LIMIT - 1;
+        if (col_len > 0)
+            memcpy(col_name, open_paren + 1, (size_t)col_len);
+        col_name[col_len] = '\0';
         // trim leading spaces
         char *sc = col_name;
         while (*sc == ' ' || *sc == '\t')
             sc++;
         if (sc != col_name)
             memmove(col_name, sc, strlen(sc) + 1);
+        // trim trailing spaces
+        size_t tlen = strlen(col_name);
+        while (tlen > 0 && (col_name[tlen - 1] == ' ' || col_name[tlen - 1] == '\t'))
+            col_name[--tlen] = '\0';
 
         if (!sql_extract_alias(expr, alias, MAX_COLUMN_NAME_LIMIT)) {
             // Default alias: use the original expression text (trimmed)
@@ -3258,18 +3268,24 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
             THROW(e, "Malformed aggregate expression: %s", expr);
 
         int fname_len = (int)(open_paren - expr);
+        if (fname_len < 0)
+            fname_len = 0;
         if (fname_len >= (int)sizeof(func_name))
-            fname_len = (int)sizeof(func_name);
-        strncpy_safe(func_name, expr, fname_len);
+            fname_len = (int)sizeof(func_name) - 1;
+        if (fname_len > 0)
+            memcpy(func_name, expr, (size_t)fname_len);
         func_name[fname_len] = '\0';
         // trim spaces
         while (fname_len > 0 && (func_name[fname_len - 1] == ' ' || func_name[fname_len - 1] == '\t'))
             func_name[--fname_len] = '\0';
 
         int col_len = (int)(close_paren - open_paren - 1);
+        if (col_len < 0)
+            col_len = 0;
         if (col_len >= MAX_COLUMN_NAME_LIMIT)
-            col_len = MAX_COLUMN_NAME_LIMIT;
-        strncpy_safe(col_name, open_paren + 1, col_len);
+            col_len = MAX_COLUMN_NAME_LIMIT - 1;
+        if (col_len > 0)
+            memcpy(col_name, open_paren + 1, (size_t)col_len);
         col_name[col_len] = '\0';
         // trim leading spaces
         char *sc = col_name;
@@ -3277,6 +3293,10 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
             sc++;
         if (sc != col_name)
             memmove(col_name, sc, strlen(sc) + 1);
+        // trim trailing spaces
+        size_t tlen = strlen(col_name);
+        while (tlen > 0 && (col_name[tlen - 1] == ' ' || col_name[tlen - 1] == '\t'))
+            col_name[--tlen] = '\0';
 
         if (!sql_extract_alias(expr, alias, MAX_COLUMN_NAME_LIMIT)) {
             // Default alias: use the original expression text (trimmed)
@@ -3336,7 +3356,6 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
         agg->row(agg, r, e);
         if (e && *e)
             THROW_S(e);
-        r->free(r);
     }
 
     // Compute results
