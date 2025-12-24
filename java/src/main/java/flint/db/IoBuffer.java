@@ -1,5 +1,8 @@
 package flint.db;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -13,6 +16,52 @@ import java.nio.ByteOrder;
  * </pre>
  */
 final class IoBuffer {
+    private static final MethodHandle CLEANER_CLEAN;
+    private static final MethodHandle DIRECT_BUFFER_CLEANER;
+    private static final boolean IS_ANDROID;
+    
+    static {
+        // Android detection
+        String vmVendor = System.getProperty("java.vm.vendor", "");
+        String vendor = System.getProperty("java.vendor", "");
+        IS_ANDROID = vmVendor.contains("Android") || vendor.contains("Android");
+        
+        MethodHandle cleanerMethod = null;
+        MethodHandle cleanMethod = null;
+        
+        if (!IS_ANDROID) {
+            try {
+                // Use DirectBuffer.cleaner().clean() - this is the most compatible way
+                // without deprecated warnings
+                Class<?> directBufferClass = Class.forName("sun.nio.ch.DirectBuffer");
+                Class<?> cleanerClass = Class.forName("jdk.internal.ref.Cleaner");
+                
+                MethodHandles.Lookup lookup = MethodHandles.lookup();
+                
+                // Get DirectBuffer.cleaner() method
+                cleanerMethod = lookup.findVirtual(
+                    directBufferClass,
+                    "cleaner",
+                    MethodType.methodType(cleanerClass)
+                );
+                
+                // Get Cleaner.clean() method
+                cleanMethod = lookup.findVirtual(
+                    cleanerClass,
+                    "clean",
+                    MethodType.methodType(void.class)
+                );
+            } catch (Throwable e) {
+                // Fallback: not available
+                cleanerMethod = null;
+                cleanMethod = null;
+            }
+        }
+        
+        DIRECT_BUFFER_CLEANER = cleanerMethod;
+        CLEANER_CLEAN = cleanMethod;
+    }
+    
     private final ByteBuffer buffer;
 
     private IoBuffer(ByteBuffer buffer) {
@@ -64,53 +113,35 @@ final class IoBuffer {
         free(ioBuffer.unwrap());
     }
 
+    /**
+     * Releases the native memory of a direct ByteBuffer immediately.
+     * Uses DirectBuffer.cleaner().clean() to avoid deprecated Unsafe warnings.
+     * Falls back to GC cleanup if direct release is not available.
+     */
     public static void free(final ByteBuffer cb) {
-		if (cb == null || !cb.isDirect())
-			return;
-        
-        // Android detection
-        boolean isAndroid = System.getProperty("java.vm.vendor", "").contains("Android") 
-                        || System.getProperty("java.vendor", "").contains("Android");
-        
-        if (isAndroid) {
-            // On Android, just let GC handle it
-            // Direct buffers are automatically cleaned up by the GC
+        if (cb == null || !cb.isDirect()) {
             return;
         }
-
-		// we could use this type cast and call functions without reflection code,
-		// but static import from sun.* package is risky for non-SUN virtual machine.
-		// try { ((sun.nio.ch.DirectBuffer)cb).cleaner().clean(); } catch (Exception ex) { }
-
-		// JavaSpecVer: 1.6, 1.7, 1.8, 9, 10
-		boolean isOldJDK = System.getProperty("java.specification.version", "99").startsWith("1.");
-		try {
-			if (isOldJDK) {
-				java.lang.reflect.Method cleaner = cb.getClass().getMethod("cleaner");
-				cleaner.setAccessible(true);
-				java.lang.reflect.Method clean = Class.forName("sun.misc.Cleaner").getMethod("clean");
-				clean.setAccessible(true);
-				clean.invoke(cleaner.invoke(cb));
-			} else {
-				Class<?> unsafeClass;
-				try {
-					unsafeClass = Class.forName("sun.misc.Unsafe");
-				} catch (Exception ex) {
-					// jdk.internal.misc.Unsafe doesn't yet have an invokeCleaner() method,
-					// but that method should be added if sun.misc.Unsafe is removed.
-					unsafeClass = Class.forName("jdk.internal.misc.Unsafe");
-				}
-				java.lang.reflect.Method clean = unsafeClass.getMethod("invokeCleaner", ByteBuffer.class);
-				clean.setAccessible(true);
-				java.lang.reflect.Field theUnsafeField = unsafeClass.getDeclaredField("theUnsafe");
-				theUnsafeField.setAccessible(true);
-				Object theUnsafe = theUnsafeField.get(null);
-				clean.invoke(theUnsafe, cb);
-			}
-		} catch (Exception ex) {
-			ex.printStackTrace();
-		}
-	}
+        
+        if (IS_ANDROID) {
+            // On Android, let GC handle it
+            return;
+        }
+        
+        if (DIRECT_BUFFER_CLEANER != null && CLEANER_CLEAN != null) {
+            try {
+                // Call DirectBuffer.cleaner() to get the Cleaner
+                Object cleaner = DIRECT_BUFFER_CLEANER.invoke(cb);
+                if (cleaner != null) {
+                    // Call Cleaner.clean()
+                    CLEANER_CLEAN.invoke(cleaner);
+                }
+            } catch (Throwable e) {
+                // Failed to clean, let GC handle it
+            }
+        }
+        // If methods are null, just let GC handle cleanup
+    }
 
 
     // Wrapper methods that return IoBuffer to maintain byte order

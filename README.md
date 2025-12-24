@@ -21,7 +21,7 @@ FlintDB is available in two implementations:
 - clang
 - gcc
 - mingw gcc
-- Java 17 (minimum Java 14)
+- Java 17 (minimum Java 11 for Android)
   - Built and tested with Gradle 8.10.2
 
 ## File Format Support

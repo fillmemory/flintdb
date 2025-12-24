@@ -46,7 +46,7 @@ FILE_COUNT=$(wc -l < "${BUILD_DIR}/sources/files.txt")
 echo "Compiling ${FILE_COUNT} Java files..."
 
 # Compile
-javac -source ${JAVA_VERSION} -target ${JAVA_VERSION} \
+javac --release ${JAVA_VERSION} \
     -d "${BUILD_DIR}/classes" \
     -encoding UTF-8 \
     @"${BUILD_DIR}/sources/files.txt"
