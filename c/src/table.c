@@ -1460,10 +1460,10 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
         }
 
         if (i == 0) {
-            bplustree_init(&s->tree, ixf, cache_limit * 1, mode, TYPE_DEFAULT, s, &sorter_primary_cmpr, wal, e);
+            bplustree_init(&s->tree, ixf, cache_limit * 1, mode, priv->meta.storage, s, &sorter_primary_cmpr, wal, e);
             if (e && *e) THROW_S(e);
         } else {
-            bplustree_init(&s->tree, ixf, cache_limit * 1, mode, TYPE_DEFAULT, s, &sorter_index_cmpr, wal, e);
+            bplustree_init(&s->tree, ixf, cache_limit * 1, mode, priv->meta.storage, s, &sorter_index_cmpr, wal, e);
             if (e && *e)  THROW_S(e);
         }
     }

@@ -1662,6 +1662,7 @@ int bplustree_init(
     opts.mode = mode;
     opts.block_bytes = NODE_BYTES;
     opts.increment = DEFAULT_INCREMENT_BYTES;
+    strncpy_safe(opts.type, type, sizeof(opts.type));
 
     me->storage = wal_wrap(wal, &opts, bplustree_wal_refresh, me, e);
     if (e && *e) THROW(e, "wal_wrap failed: %s", *e ? *e : "unknown");
