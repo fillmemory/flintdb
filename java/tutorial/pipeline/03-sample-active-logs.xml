@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+활동 고객의 로그만 추출하여 별도 보관 및 분석
+-->
+
+<pipeline name="app_logs_transform">
+    <loop home="env:HOME" 
+        date="-365..0" 
+        dateDash="-365..0" 
+        format-date="yyyyMMdd" 
+        format-dateDash="yyyy-MM-dd" 
+        threads="4">
+
+        <input type="filesystem" max-depth="1">
+            <directory>{home}/data/dd/{dateDash}</directory>
+            <pattern>(request_page|request_page_act|request_error)\.gz</pattern>
+            <format type="tsv.gz" compression="gzip"/>
+        </input>
+
+        <output>
+            <meta>
+                <columns>
+                    <column name="timestamp" type="time" from="request_datetime" not-null="true"/>
+                    <column name="customer_id" type="int64" from="client_id" transform="hash" not-null="true"/>
+                    <column name="session_id" type="int64" from="session_id" not-null="true"/>
+                    <column name="install_id" type="int64" from="install_id" not-null="true"/>
+                    <column name="os" type="string" bytes="16" from="os" default=""/>
+                    <column name="page_id" type="string" bytes="120" from="page_id" default=""/>
+                    <column name="action_id" type="string" bytes="120" from="action_id" default=""/>
+                    <column name="error" type="string" bytes="120" from="error" default=""/>
+                    <column name="screen_time" type="uint16" from="page_time" default="0" />
+                </columns>
+                <indexes>
+                    <primary columns="timestamp, customer_id"/>
+                </indexes>
+                <format type="parquet" compression="snappy"/>
+            </meta>
+
+            <filter from="client_id" source="temp/transformed/active/lookup/lookup-cache-active.flintdb">
+                <condition operator="eq" lookup="WHERE client_id = ?"/>
+            </filter>
+        
+            <directory>temp/transformed/active/logs</directory>
+            <filename>app_logs_{date}.parquet</filename>
+
+            <if exists="yes">skip</if>
+            <sort columns="timestamp, customer_id"/>
+        </output>
+    </loop>
+</pipeline>

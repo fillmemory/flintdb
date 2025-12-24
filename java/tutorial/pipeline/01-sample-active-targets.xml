@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- 
+    고객을 샘플링하여 DL 모델 학습에 활용 
+-->
+
+<pipeline max-errors="1">
+    <variables>
+        <variable name="home" type="string" env="HOME"/>
+        <variable name="active_d1" type="date" last-days="30" format="yyyy-MM-dd"/>
+    </variables>
+
+    <input type="filesystem" max-depth="1">
+        <directory>{home}/data/client</directory>
+        <pattern>client\.tsv\.gz</pattern>
+        <format type="tsv.gz" compression="gzip"/>
+        <where>WHERE last_datetime >= '{active_d1}' LIMIT 300000</where>
+        <!-- TODO: SAMPLING ALGORITHM (SMOTE, HASH, ...) -->
+    </input>
+
+    <output>
+        <meta>
+            <columns>
+                <column name="customer_id" type="int64" from="client_id" transform="hash" not-null="true"/>
+                <column name="locale" type="string" bytes="120" from="locale" />
+                <column name="country_code" type="string" bytes="2" from="country_code" />
+                <column name="region_code" type="string" bytes="60" from="region_code" />
+                <column name="city" type="string" bytes="60" from="city" />
+                <column name="yearofbirth" type="int" from="yearofbirth" />
+                <column name="gender" type="string" bytes="1" from="gender" />
+                <column name="occupation_code" type="string" bytes="40" from="occupation_code" />
+                <column name="customer_income" type="int" from="customer_income" />
+                <column name="average_balance" type="int" from="average_balance" />
+                <column name="married" type="int" from="married" />
+                <column name="credit_rating" type="int" from="credit_rating" />
+                <column name="has_credit_card" type="int" from="has_credit_card" />
+                <column name="owns_car" type="int" from="owns_car" />
+                <column name="housing_type" type="int" from="housing_type" />
+                <column name="owns_real_estate" type="int" from="owns_real_estate" />
+                <column name="total_loan_amount" type="int" from="total_loan_amount" />
+                <column name="total_assets" type="int" from="total_assets" />
+                <column name="has_delinquency" type="int" from="has_delinquency" />
+                <column name="insurance_products" type="string" bytes="400" from="insurance_products" />
+                <column name="deposit_products" type="string" bytes="400" from="deposit_products" />
+                <column name="loan_products" type="string" bytes="400" from="loan_products" />
+                <column name="investment_products" type="string" bytes="400" from="investment_products" />
+                <column name="client_id" type="string" bytes="40" from="client_id" not-null="true" />
+                <column name="user_id" type="string" bytes="40" from="user_id" />
+                <column name="first_at" type="time" from="first_datetime" />
+                <column name="last_at" type="time" from="last_datetime" />
+            </columns>
+            <indexes>
+                <primary columns="customer_id"/>
+            </indexes>
+
+            <format type="parquet" compression="snappy"/>
+            <!-- <format type="tsv"/> -->
+        </meta>
+    
+        <directory>temp/transformed/active</directory>
+        <filename>profiles-active.parquet</filename>
+
+        <if exists="yes">overwrite</if>
+    </output>
+
+</pipeline>

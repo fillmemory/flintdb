@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- 
+    로그분류용 고객정보 캐싱 - 활성 고객
+-->
+
+<pipeline max-errors="1">
+    <variables>
+        <variable name="home" type="string" env="HOME"/>
+    </variables>
+
+    <input type="filesystem" max-depth="1">
+        <directory>temp/transformed/active</directory>
+        <pattern>profiles-active\.parquet</pattern>
+        <format type="parquet"/>
+    </input>
+
+    <output>
+        <meta>
+            <columns>
+                <column name="client_id" type="string" bytes="40" from="client_id" not-null="true" />
+                <column name="user_id" type="string" bytes="40" from="user_id" />
+                <column name="customer_id" type="int64" from="client_id" transform="hash" not-null="true"/>
+            </columns>
+            <indexes>
+                <primary columns="client_id"/>
+            </indexes>
+            <format type="flintdb" />
+        </meta>
+    
+        <directory>temp/transformed/active/lookup</directory>
+        <filename>lookup-cache-active.flintdb</filename>
+
+        <if exists="yes">overwrite</if>
+    </output>
+
+</pipeline>
