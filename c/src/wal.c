@@ -1612,6 +1612,10 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
     struct wal_impl* impl = NULL;
     
     if (!path || !meta) THROW(e, "Invalid parameters to wal_open");
+    if (strncasecmp(meta->wal, WAL_OPT_TRUNCATE, strlen(WAL_OPT_TRUNCATE)) != 0 
+     && strncasecmp(meta->wal, WAL_OPT_LOG, strlen(WAL_OPT_LOG)) != 0) {
+        THROW(e, "Invalid WAL mode: %s", meta->wal);
+    }
 
     w = CALLOC(1, sizeof(struct wal));
     if (!w) THROW(e, "Out of memory");

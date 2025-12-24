@@ -4419,8 +4419,10 @@ int main(int argc, char **argv) {
 int main(int argc, char **argv) {
     char *e = NULL;
 
-    // i64 max = 1024 * 1024 * 10;
-    i64 max = 16384;
+    i64 max = 1024 * 1024 * 10;
+#ifndef NDEBUG
+    max = 16384; // limit for debug build
+#endif
 
     struct flintdb_table *t = NULL;
     struct flintdb_meta meta = {
@@ -4447,7 +4449,7 @@ int main(int argc, char **argv) {
                       "l_comment      STRING(44), "
                       " "
                       "PRIMARY KEY (l_orderkey, l_linenumber) "
-                      ") WAL=COMPRESS";
+                      ") WAL=OFF STORAGE=MEMORY";
 
     struct flintdb_sql *q = NULL;
     q = flintdb_sql_parse(ddl, &e);
@@ -4483,7 +4485,6 @@ int main(int argc, char **argv) {
 
     for (struct flintdb_row *r; (r = cur->next(cur, &e)) != NULL;) {
         if (e) {
-            r->free(r);
             break;
         }
 
@@ -4498,12 +4499,12 @@ int main(int argc, char **argv) {
 
         flintdb_row_cast_reuse(r, dst, &e);
         if (e) {
-            r->free(r);
+            // r->free(r); // don't call it borrowed row
             goto EXCEPTION;
         }
 
         i64 rid = t->apply(t, dst, 1, &e);
-        r->free(r);
+        // r->free(r); // don't call it borrowed row
         if (e || rid < 0)
             break;
 
@@ -4525,9 +4526,6 @@ int main(int argc, char **argv) {
     TRACE("table closed");
     f->close(f);
     TRACE("file closed");
-    // Don't close local meta - it's just a template, actual metas are owned by table/file
-    plugin_manager_cleanup();
-    TRACE("plugins cleaned up");
 
     char tbuf[64];
     time_dur(time_elapsed(&watch), tbuf, sizeof(tbuf));

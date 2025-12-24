@@ -370,17 +370,9 @@ echo "compile" "$TESTCASE"
 
 case "${target}" in
 linux*)
-    # Link sqlite3 only for sqlite-related testcase to avoid unnecessary dependency
-    if [[ "$TESTCASE" == "TESTCASE_SQLITE_TPCH_LINEITEM_WRITE" ]]; then
-        LDFLAGS="$LDFLAGS -lsqlite3"
-    fi
     $CC $CFLAGS -D_GNU_SOURCE=1 -Dlinux -D"$TESTCASE" -o "$EXE_PATH" $SRC_FILES $LDFLAGS
 	;;
 macos*)
-	#brew install zlib lz4 zstd snappy 
-    if [[ "$TESTCASE" == "TESTCASE_SQLITE_TPCH_LINEITEM_WRITE" ]]; then
-        LDFLAGS="$LDFLAGS -lsqlite3"
-    fi
     $CC $CFLAGS -D"$TESTCASE" -o "$EXE_PATH" $SRC_FILES $LDFLAGS -DJOURNAL_MODE_WAL=1
 	;;
 win32*)
@@ -389,9 +381,6 @@ win32*)
 
     # Link Windows sockets libraries and correct library paths
     LDFLAGS="$LDFLAGS -lws2_32 -lwsock32 -L/usr/local/lib -L/mingw64/lib"
-    if [[ "$TESTCASE" == "TESTCASE_SQLITE_TPCH_LINEITEM_WRITE" ]]; then
-        LDFLAGS="$LDFLAGS -lsqlite3"
-    fi
     $CC $CFLAGS -D_GNU_SOURCE=1 -D_WIN32 -DPATH_MAX=4096 -D"$TESTCASE" -o "$EXE_PATH" $SRC_FILES $LDFLAGS
 	;;
 *)
