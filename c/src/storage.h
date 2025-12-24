@@ -66,6 +66,7 @@ struct storage {
 
 
 int storage_open(struct storage * s, struct storage_opts opts, char **e);
+int storage_transfer(struct storage *src, const char *file, char **e); 
 
 // FlintDB on-disk file header size. Keep this stable for compatibility.
 // NOTE: This is NOT necessarily the OS VM page size (which can be 4KB or 16KB depending on platform).

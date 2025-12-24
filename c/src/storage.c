@@ -2409,3 +2409,20 @@ int storage_open(struct storage * me, struct storage_opts opts, char **e) {
 
     return storage_mmap_open(me, opts, e);
 }
+
+/**
+ * @brief Memory Storage to File transfer
+ * 
+ * @param src 
+ * @param file 
+ * @param e 
+ * @return int 
+ */
+int storage_transfer(struct storage *src, const char *file, char **e) {
+    assert(src);
+    assert(file);
+    THROW(e, "storage_transfer: Not implemented yet");
+    return 0;
+EXCEPTION:
+    return 0;
+}
