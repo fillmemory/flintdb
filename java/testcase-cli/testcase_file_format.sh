@@ -13,12 +13,12 @@ fi
 # clear & reset terminal
 # clear && printf '\e[3J'
 
-# TODO
-# http://www.tpc.org/tpch/
-# https://docs.snowflake.com/en/user-guide/sample-data-tpch
 # https://github.com/electrum/tpch-dbgen
-# https://jason-heo.github.io/mysql/2014/03/05/mysql-tpc-h.html
-# https://duckdb.org/docs/data/csv/overview.html
+# wget http://www.trentu.ca/~dbrobinson/tpch-dbgen.tar.gz
+# tar -xvzf tpch-dbgen.tar.gz
+# cd tpch-dbgen
+# make
+# ./dbgen -s 1 -T L
 
 FILENAME="tpch_lineitem.tsv.gz"
 #FILENAME="tpch_lineitem.jsonl.gz"
