@@ -1419,7 +1419,8 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
     // Initialize table-level lock (os_unfair_lock on macOS, spinlock on Linux)
     TABLE_LOCK_INIT(&priv->lock);
 
-    priv->header = priv->storage->mmap(priv->storage, 0, HEAD_SZ, NULL);
+    // priv->header = priv->storage->mmap(priv->storage, 0, HEAD_SZ, NULL);
+    priv->header = priv->storage->head(priv->storage, 0, HEAD_SZ, NULL);
 
     if (mode & FLINTDB_RDWR) {
         struct buffer h = {0, };
