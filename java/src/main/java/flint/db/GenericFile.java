@@ -35,6 +35,11 @@ public interface GenericFile extends AutoCloseable {
             for (GenericFilePlugin plugin : loader) {
                 plugins.add(plugin);
             }
+
+            // Ensure built-in TSVZ plugin is available even without ServiceLoader config
+            try {
+                plugins.add(new TSVZFilePlugin());
+            } catch (Throwable ignored) {}
             
             // Sort by priority (descending)
             plugins.sort(Comparator.comparingInt(GenericFilePlugin::priority).reversed());
@@ -115,14 +120,22 @@ public interface GenericFile extends AutoCloseable {
             || name.endsWith(".jsonl")
             || name.endsWith(".tsv.gz") 
             || name.endsWith(".csv.gz") 
-            || name.endsWith(".jsonl.gz")
-            || name.endsWith(".parquet")
+            || name.endsWith(".tsvz")
+            || name.endsWith(".csvz")
+            // || name.endsWith(".jsonl.gz")
+            // || name.endsWith(".parquet")
             || name.endsWith(".tbl")
             || name.endsWith(".tbl.gz")
             //
             || (name.endsWith(".gz") && canRead(file))
             // || name.endsWith(".zip") 
+            || hasPluginSupport(file)
             ;
+    }
+
+    private static boolean hasPluginSupport(final File file) {
+        GenericFilePlugin plugin = PluginRegistry.findPlugin(file);
+        return plugin != null;
     }
 
     static boolean canRead(final File file) {

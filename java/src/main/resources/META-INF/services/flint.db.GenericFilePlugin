@@ -1,2 +1,3 @@
+flint.db.TSVZFilePlugin
 flint.db.JsonlFilePlugin
 flint.db.TSVFilePlugin
