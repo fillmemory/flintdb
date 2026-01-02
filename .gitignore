@@ -5,6 +5,7 @@ temp
 c/bin/
 c/lib/
 c/build/
+c/.zig-cache/
 c/tutorial/c/tutorial
 c/tutorial/cpp/tutorial_cpp
 c/tutorial/rust/target/
@@ -23,6 +24,9 @@ c/tutorial/swift/.swift-module-cache/
 c/tutorial/swift/flintdb_swift_shim.o
 c/tutorial/swift/tutorial
 c/testcase
+zig/.zig-cache/
+zig/zig-out/
+zig/temp/
 java/bin/main/
 java/bin/test/
 java/lib/optional/
