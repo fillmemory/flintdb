@@ -178,17 +178,9 @@ cd c
 
 ### C (zig build)
 ```bash
-# zig/ 디렉토리에서 빌드
 cd zig
-zig build                    # 기본: Debug 모드
-zig build --release=fast     # Release 모드 (Makefile -O3와 유사, 권장)
-zig build --release=small    # 용량 최적화
-
-# 또는 루트에서 빌드
-zig build --build-file zig/build.zig --release=fast
-
-# Run (zig/ 디렉토리 기준)
-./zig-out/bin/flintdb -version
+zig build                    # Debug
+zig build --release=fast     # Release (Equivalent to Makefile -O3)
 
 # Cross-compile
 # (zlib is required by c/src/compress.c, so the target must provide zlib headers + library)
