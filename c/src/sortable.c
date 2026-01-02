@@ -249,6 +249,10 @@ EXCEPTION:
     return -1;
 }
 
+i16 compact_safe(int bytes) {
+    if (bytes >= 4080) return 4080; // storage block header (16) + data (4080) = 4096
+    return -1;
+}
 
 struct flintdb_filesort *flintdb_filesort_new(const char *file, const struct flintdb_meta *m, char **e) {
 	struct flintdb_filesort *sorter = (struct flintdb_filesort *)CALLOC(1, sizeof(struct flintdb_filesort));
@@ -273,8 +277,9 @@ struct flintdb_filesort *flintdb_filesort_new(const char *file, const struct fli
     struct storage_opts opts = {0};
     opts.block_bytes = row_bytes(&priv->meta);
     opts.mode = FLINTDB_RDWR;
-    opts.compact = priv->meta.compact;
+    opts.compact = compact_safe(opts.block_bytes);
     // leave opts.increment = 0 to let storage use its default
+    // LOG("opts.block_bytes=%d, opts.compact=%d", opts.block_bytes, opts.compact);
     strncpy(opts.file, file, sizeof(opts.file) - 1);
     if (storage_open(&priv->storage, opts, e) != 0)
         THROW_S(e);
