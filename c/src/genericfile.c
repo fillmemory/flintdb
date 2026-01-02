@@ -551,7 +551,7 @@ static struct flintdb_meta genericfile_meta_from_header(const char *file, char *
             memcpy(col->name, ptr, copylen);
             col->name[copylen] = '\0';
             col->type = VARIANT_STRING; // default type when inferring from header
-            col->bytes = 65535; // large placeholder width for strings
+            col->bytes = MAX_UNSPECIFIED_LIMIT; // large placeholder width for strings
         }
         if (delim >= end)
             break;

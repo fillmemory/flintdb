@@ -11,12 +11,15 @@
 
 // row_bytes is implemented in table.c; declare prototype for use here.
 extern int row_bytes(const struct flintdb_meta *m);
+#define MIN(a,b) (((a)<(b))?(a):(b))
+
 
 struct flintdb_filesort_priv {
 	struct storage storage;      // backing storage for row payloads
 	struct formatter formatter;  // row encoder/decoder (binary)
 	struct flintdb_meta meta;            // a persistent copy of table meta
 
+    i32 row_bytes;              // cached row byte size
 	i64 *offsets;                // dynamic array of row offsets (rowids)
 	i64 rows;                    // number of rows
 	i64 cap;                     // capacity of offsets array
@@ -74,8 +77,8 @@ i64 filesort_add(struct flintdb_filesort *me, struct flintdb_row *r, char **e) {
         THROW_S(e);
 
     // Encode row into a binary buffer and write to storage
-    int bytes = row_bytes(&priv->meta);
-    struct buffer *raw = buffer_alloc(bytes);
+    int bytes = priv->row_bytes;
+    struct buffer *raw = buffer_alloc(bytes); // TODO: reuse
     if (!raw)
         THROW(e, "Out of memory");
     if (priv->formatter.encode(&priv->formatter, r, raw, e) != 0) {
@@ -276,14 +279,16 @@ struct flintdb_filesort *flintdb_filesort_new(const char *file, const struct fli
     // Setup storage with block size based on row bytes
     struct storage_opts opts = {0};
     opts.block_bytes = row_bytes(&priv->meta);
-    opts.mode = FLINTDB_RDWR;
+    // opts.block_bytes = MIN(64 * 1024, row_bytes(&priv->meta)); // limit to 64KB block size
     opts.compact = compact_safe(opts.block_bytes);
+    opts.mode = FLINTDB_RDWR;
     // leave opts.increment = 0 to let storage use its default
     // LOG("opts.block_bytes=%d, opts.compact=%d", opts.block_bytes, opts.compact);
     strncpy(opts.file, file, sizeof(opts.file) - 1);
     if (storage_open(&priv->storage, opts, e) != 0)
         THROW_S(e);
 
+    priv->row_bytes = opts.block_bytes;
     priv->rows = 0;
     priv->cap = 0;
     priv->offsets = NULL;

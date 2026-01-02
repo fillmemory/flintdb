@@ -72,6 +72,7 @@ FLINTDB_BEGIN_DECLS
 #define MAX_COLUMN_NAME_LIMIT 40
 #define PRIMARY_NAME "primary"
 #define PRIMARY_INDEX 0
+#define MAX_UNSPECIFIED_LIMIT 256 // TSV/CSV/JSONL genericfile read limit for unspecified limit (for sorting, etc.)
 
 #define WAL_OPT_OFF "OFF"
 #define WAL_OPT_LOG "LOG"
