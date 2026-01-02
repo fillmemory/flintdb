@@ -1332,7 +1332,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
     if (e && *e) THROW_S(e);
     flintdb_meta_columns_add(dm, "Modified", VARIANT_STRING, 64, 0, SPEC_NULLABLE, NULL, NULL, e);
     if (e && *e) THROW_S(e);
-    flintdb_meta_columns_add(dm, "Path", VARIANT_STRING, 512, 0, SPEC_NULLABLE, NULL, NULL, e);
+    flintdb_meta_columns_add(dm, "Path", VARIANT_STRING, PATH_MAX, 0, SPEC_NULLABLE, NULL, NULL, e);
     if (e && *e) THROW_S(e);
 
     priv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
@@ -3089,7 +3089,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_i64(const struct flin
         return fast;
     }
 
-    char temp_file[512];
+    char temp_file[PATH_MAX];
     snprintf(temp_file, sizeof(temp_file), "%s/flintdb_sort_%ld.tmp", ensure_temp_dir(), (long)time(NULL));
     struct flintdb_filesort *sorter = flintdb_filesort_new(temp_file, result_meta, e);
     if (e && *e) THROW_S(e);
@@ -3413,7 +3413,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
         return fast;
     }
 
-    char temp_file[512];
+    char temp_file[PATH_MAX];
     snprintf(temp_file, sizeof(temp_file), "%s/flintdb_sort_%ld.tmp", ensure_temp_dir(), (long)time(NULL));
     struct flintdb_filesort *sorter = flintdb_filesort_new(temp_file, result_meta, e);
     if (e && *e)
@@ -3515,7 +3515,7 @@ static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, 
     const struct flintdb_meta *src_meta = first->meta;
     if (!src_meta) THROW(e, "Row has no metadata");
 
-    char temp_file[512];
+    char temp_file[PATH_MAX];
     snprintf(temp_file, sizeof(temp_file), "%s/flintdb_sort_%ld.tmp", ensure_temp_dir(), (long)time(NULL));
     sorter = flintdb_filesort_new(temp_file, (struct flintdb_meta *)src_meta, e);
     if (e && *e) THROW_S(e);
