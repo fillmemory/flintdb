@@ -13,6 +13,7 @@
 /**
  * @brief SQL parser but not a full-featured SQL engine.
  * 
+ * TODO: Replace to pratt parser or other proper parser in the future.
  */
 
 struct flintdb_sql {
