@@ -21,6 +21,7 @@ FlintDB is available in two implementations:
 - clang
 - gcc
 - mingw gcc
+- zig
 - Java 17 (minimum Java 11 for Android)
   - Built and tested with Gradle 8.10.2
 
@@ -148,6 +149,8 @@ For detailed code examples and tutorials, see:
 
 ## SQL Support (Development/Debug Only)
 
+> **Note**: The SQL implementation is planned to be replaced in the future to include better expression support and error handling.
+
 ```bash
 # CLI for quick inspection
 ./bin/flintdb "SELECT * FROM data.flintdb LIMIT 10" -pretty
@@ -255,6 +258,12 @@ zig build -Dtarget=<triple> -Dsysroot=/path/to/sysroot --release=fast
 **Note**: Both implementations use direct memory access (C pointers, Java ByteBuffer.allocateDirect)
 
 **Test Environment**: macOS, TPC-H lineitem dataset, WAL=OFF
+
+## Development Context
+
+This project is being developed for **educational purposes and personal study**, not as a full-time engagement.
+
+This project heavily utilizes **GitHub Copilot** for code development and verification.
 
 ## License
 
