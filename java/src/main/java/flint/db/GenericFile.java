@@ -36,11 +36,6 @@ public interface GenericFile extends AutoCloseable {
                 plugins.add(plugin);
             }
 
-            // Ensure built-in TSVZ plugin is available even without ServiceLoader config
-            try {
-                plugins.add(new TSVZFilePlugin());
-            } catch (Throwable ignored) {}
-            
             // Sort by priority (descending)
             plugins.sort(Comparator.comparingInt(GenericFilePlugin::priority).reversed());
             
