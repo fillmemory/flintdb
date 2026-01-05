@@ -90,11 +90,11 @@ sourceSets {
 			]
 		}
 		resources {
-			// srcDirs = [
-            //     "src/webui/java",
-            // ]
-            srcDir("../webui")
-            include("webui.html")
+			srcDir("src/main/resources")
+			srcDir("src/rc/resources")
+			srcDir("../webui")
+			include("webui.html")
+			include("META-INF/**")
 		}
 	}
 
@@ -116,6 +116,10 @@ sourceSets {
 compileJava {
 	options.fork = true
 	options.debug = true
+}
+
+processResources {
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 javadoc {
