@@ -1,0 +1,12 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 300
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: false
+  AfterControlStatement: false
+  BeforeElse: false  
+  AfterClass: false
+AllowShortBlocksOnASingleLine: false
+KeepEmptyLinesAtTheStartOfBlocks: false
+
