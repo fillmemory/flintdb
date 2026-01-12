@@ -5522,8 +5522,8 @@ int main(int argc, char **argv) {
     if (argc > 2)
         val_size = atoi(argv[2]);
 
-    benchmark_wisckey(n, val_size);
-    printf("\n");
+    // benchmark_wisckey(n, val_size);
+    // printf("\n");
     benchmark_table(n, val_size);
 
     return 0;
