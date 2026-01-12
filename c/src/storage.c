@@ -1,27 +1,26 @@
+#include <assert.h>
+#include <ctype.h>
+#include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-#include <errno.h>
-#include <assert.h>
-#include <stdarg.h>
 #ifndef _WIN32
 #include <sys/mman.h>
 #endif
 
-#include <limits.h>
-#include <unistd.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <sys/types.h>
+#include <unistd.h>
 
-#include "storage.h"
 #include "runtime.h"
+#include "storage.h"
 
 static inline i32 flintdb_page_bytes(void) {
     i32 p = (i32)flintdb_os_page_size();
     return (p > 0) ? p : 4096;
 }
-
 
 #define COMMON_HEADER_BYTES (8 + 8 + 8 + 2 + 4 + 24 + 2 + 8)
 #define CUSTOM_HEADER_BYTES (HEADER_BYTES - COMMON_HEADER_BYTES)
@@ -55,45 +54,42 @@ const i64 NEXT_END = -1;
 static inline i64 storage_dio_chunk_bytes(i64 block_bytes, i64 target_bytes);
 
 static inline int _ftruncate(i32 fd, off_t length) {
-    #ifdef __linux__
-        int rc = posix_fallocate(fd, 0, (off_t)length);
-        if (rc != 0) {
-            errno = rc;
+#ifdef __linux__
+    int rc = posix_fallocate(fd, 0, (off_t)length);
+    if (rc != 0) {
+        errno = rc;
+        return -1;
+    }
+    return ftruncate(fd, (off_t)length);
+#elif defined(__APPLE__)
+    fstore_t fst;
+    memset(&fst, 0, sizeof(fst));
+    fst.fst_flags = F_ALLOCATECONTIG;
+    fst.fst_posmode = F_PEOFPOSMODE;
+    fst.fst_offset = 0;
+    fst.fst_length = length;
+
+    if (fcntl(fd, F_PREALLOCATE, &fst) == -1) {
+        fst.fst_flags = F_ALLOCATEALL;
+        if (fcntl(fd, F_PREALLOCATE, &fst) == -1) {
             return -1;
         }
-        return ftruncate(fd, (off_t)length);
-    #elif defined(__APPLE__)
-        fstore_t fst;
-        memset(&fst, 0, sizeof(fst));
-        fst.fst_flags = F_ALLOCATECONTIG;
-        fst.fst_posmode = F_PEOFPOSMODE;
-        fst.fst_offset = 0;
-        fst.fst_length = length;
-
-        if (fcntl(fd, F_PREALLOCATE, &fst) == -1) {
-            fst.fst_flags = F_ALLOCATEALL;
-            if (fcntl(fd, F_PREALLOCATE, &fst) == -1) {
-                return -1;
-            }
-        }
-        return ftruncate(fd, length);
-    #else
-        return ftruncate(fd, length);
-    #endif
+    }
+    return ftruncate(fd, length);
+#else
+    return ftruncate(fd, length);
+#endif
 }
 
-static i64 storage_count_get(struct storage *me) {
-    return me->count;
-}
+static i64 storage_count_get(struct storage *me) { return me->count; }
 
-static i64 storage_bytes_get(struct storage *me) {
-    return file_length(me->opts.file);
-}
+static i64 storage_bytes_get(struct storage *me) { return file_length(me->opts.file); }
 
 static void storage_commit(struct storage *me, u8 force, char **e) {
     assert(me);
 
-    if (me->opts.mode != FLINTDB_RDWR) return;
+    if (me->opts.mode != FLINTDB_RDWR)
+        return;
     if (!force && me->dirty <= 0) {
         me->dirty++;
         return;
@@ -101,18 +97,18 @@ static void storage_commit(struct storage *me, u8 force, char **e) {
     me->dirty = 0;
 
     assert(me->head);
-    
+
     struct buffer *h = me->h;
     struct buffer bb = {0};
     h->slice(h, CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES, &bb, e);
-    bb.i64_put(&bb, 0, e); // reserved
-    bb.i64_put(&bb, me->free, e); // The front of deleted blocks
-    bb.i64_put(&bb, 0, e); // The tail of deleted blocks => not used in mmap
-    bb.i16_put(&bb, 1, e); // version
-    bb.i32_put(&bb, me->increment, e); // increment chunk size
-    bb.array_put(&bb, R24, R24LEN, e); // reserved
+    bb.i64_put(&bb, 0, e);                    // reserved
+    bb.i64_put(&bb, me->free, e);             // The front of deleted blocks
+    bb.i64_put(&bb, 0, e);                    // The tail of deleted blocks => not used in mmap
+    bb.i16_put(&bb, 1, e);                    // version
+    bb.i32_put(&bb, me->increment, e);        // increment chunk size
+    bb.array_put(&bb, R24, R24LEN, e);        // reserved
     bb.i16_put(&bb, me->opts.block_bytes, e); // BLOCK Data Max Size (exclude BLOCK Header)
-    bb.i64_put(&bb, me->count, e); // number of blocks
+    bb.i64_put(&bb, me->count, e);            // number of blocks
 }
 
 static void storage_cache_free(keytype k, valtype v) {
@@ -122,7 +118,7 @@ static void storage_cache_free(keytype k, valtype v) {
     }
 }
 
-static struct buffer * storage_head(struct storage *me, i64 offset, i32 length, char **e) {
+static struct buffer *storage_head(struct storage *me, i64 offset, i32 length, char **e) {
     assert(me != NULL);
     struct buffer *h = me->h;
     if (!h) {
@@ -135,7 +131,7 @@ EXCEPTION:
     return NULL;
 }
 
-static struct buffer * storage_mmap(struct storage *me, i64 offset, i32 length, char **e) {
+static struct buffer *storage_mmap(struct storage *me, i64 offset, i32 length, char **e) {
     assert(me != NULL);
     assert(me->cache != NULL);
     assert(length > 0);
@@ -160,35 +156,37 @@ static struct buffer * storage_mmap(struct storage *me, i64 offset, i32 length, 
     mmap_flags |= MAP_POPULATE;
 #endif
     void *p = mmap(NULL, map_size, PROT_READ | (me->opts.mode == FLINTDB_RDWR ? PROT_WRITE : 0), mmap_flags, me->fd, map_offset);
-    if (p == MAP_FAILED) THROW(e, "mmap() : %d - %s", errno, strerror(errno));
+    if (p == MAP_FAILED)
+        THROW(e, "mmap() : %d - %s", errno, strerror(errno));
 
     mbb = buffer_mmap(p, page_offset, map_size);
-    if (!mbb) THROW(e, "Out of memory");
+    if (!mbb)
+        THROW(e, "Out of memory");
 
+    //     /* advise kernel about expected access pattern to improve read-ahead */
+    // #ifdef MADV_WILLNEED
+    //     // Hint kernel to read-ahead this data for better performance
+    //     madvise(p, map_size, MADV_WILLNEED);
+    // #endif
 
-//     /* advise kernel about expected access pattern to improve read-ahead */
-// #ifdef MADV_WILLNEED
-//     // Hint kernel to read-ahead this data for better performance
-//     madvise(p, map_size, MADV_WILLNEED);
-// #endif
+    // #ifdef MADV_RANDOM
+    //     madvise(p, map_size, MADV_RANDOM);
+    // #endif
 
-// #ifdef MADV_RANDOM
-//     madvise(p, map_size, MADV_RANDOM);
-// #endif
+    // #ifdef POSIX_FADV_WILLNEED
+    //     // Async readahead at file descriptor level
+    //     posix_fadvise(me->fd, map_offset, map_size, POSIX_FADV_WILLNEED);
+    // #endif
 
-// #ifdef POSIX_FADV_WILLNEED
-//     // Async readahead at file descriptor level
-//     posix_fadvise(me->fd, map_offset, map_size, POSIX_FADV_WILLNEED);
-// #endif
-
-// #ifdef POSIX_FADV_RANDOM
-//     posix_fadvise(me->fd, map_offset, map_size, POSIX_FADV_RANDOM);
-// #endif
+    // #ifdef POSIX_FADV_RANDOM
+    //     posix_fadvise(me->fd, map_offset, map_size, POSIX_FADV_RANDOM);
+    // #endif
 
     return mbb;
 
 EXCEPTION:
-    if (mbb) mbb->free(mbb);
+    if (mbb)
+        mbb->free(mbb);
     if (p != MAP_FAILED)
         munmap(p, map_size);
     return NULL;
@@ -204,7 +202,8 @@ static void storage_mmap_buffer_get(struct storage *me, i64 index, struct buffer
     if (HASHMAP_INVALID_VAL != found) {
         struct buffer *mbb = (struct buffer *)found;
         mbb->slice(mbb, r, me->block_bytes, out, &e);
-        if (e && *e) THROW_S(e);
+        if (e && *e)
+            THROW_S(e);
         return;
     }
 
@@ -221,10 +220,11 @@ static void storage_mmap_buffer_get(struct storage *me, i64 index, struct buffer
         i32 blocks = me->mmap_bytes / me->block_bytes;
         i64 next = 1 + (i * blocks);
         struct buffer bb = {0};
-        for(i32 x=0; x<blocks; x++) {
+        for (i32 x = 0; x < blocks; x++) {
             // struct buffer bb = {0};
             mbb->slice(mbb, x * me->block_bytes, me->block_bytes, &bb, &e);
-            if (e && *e) THROW_S(e);
+            if (e && *e)
+                THROW_S(e);
             bb.i8_put(&bb, STATUS_EMPTY, NULL);
             bb.i8_put(&bb, MARK_AS_UNUSED, NULL);
             bb.i16_put(&bb, 0, NULL);
@@ -233,11 +233,13 @@ static void storage_mmap_buffer_get(struct storage *me, i64 index, struct buffer
             next++;
         }
         storage_commit(me, STORAGE_COMMIT_LAZY, &e);
-        if (e && *e) THROW_S(e);
+        if (e && *e)
+            THROW_S(e);
     }
 
     mbb->slice(mbb, r, me->block_bytes, out, &e);
-    if (e && *e) THROW_S(e);
+    if (e && *e)
+        THROW_S(e);
     return;
 
 EXCEPTION:
@@ -250,10 +252,11 @@ static u8 storage_mmap_delete(struct storage *me, i64 offset, char **e) {
 
     storage_mmap_buffer_get(me, offset, &p);
     p.slice(&p, 0, p.remaining(&p), &c, e);
-    if (e && *e) THROW_S(e);
+    if (e && *e)
+        THROW_S(e);
 
     u8 status = c.i8_get(&c, e);
-    c.i8_get (&c, NULL);
+    c.i8_get(&c, NULL);
     c.i16_get(&c, NULL);
     c.i32_get(&c, NULL);
     i64 next = c.i64_get(&c, NULL);
@@ -261,16 +264,16 @@ static u8 storage_mmap_delete(struct storage *me, i64 offset, char **e) {
     if (STATUS_SET != status)
         return 0;
 
-    p.i8_put (&p, STATUS_EMPTY, NULL);
-    p.i8_put (&p, MARK_AS_UNUSED, NULL);
+    p.i8_put(&p, STATUS_EMPTY, NULL);
+    p.i8_put(&p, MARK_AS_UNUSED, NULL);
     p.i16_put(&p, 0, NULL);
     p.i32_put(&p, 0, NULL);
     p.i64_put(&p, me->free, NULL);
-    
-    #ifdef STORAGE_FILL_ZEROED_BLOCK_ON_DELETE
+
+#ifdef STORAGE_FILL_ZEROED_BLOCK_ON_DELETE
     // p.array_put(&p, me->clean, me->opts.block_bytes, NULL); // fill zeroed block data
     p.array_put(&p, me->clean, p.remaining(&p), NULL); // fill zeroed block data
-    #endif
+#endif
 
     me->free = offset;
     me->count--;
@@ -278,7 +281,8 @@ static u8 storage_mmap_delete(struct storage *me, i64 offset, char **e) {
         storage_mmap_delete(me, next, e);
 
     storage_commit(me, STORAGE_COMMIT_LAZY, e);
-    if (e && *e) THROW_S(e);
+    if (e && *e)
+        THROW_S(e);
     return 1;
 
 EXCEPTION:
@@ -290,14 +294,16 @@ static u8 storage_mmap_flush(struct storage *me, char **e) {
     return 1;
 }
 
-static struct buffer * storage_mmap_read(struct storage *me, i64 offset, char **e) {
+static struct buffer *storage_mmap_read(struct storage *me, i64 offset, char **e) {
     struct buffer mbb = {0};
     storage_mmap_buffer_get(me, offset, &mbb);
     u8 status = mbb.i8_get(&mbb, e);
-    if (status != STATUS_SET) THROW(e, "Block at offset %lld is not set", offset);
+    if (status != STATUS_SET)
+        THROW(e, "Block at offset %lld is not set", offset);
 
     u8 mark = mbb.i8_get(&mbb, e);
-    if (mark != MARK_AS_DATA) THROW(e, "Block at offset %lld is not data", offset);
+    if (mark != MARK_AS_DATA)
+        THROW(e, "Block at offset %lld is not data", offset);
     i16 limit = mbb.i16_get(&mbb, e);
     i32 length = mbb.i32_get(&mbb, e);
     i64 next = mbb.i64_get(&mbb, e);
@@ -307,12 +313,14 @@ static struct buffer * storage_mmap_read(struct storage *me, i64 offset, char **
         // copy only the first chunk (limit) from the first block
         struct buffer first = {0};
         mbb.slice(&mbb, 0, limit, &first, e);
-        if (e && *e) THROW_S(e);
+        if (e && *e)
+            THROW_S(e);
         p->array_put(p, first.array, first.remaining(&first), NULL);
-        for(; next > NEXT_END; ) {
+        for (; next > NEXT_END;) {
             struct buffer n = {0};
             storage_mmap_buffer_get(me, next, &n);
-            if (STATUS_SET != n.i8_get(&n, NULL)) break;
+            if (STATUS_SET != n.i8_get(&n, NULL))
+                break;
             n.i8_get(&n, NULL); // MARK
             i16 remains = n.i16_get(&n, NULL);
             n.i32_get(&n, NULL);
@@ -320,7 +328,8 @@ static struct buffer * storage_mmap_read(struct storage *me, i64 offset, char **
 
             struct buffer s = {0};
             n.slice(&n, 0, remains, &s, e);
-            if (e && *e) THROW_S(e);
+            if (e && *e)
+                THROW_S(e);
             p->array_put(p, s.array, s.remaining(&s), NULL);
         }
         p->flip(p);
@@ -337,7 +346,7 @@ EXCEPTION:
 }
 
 static inline void storage_mmap_write_priv(struct storage *me, i64 offset, u8 mark, struct buffer *in, char **e) {
-    const int BLOCK_DATA_BYTES = me->opts.block_bytes;
+    const int BLOCK_DATA_BYTES = me->opts.block_bytes - BLOCK_HEADER_BYTES;
     i64 curr = offset;
     u8 curr_mark = mark;
     i32 remaining = in->remaining(in);
@@ -355,9 +364,9 @@ static inline void storage_mmap_write_priv(struct storage *me, i64 offset, u8 ma
         // if (*e && **e) return;
 
         u8 status = c.i8_get(&c, NULL);
-        c.i8_get(&c, NULL);      // mark
-        c.i16_get(&c, NULL);     // data length
-        c.i32_get(&c, NULL);     // total length
+        c.i8_get(&c, NULL);  // mark
+        c.i16_get(&c, NULL); // data length
+        c.i32_get(&c, NULL); // total length
         i64 next = c.i64_get(&c, NULL);
 
         if (overwriting < 0) {
@@ -398,7 +407,8 @@ static inline void storage_mmap_write_priv(struct storage *me, i64 offset, u8 ma
                 storage_mmap_delete(me, next_last, e);
             }
             storage_commit(me, STORAGE_COMMIT_DEFAULT, e); // was 1
-            if (e && *e) THROW_S(e);
+            if (e && *e)
+                THROW_S(e);
             break;
         }
 
@@ -426,12 +436,13 @@ static i64 storage_mmap_write_at(struct storage *me, i64 offset, struct buffer *
 static void storage_transaction(struct storage *me, i64 id, char **e) {
     (void)id;
     assert(me != NULL);
-    // No-op 
+    // No-op
 }
 
 static void storage_mmap_close(struct storage *me) {
     assert(me != NULL);
-    if (me->fd <= 0) return;
+    if (me->fd <= 0)
+        return;
 
     // LOG("%p: begin file=%s, count=%lld, free=%lld", me, me->opts.file, me->count, me->free);
 
@@ -460,7 +471,7 @@ static void storage_mmap_close(struct storage *me) {
     me->fd = -1;
 }
 
-static int storage_mmap_open(struct storage * me, struct storage_opts opts, char **e) {
+static int storage_mmap_open(struct storage *me, struct storage_opts opts, char **e) {
     if (!me)
         return -1;
 
@@ -473,7 +484,7 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
         THROW(e, "Aligned chunk size too large: %lld", aligned);
     me->increment = (i32)aligned;
     me->mmap_bytes = (i32)aligned;
-        
+
     memcpy(&me->opts, &opts, sizeof(struct storage_opts));
 
     char dir[PATH_MAX] = {0};
@@ -481,7 +492,7 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
     mkdirs(dir, S_IRWXU);
 
     // O_DIRECT removed: incompatible with mmap and can hurt performance
-    me->fd = open(me->opts.file, (opts.mode == FLINTDB_RDWR ? O_RDWR | O_CREAT : O_RDONLY), S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
+    me->fd = open(me->opts.file, (opts.mode == FLINTDB_RDWR ? O_RDWR | O_CREAT : O_RDONLY), S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
     if (me->fd < 0) {
         THROW(e, "Cannot open file %s: %s", me->opts.file, strerror(errno));
     }
@@ -496,14 +507,15 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
     // Using MAP_PRIVATE here would create a private COW mapping and header writes wouldn't be visible
     // to other processes (e.g., Java reader) nor persisted after process exit.
     void *p = mmap(NULL, HEADER_BYTES, PROT_READ | (opts.mode == FLINTDB_RDWR ? PROT_WRITE : 0), MAP_SHARED, me->fd, 0);
-    if (p == MAP_FAILED) 
-        THROW(e, "Cannot mmap file %s: %s", me->opts.file, strerror(errno)); 
+    if (p == MAP_FAILED)
+        THROW(e, "Cannot mmap file %s: %s", me->opts.file, strerror(errno));
 
     me->h = buffer_mmap(p, 0, HEADER_BYTES);
 
     me->cache = hashmap_new(MAPPED_BYTEBUFFER_POOL_SIZE, hashmap_int_hash, hashmap_int_cmpr);
 
-    if (!me->cache) THROW(e, "Cannot create cache");
+    if (!me->cache)
+        THROW(e, "Cannot create cache");
 
     me->close = storage_mmap_close;
     me->count_get = storage_count_get;
@@ -522,26 +534,27 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
         me->free = 0;
         me->count = 0;
         storage_commit(me, STORAGE_COMMIT_FORCE, e);
-        if (e && *e) THROW_S(e);
-    }
-    else {
+        if (e && *e)
+            THROW_S(e);
+    } else {
         struct buffer *h = me->h;
         struct buffer bb = {0};
         h->slice(h, CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES, &bb, e);
-        if (e && *e) THROW_S(e);
+        if (e && *e)
+            THROW_S(e);
 
-        bb.i64_get(&bb, e); // reserved
+        bb.i64_get(&bb, e);            // reserved
         me->free = bb.i64_get(&bb, e); // The front of deleted blocks
-        bb.i64_get(&bb, e); // The tail of deleted blocks => not used in mmap
-        bb.i16_get(&bb, e); // version:i16
-        i32 inc = bb.i32_get(&bb, e); // increment:i32
+        bb.i64_get(&bb, e);            // The tail of deleted blocks => not used in mmap
+        bb.i16_get(&bb, e);            // version:i16
+        i32 inc = bb.i32_get(&bb, e);  // increment:i32
         if (inc <= 0)
             THROW(e, "Invalid increment size: %d, file:%s", inc, me->opts.file); // old version was (10MB)
         if (inc != me->increment) {
             me->increment = inc;
             me->mmap_bytes = me->block_bytes * (me->increment / me->block_bytes);
         }
-        bb.skip(&bb, R24LEN); // reserved
+        bb.skip(&bb, R24LEN);             // reserved
         i16 blksize = bb.i16_get(&bb, e); // BLOCK Data Max Size (exclude BLOCK Header)
         if (blksize != opts.block_bytes) {
             THROW(e, "Block size mismatch: header=%d, opts=%d", blksize, opts.block_bytes);
@@ -556,15 +569,15 @@ static int storage_mmap_open(struct storage * me, struct storage_opts opts, char
     if (env_openlog && atoi(env_openlog) > 0) {
         const i32 pages_per_chunk = (OS_PAGE_SIZE > 0) ? (me->mmap_bytes / OS_PAGE_SIZE) : 0;
         const i32 blocks_per_chunk = (me->block_bytes > 0) ? (me->mmap_bytes / me->block_bytes) : 0;
-        LOG("MMAP OPEN: file=%s, mode=%d, data_block_bytes=%d, block_bytes=%d, increment=%d, mmap_bytes=%d, os_page=%d, pages_per_chunk=%d, blocks_per_chunk=%d",
-            opts.file, opts.mode, opts.block_bytes, me->block_bytes, me->increment, me->mmap_bytes, OS_PAGE_SIZE, pages_per_chunk, blocks_per_chunk);
+        LOG("MMAP OPEN: file=%s, mode=%d, data_block_bytes=%d, block_bytes=%d, increment=%d, mmap_bytes=%d, os_page=%d, pages_per_chunk=%d, blocks_per_chunk=%d", opts.file, opts.mode, opts.block_bytes, me->block_bytes, me->increment, me->mmap_bytes, OS_PAGE_SIZE, pages_per_chunk, blocks_per_chunk);
     }
 
     return 0;
 
 EXCEPTION:
     // WARN("%s", e);
-    if (me) storage_mmap_close(me);
+    if (me)
+        storage_mmap_close(me);
     return -1;
 }
 
@@ -582,7 +595,8 @@ static void storage_mem_buffer_get(struct storage *me, i64 index, struct buffer 
     if (HASHMAP_INVALID_VAL != found) {
         struct buffer *mbb = (struct buffer *)found;
         mbb->slice(mbb, r, me->block_bytes, out, &e);
-        if (e && *e) THROW_S(e);
+        if (e && *e)
+            THROW_S(e);
         return;
     }
 
@@ -592,16 +606,17 @@ static void storage_mem_buffer_get(struct storage *me, i64 index, struct buffer 
         e = "Out of memory";
         THROW_S(e);
     }
-    
+
     me->cache->put(me->cache, i, (valtype)mbb, storage_cache_free);
 
     if (me->opts.mode == FLINTDB_RDWR) {
         i32 blocks = me->mmap_bytes / me->block_bytes;
         i64 next = 1 + (i * blocks);
         struct buffer bb = {0};
-        for(i32 x=0; x<blocks; x++) {
+        for (i32 x = 0; x < blocks; x++) {
             mbb->slice(mbb, x * me->block_bytes, me->block_bytes, &bb, &e);
-            if (e && *e) THROW_S(e);
+            if (e && *e)
+                THROW_S(e);
             bb.i8_put(&bb, STATUS_EMPTY, NULL);
             bb.i8_put(&bb, MARK_AS_UNUSED, NULL);
             bb.i16_put(&bb, 0, NULL);
@@ -610,11 +625,13 @@ static void storage_mem_buffer_get(struct storage *me, i64 index, struct buffer 
             next++;
         }
         storage_commit(me, STORAGE_COMMIT_DEFAULT, &e);
-        if (e && *e) THROW_S(e);
+        if (e && *e)
+            THROW_S(e);
     }
 
     mbb->slice(mbb, r, me->block_bytes, out, &e);
-    if (e && *e) THROW_S(e);
+    if (e && *e)
+        THROW_S(e);
     return;
 
 EXCEPTION:
@@ -627,10 +644,11 @@ static u8 storage_mem_delete(struct storage *me, i64 offset, char **e) {
 
     storage_mem_buffer_get(me, offset, &p);
     p.slice(&p, 0, p.remaining(&p), &c, e);
-    if (e && *e) THROW_S(e);
+    if (e && *e)
+        THROW_S(e);
 
     u8 status = c.i8_get(&c, e);
-    c.i8_get (&c, NULL);
+    c.i8_get(&c, NULL);
     c.i16_get(&c, NULL);
     c.i32_get(&c, NULL);
     i64 next = c.i64_get(&c, NULL);
@@ -638,15 +656,15 @@ static u8 storage_mem_delete(struct storage *me, i64 offset, char **e) {
     if (STATUS_SET != status)
         return 0;
 
-    p.i8_put (&p, STATUS_EMPTY, NULL);
-    p.i8_put (&p, MARK_AS_UNUSED, NULL);
+    p.i8_put(&p, STATUS_EMPTY, NULL);
+    p.i8_put(&p, MARK_AS_UNUSED, NULL);
     p.i16_put(&p, 0, NULL);
     p.i32_put(&p, 0, NULL);
     p.i64_put(&p, me->free, NULL);
-    
-    #ifdef STORAGE_FILL_ZEROED_BLOCK_ON_DELETE
+
+#ifdef STORAGE_FILL_ZEROED_BLOCK_ON_DELETE
     p.array_put(&p, me->clean, p.remaining(&p), NULL);
-    #endif
+#endif
 
     me->free = offset;
     me->count--;
@@ -654,7 +672,8 @@ static u8 storage_mem_delete(struct storage *me, i64 offset, char **e) {
         storage_mem_delete(me, next, e);
 
     storage_commit(me, STORAGE_COMMIT_LAZY, e);
-    if (e && *e) THROW_S(e);
+    if (e && *e)
+        THROW_S(e);
     return 1;
 
 EXCEPTION:
@@ -666,14 +685,16 @@ static u8 storage_mem_flush(struct storage *me, char **e) {
     return 1;
 }
 
-static struct buffer * storage_mem_read(struct storage *me, i64 offset, char **e) {
+static struct buffer *storage_mem_read(struct storage *me, i64 offset, char **e) {
     struct buffer mbb = {0};
     storage_mem_buffer_get(me, offset, &mbb);
     u8 status = mbb.i8_get(&mbb, e);
-    if (status != STATUS_SET) THROW(e, "Block at offset %lld is not set", offset);
+    if (status != STATUS_SET)
+        THROW(e, "Block at offset %lld is not set", offset);
 
     u8 mark = mbb.i8_get(&mbb, e);
-    if (mark != MARK_AS_DATA) THROW(e, "Block at offset %lld is not data", offset);
+    if (mark != MARK_AS_DATA)
+        THROW(e, "Block at offset %lld is not data", offset);
     i16 limit = mbb.i16_get(&mbb, e);
     i32 length = mbb.i32_get(&mbb, e);
     i64 next = mbb.i64_get(&mbb, e);
@@ -682,12 +703,14 @@ static struct buffer * storage_mem_read(struct storage *me, i64 offset, char **e
         struct buffer *p = buffer_alloc(length);
         struct buffer first = {0};
         mbb.slice(&mbb, 0, limit, &first, e);
-        if (e && *e) THROW_S(e);
+        if (e && *e)
+            THROW_S(e);
         p->array_put(p, first.array, first.remaining(&first), NULL);
-        for(; next > NEXT_END; ) {
+        for (; next > NEXT_END;) {
             struct buffer n = {0};
             storage_mem_buffer_get(me, next, &n);
-            if (STATUS_SET != n.i8_get(&n, NULL)) break;
+            if (STATUS_SET != n.i8_get(&n, NULL))
+                break;
             n.i8_get(&n, NULL);
             i16 remains = n.i16_get(&n, NULL);
             n.i32_get(&n, NULL);
@@ -695,7 +718,8 @@ static struct buffer * storage_mem_read(struct storage *me, i64 offset, char **e
 
             struct buffer s = {0};
             n.slice(&n, 0, remains, &s, e);
-            if (e && *e) THROW_S(e);
+            if (e && *e)
+                THROW_S(e);
             p->array_put(p, s.array, s.remaining(&s), NULL);
         }
         p->flip(p);
@@ -710,7 +734,7 @@ EXCEPTION:
 }
 
 static inline void storage_mem_write_priv(struct storage *me, i64 offset, u8 mark, struct buffer *in, char **e) {
-    const int BLOCK_DATA_BYTES = me->opts.block_bytes;
+    const int BLOCK_DATA_BYTES = me->opts.block_bytes - BLOCK_HEADER_BYTES;
     i64 curr = offset;
     u8 curr_mark = mark;
     i32 remaining = in->remaining(in);
@@ -768,7 +792,8 @@ static inline void storage_mem_write_priv(struct storage *me, i64 offset, u8 mar
                 storage_mem_delete(me, next_last, e);
             }
             storage_commit(me, STORAGE_COMMIT_DEFAULT, e);
-            if (e && *e) THROW_S(e);
+            if (e && *e)
+                THROW_S(e);
             break;
         }
 
@@ -793,7 +818,8 @@ static i64 storage_mem_write_at(struct storage *me, i64 offset, struct buffer *i
 
 static void storage_mem_close(struct storage *me) {
     assert(me != NULL);
-    if (me->cache == NULL) return;
+    if (me->cache == NULL)
+        return;
 
     storage_commit(me, STORAGE_COMMIT_FORCE, NULL);
 
@@ -814,7 +840,7 @@ static void storage_mem_close(struct storage *me) {
     }
 }
 
-static int storage_mem_open(struct storage * me, struct storage_opts opts, char **e) {
+static int storage_mem_open(struct storage *me, struct storage_opts opts, char **e) {
     if (!me)
         return -1;
 
@@ -832,10 +858,12 @@ static int storage_mem_open(struct storage * me, struct storage_opts opts, char 
 
     // Allocate header buffer
     me->h = buffer_alloc(HEADER_BYTES);
-    if (!me->h) THROW(e, "Cannot allocate header buffer");
+    if (!me->h)
+        THROW(e, "Cannot allocate header buffer");
 
     me->cache = hashmap_new(MAPPED_BYTEBUFFER_POOL_SIZE, hashmap_int_hash, hashmap_int_cmpr);
-    if (!me->cache) THROW(e, "Cannot create cache");
+    if (!me->cache)
+        THROW(e, "Cannot create cache");
 
     me->close = storage_mem_close;
     me->count_get = storage_count_get;
@@ -846,19 +874,21 @@ static int storage_mem_open(struct storage * me, struct storage_opts opts, char 
     me->delete = storage_mem_delete;
     me->flush = storage_mem_flush;
     me->transaction = storage_transaction;
-    me->mmap = NULL;  // Not supported for memory storage
+    me->mmap = NULL; // Not supported for memory storage
     me->head = storage_head;
 
     // Initialize as fresh storage
     me->free = 0;
     me->count = 0;
     storage_commit(me, STORAGE_COMMIT_FORCE, e);
-    if (e && *e) THROW_S(e);
+    if (e && *e)
+        THROW_S(e);
 
     return 0;
 
 EXCEPTION:
-    if (me) storage_mem_close(me);
+    if (me)
+        storage_mem_close(me);
     return -1;
 }
 /// End of memory-backed storage
@@ -866,14 +896,14 @@ EXCEPTION:
 /// Direct I/O storage
 
 #ifdef STORAGE_DIO_USE_BUFFER_POOL
-    #define BUFFER_POOL_BORROW(length) me->pool->borrow(me->pool, length);
+#define BUFFER_POOL_BORROW(length) me->pool->borrow(me->pool, length);
 #else
-    #define BUFFER_POOL_BORROW(length) buffer_alloc(length);
+#define BUFFER_POOL_BORROW(length) buffer_alloc(length);
 #endif
 
-#ifndef STORAGE_DIO_CACHE_BLOCKS 
-    #define STORAGE_DIO_CACHE_BLOCKS 1
-    // 1 : treemap, 256 * 1024 : hashmap
+#ifndef STORAGE_DIO_CACHE_BLOCKS
+#define STORAGE_DIO_CACHE_BLOCKS 1
+// 1 : treemap, 256 * 1024 : hashmap
 #endif
 
 struct storage_dio_priv {
@@ -892,48 +922,46 @@ struct storage_dio_priv {
     u32 direct_io_bytes;  // e.g., 4096 (must be multiple of direct_align)
     u32 page_cache_limit; // max cached pages before flush
 
-    #ifdef _WIN32
-    HANDLE hfile; 
-    #endif
+#ifdef _WIN32
+    HANDLE hfile;
+#endif
 };
 
 #ifdef _WIN32
-    #define PREAD_FUNC(me, buf, size, offset)  pread_win32(((struct storage_dio_priv *)((me)->priv))->hfile, buf, size, offset)
-    #define PWRITE_FUNC(me, buf, size, offset) pwrite_win32(((struct storage_dio_priv *)((me)->priv))->hfile, buf, size, offset)
+#define PREAD_FUNC(me, buf, size, offset) pread_win32(((struct storage_dio_priv *)((me)->priv))->hfile, buf, size, offset)
+#define PWRITE_FUNC(me, buf, size, offset) pwrite_win32(((struct storage_dio_priv *)((me)->priv))->hfile, buf, size, offset)
 #else
-    #define PREAD_FUNC(me, buf, size, offset)  pread(me->fd, buf, size, offset)
-    #define PWRITE_FUNC(me, buf, size, offset) pwrite(me->fd, buf, size, offset)
+#define PREAD_FUNC(me, buf, size, offset) pread(me->fd, buf, size, offset)
+#define PWRITE_FUNC(me, buf, size, offset) pwrite(me->fd, buf, size, offset)
 #endif
-
 
 #ifdef STORAGE_DIO_CACHE_BLOCKS
 
-static inline int env_truthy(const char *v) {
-    return v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0 || strcasecmp(v, "yes") == 0);
-}
+static inline int env_truthy(const char *v) { return v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0 || strcasecmp(v, "yes") == 0); }
 
-static inline i64 align_down_i64(i64 x, i64 a) {
-    return (a <= 0) ? x : (x / a) * a;
-}
+static inline i64 align_down_i64(i64 x, i64 a) { return (a <= 0) ? x : (x / a) * a; }
 
 #endif
 
 static inline i64 align_up_i64(i64 x, i64 a) {
-    if (a <= 0) return x;
+    if (a <= 0)
+        return x;
     return ((x + a - 1) / a) * a;
 }
-
 
 // Pick a DIO inflate chunk size (mmap_bytes) that satisfies:
 // - divisible by block_bytes (so per-block initialization is exact)
 // - divisible by OS page size (so cache / IO alignment assumptions hold)
 static inline i64 storage_dio_chunk_bytes(i64 block_bytes, i64 target_bytes) {
     const i64 os_page = (i64)flintdb_page_bytes();
-    if (block_bytes <= 0) return align_up_i64(target_bytes, os_page);
-    if (target_bytes < block_bytes) target_bytes = block_bytes;
+    if (block_bytes <= 0)
+        return align_up_i64(target_bytes, os_page);
+    if (target_bytes < block_bytes)
+        target_bytes = block_bytes;
 
     i64 blocks = (target_bytes + block_bytes - 1) / block_bytes; // ceil
-    if (blocks < 1) blocks = 1;
+    if (blocks < 1)
+        blocks = 1;
     i64 length = blocks * block_bytes;
 
     // Increase by whole blocks until we land on an OS page boundary.
@@ -945,36 +973,35 @@ static inline i64 storage_dio_chunk_bytes(i64 block_bytes, i64 target_bytes) {
     return length;
 }
 
-static inline void storage_dio_commit(struct storage *me, u8 force, char **e) {
-    storage_commit(me, force, e);
-}
+static inline void storage_dio_commit(struct storage *me, u8 force, char **e) { storage_commit(me, force, e); }
 
 /**
  * @brief relative -> absolute
- * 
- * @param me 
- * @param offset 
- * @return * i64 
+ *
+ * @param me
+ * @param offset
+ * @return * i64
  */
-static inline i64 storage_dio_file_offset(struct storage *me, i64 offset) {
-    return (offset * me->block_bytes) + HEADER_BYTES;
-}
+static inline i64 storage_dio_file_offset(struct storage *me, i64 offset) { return (offset * me->block_bytes) + HEADER_BYTES; }
 
 // Uninitialized/sparse blocks may contain zeros, and on some platforms preallocation can
 // return non-deterministic bytes. Defensively interpret any invalid header as an empty block
 // with linear free-list linkage.
 static inline void storage_dio_fixup_uninitialized_meta(i64 offset, u8 *status, u8 mark, i64 *next) {
-    if (!status) return;
+    if (!status)
+        return;
     if (*status == STATUS_SET) {
         if (mark != MARK_AS_DATA && mark != MARK_AS_NEXT) {
             *status = STATUS_EMPTY;
-            if (next) *next = offset + 1;
+            if (next)
+                *next = offset + 1;
         }
         return;
     }
     if (*status != STATUS_EMPTY) {
         *status = STATUS_EMPTY;
-        if (next) *next = offset + 1;
+        if (next)
+            *next = offset + 1;
     }
 }
 
@@ -1008,11 +1035,13 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
                             memcpy(hdr + first, page2->array, (size_t)((u32)BLOCK_HEADER_BYTES - first));
                         } else {
                             ssize_t rn = PREAD_FUNC(me, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
-                            if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
+                            if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first))
+                                return -1;
                         }
                     } else {
                         ssize_t rn = PREAD_FUNC(me, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
-                        if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
+                        if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first))
+                            return -1;
                     }
                 }
 
@@ -1021,8 +1050,10 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
                 i64 next = 0;
                 memcpy(&next, hdr + 8, 8);
                 storage_dio_fixup_uninitialized_meta(offset, &status, mark, &next);
-                if (status_out) *status_out = status;
-                if (next_out) *next_out = next;
+                if (status_out)
+                    *status_out = status;
+                if (next_out)
+                    *next_out = next;
                 return 0;
             }
         }
@@ -1037,8 +1068,10 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
                 i64 next = 0;
                 memcpy(&next, cached->array + 8, 8);
                 storage_dio_fixup_uninitialized_meta(offset, &status, mark, &next);
-                if (status_out) *status_out = status;
-                if (next_out) *next_out = next;
+                if (status_out)
+                    *status_out = status;
+                if (next_out)
+                    *next_out = next;
                 return 0;
             }
         }
@@ -1056,8 +1089,10 @@ static inline int storage_dio_block_meta_get(struct storage *me, i64 offset, u8 
     i64 next = 0;
     memcpy(&next, hdr + 8, 8);
     storage_dio_fixup_uninitialized_meta(offset, &status, mark, &next);
-    if (status_out) *status_out = status;
-    if (next_out) *next_out = next;
+    if (status_out)
+        *status_out = status;
+    if (next_out)
+        *next_out = next;
     return 0;
 }
 
@@ -1089,11 +1124,13 @@ static inline int storage_dio_block_header_get(struct storage *me, i64 offset, u
                             memcpy(hdr + first, page2->array, (size_t)((u32)BLOCK_HEADER_BYTES - first));
                         } else {
                             ssize_t rn = PREAD_FUNC(me, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
-                            if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
+                            if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first))
+                                return -1;
                         }
                     } else {
                         ssize_t rn = PREAD_FUNC(me, hdr + first, (size_t)((u32)BLOCK_HEADER_BYTES - first), absolute + (i64)first);
-                        if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first)) return -1;
+                        if (rn != (ssize_t)((u32)BLOCK_HEADER_BYTES - first))
+                            return -1;
                     }
                 }
 
@@ -1102,9 +1139,12 @@ static inline int storage_dio_block_header_get(struct storage *me, i64 offset, u
                 i64 next = 0;
                 memcpy(&next, hdr + 8, 8);
                 storage_dio_fixup_uninitialized_meta(offset, &status, mark, &next);
-                if (status_out) *status_out = status;
-                if (mark_out) *mark_out = mark;
-                if (next_out) *next_out = next;
+                if (status_out)
+                    *status_out = status;
+                if (mark_out)
+                    *mark_out = mark;
+                if (next_out)
+                    *next_out = next;
                 return 0;
             }
         }
@@ -1122,16 +1162,21 @@ static inline int storage_dio_block_header_get(struct storage *me, i64 offset, u
     i64 next = 0;
     memcpy(&next, hdr + 8, 8);
     storage_dio_fixup_uninitialized_meta(offset, &status, mark, &next);
-    if (status_out) *status_out = status;
-    if (mark_out) *mark_out = mark;
-    if (next_out) *next_out = next;
+    if (status_out)
+        *status_out = status;
+    if (mark_out)
+        *mark_out = mark;
+    if (next_out)
+        *next_out = next;
     return 0;
 }
 
 #if defined(__linux__) && defined(O_DIRECT)
 static inline struct buffer *storage_dio_odirect_page_get(struct storage *me, struct storage_dio_priv *priv, i64 page_base, int *cached_out) {
-    if (cached_out) *cached_out = 0;
-    if (!priv) return NULL;
+    if (cached_out)
+        *cached_out = 0;
+    if (!priv)
+        return NULL;
 
     const u32 io = priv->direct_io_bytes;
     struct hashmap *cache = me->cache;
@@ -1139,13 +1184,15 @@ static inline struct buffer *storage_dio_odirect_page_get(struct storage *me, st
     if (cache) {
         valtype found = cache->get(cache, (keytype)page_base);
         if (HASHMAP_INVALID_VAL != found) {
-            if (cached_out) *cached_out = 1;
+            if (cached_out)
+                *cached_out = 1;
             return (struct buffer *)found;
         }
     }
 
     struct buffer *page = buffer_alloc_aligned(io, priv->direct_align);
-    if (!page) return NULL;
+    if (!page)
+        return NULL;
 
     ssize_t r = PREAD_FUNC(me, page->array, page->capacity, page_base);
     if (r < 0) {
@@ -1161,13 +1208,15 @@ static inline struct buffer *storage_dio_odirect_page_get(struct storage *me, st
     if (cache) {
         void *slot = cache->put(cache, (keytype)page_base, (valtype)page, storage_cache_free);
         if (slot) {
-            if (cached_out) *cached_out = 1;
+            if (cached_out)
+                *cached_out = 1;
             return page;
         }
     }
 
     // Not cached; caller must write-through and free.
-    if (cached_out) *cached_out = 0;
+    if (cached_out)
+        *cached_out = 0;
     return page;
 }
 #endif
@@ -1193,12 +1242,14 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
                 struct buffer *page = (struct buffer *)found;
                 struct buffer *bb = BUFFER_POOL_BORROW((u32)me->block_bytes);
                 if (!bb) {
-                    if (out) *out = NULL;
+                    if (out)
+                        *out = NULL;
                     return -1;
                 }
                 bb->clear(bb);
                 memcpy(bb->array, page->array + page_off, (size_t)me->block_bytes);
-                if (out) *out = bb;
+                if (out)
+                    *out = bb;
                 return (ssize_t)me->block_bytes;
             }
         }
@@ -1206,13 +1257,15 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
         // Miss: do an aligned page pread.
         struct buffer *page = buffer_alloc_aligned(io, priv->direct_align);
         if (!page) {
-            if (out) *out = NULL;
+            if (out)
+                *out = NULL;
             return -1;
         }
         ssize_t n = PREAD_FUNC(me, page->array, page->capacity, page_base);
         if (n <= 0) {
             page->free(page);
-            if (out) *out = NULL;
+            if (out)
+                *out = NULL;
             return n;
         }
         if ((u32)n < page->capacity) {
@@ -1222,14 +1275,16 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
         struct buffer *bb = BUFFER_POOL_BORROW((u32)me->block_bytes);
         if (!bb) {
             page->free(page);
-            if (out) *out = NULL;
+            if (out)
+                *out = NULL;
             return -1;
         }
         bb->clear(bb);
         memcpy(bb->array, page->array + page_off, (size_t)me->block_bytes);
         page->free(page);
 
-        if (out) *out = bb;
+        if (out)
+            *out = bb;
         return (ssize_t)me->block_bytes;
     }
 #endif
@@ -1250,7 +1305,8 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
             struct buffer *cached = (struct buffer *)found;
             struct buffer *bb = BUFFER_POOL_BORROW(me->block_bytes);
             if (!bb) {
-                if (out) *out = NULL;
+                if (out)
+                    *out = NULL;
                 return -1;
             }
             bb->clear(bb);
@@ -1269,7 +1325,8 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
                             ssize_t rn = PREAD_FUNC(me, bb->array + first, (size_t)second, o + (i64)first);
                             if (rn != (ssize_t)second) {
                                 bb->free(bb);
-                                if (out) *out = NULL;
+                                if (out)
+                                    *out = NULL;
                                 return -1;
                             }
                         }
@@ -1277,13 +1334,15 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
                         ssize_t rn = PREAD_FUNC(me, bb->array + first, (size_t)second, o + (i64)first);
                         if (rn != (ssize_t)second) {
                             bb->free(bb);
-                            if (out) *out = NULL;
+                            if (out)
+                                *out = NULL;
                             return -1;
                         }
                     }
                 }
             }
-            if (out) *out = bb;
+            if (out)
+                *out = bb;
             return (ssize_t)bb->capacity;
         }
 
@@ -1293,24 +1352,26 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
             struct buffer *cached2 = (struct buffer *)found;
             struct buffer *bb = BUFFER_POOL_BORROW(me->block_bytes);
             if (!bb) {
-                if (out) *out = NULL;
+                if (out)
+                    *out = NULL;
                 return -1;
             }
             bb->clear(bb);
             memcpy(bb->array, cached2->array, (size_t)bb->capacity);
-            if (out) *out = bb;
+            if (out)
+                *out = bb;
             return (ssize_t)bb->capacity;
         }
     }
 #endif
 
-    //struct buffer *bb = buffer_alloc(me->block_bytes);
+    // struct buffer *bb = buffer_alloc(me->block_bytes);
     struct buffer *bb = BUFFER_POOL_BORROW(me->block_bytes);
     ssize_t n = PREAD_FUNC(me, bb->array, bb->capacity, o);
 #if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
     // Best-effort: drop cache for the range we just touched.
     // This is safer than O_DIRECT (which requires strict alignment of buffers/offsets).
-    
+
     if (priv && priv->drop_os_cache) {
         (void)posix_fadvise(me->fd, (off_t)o, (off_t)bb->capacity, POSIX_FADV_DONTNEED);
     }
@@ -1318,7 +1379,8 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
     // LOG("storage_dio_buffer_get: offset=%lld, file_offset=%lld, bytes_read=%zd", offset, o, n);
     if (n <= 0 && bb) {
         bb->free(bb);
-        if (out) *out = NULL;
+        if (out)
+            *out = NULL;
     } else {
         bb->clear(bb);
         *out = bb;
@@ -1362,7 +1424,8 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
             struct buffer *page = (struct buffer *)itr.val;
             // Page buffers are aligned and sized for O_DIRECT.
             ssize_t n = pwrite_all(me, page->array, page->capacity, abs);
-            if (n < 0) return -1;
+            if (n < 0)
+                return -1;
             total_bytes += (unsigned long long)n;
         }
         cache->clear(cache);
@@ -1383,9 +1446,11 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 
     size_t batch_cap = (size_t)me->mmap_bytes;
     const size_t unit = (size_t)flintdb_page_bytes();
-    if (batch_cap < unit) batch_cap = unit;
+    if (batch_cap < unit)
+        batch_cap = unit;
     batch_cap = (batch_cap / unit) * unit;
-    if (batch_cap == 0) batch_cap = unit;
+    if (batch_cap == 0)
+        batch_cap = unit;
 
     char *batch = (char *)MALLOC(batch_cap);
     if (!batch) {
@@ -1407,7 +1472,8 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 
         i64 abs = itr.key;
         struct buffer *heap = (struct buffer *)itr.val;
-        if (!heap) continue;
+        if (!heap)
+            continue;
 
         // Start a new run if needed.
         if (run_len == 0) {
@@ -1686,7 +1752,8 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
 
     i64 o = storage_dio_file_offset(me, offset);
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
-    if (!priv) return -1;
+    if (!priv)
+        return -1;
 
     // Ensure internal size starts sane.
     if (priv->inflated_size < (i64)HEADER_BYTES) {
@@ -1726,7 +1793,8 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
 #endif
 
         struct buffer *chunk = buffer_alloc_aligned((u32)length, alignment);
-        if (!chunk) THROW(e, "storage_dio_file_inflate: OOM allocating chunk (%d bytes)", length);
+        if (!chunk)
+            THROW(e, "storage_dio_file_inflate: OOM allocating chunk (%d bytes)", length);
 
         const i16 z16 = 0;
         const i32 z32 = 0;
@@ -1751,7 +1819,6 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
                 THROW(e, "storage_dio_file_inflate: pwrite failed at abs=%lld (%d bytes)", abs_first, length);
             }
 
-
 #if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
             {
                 struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
@@ -1765,7 +1832,8 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
         chunk->free(chunk);
 
         storage_commit(me, STORAGE_COMMIT_FORCE, e);
-        if (e && *e) THROW_S(e);
+        if (e && *e)
+            THROW_S(e);
         return 1;
     }
 
@@ -1774,16 +1842,18 @@ EXCEPTION:
     return -1;
 }
 
-
-static struct buffer * storage_dio_read(struct storage *me, i64 offset, char **e) {
+static struct buffer *storage_dio_read(struct storage *me, i64 offset, char **e) {
     struct buffer *blk = NULL;
     storage_dio_buffer_get(me, offset, &blk);
-    if (!blk) THROW(e, "storage_dio_read: pread failed at offset=%lld", offset);
+    if (!blk)
+        THROW(e, "storage_dio_read: pread failed at offset=%lld", offset);
     u8 status = blk->i8_get(blk, e);
-    if (status != STATUS_SET) THROW(e, "Block at offset %lld is not set", offset);
+    if (status != STATUS_SET)
+        THROW(e, "Block at offset %lld is not set", offset);
 
     u8 mark = blk->i8_get(blk, e);
-    if (mark != MARK_AS_DATA) THROW(e, "Block at offset %lld is not data", offset);
+    if (mark != MARK_AS_DATA)
+        THROW(e, "Block at offset %lld is not data", offset);
     i16 limit = blk->i16_get(blk, e);
     i32 length = blk->i32_get(blk, e);
     i64 next = blk->i64_get(blk, e);
@@ -1794,10 +1864,11 @@ static struct buffer * storage_dio_read(struct storage *me, i64 offset, char **e
         out->array_put(out, blk->array_get(blk, limit, NULL), (u32)limit, NULL);
         blk->free(blk);
         blk = NULL;
-        for(; next > NEXT_END; ) {
+        for (; next > NEXT_END;) {
             struct buffer *n = NULL;
             storage_dio_buffer_get(me, next, &n);
-            if (!n) THROW(e, "storage_dio_read: pread failed at offset=%lld", next);
+            if (!n)
+                THROW(e, "storage_dio_read: pread failed at offset=%lld", next);
             if (STATUS_SET != n->i8_get(n, NULL)) {
                 n->free(n);
                 break;
@@ -1822,13 +1893,16 @@ static struct buffer * storage_dio_read(struct storage *me, i64 offset, char **e
     return out;
 
 EXCEPTION:
-    if (blk) blk->free(blk);
+    if (blk)
+        blk->free(blk);
     return NULL;
 }
 
 static u8 storage_dio_delete(struct storage *me, i64 offset, char **e) {
-    if (!me) return 0;
-    if (offset <= NEXT_END) return 0;
+    if (!me)
+        return 0;
+    if (offset <= NEXT_END)
+        return 0;
 
     i32 deleted = 0;
     i64 curr = offset;
@@ -1853,7 +1927,8 @@ static u8 storage_dio_delete(struct storage *me, i64 offset, char **e) {
         }
 
         struct buffer *p = BUFFER_POOL_BORROW(me->block_bytes);
-        if (!p) THROW(e, "storage_dio_delete: OOM allocating block buffer");
+        if (!p)
+            THROW(e, "storage_dio_delete: OOM allocating block buffer");
         p->clear(p);
         p->i8_put(p, STATUS_EMPTY, NULL);
         p->i8_put(p, MARK_AS_UNUSED, NULL);
@@ -1872,7 +1947,8 @@ static u8 storage_dio_delete(struct storage *me, i64 offset, char **e) {
         // ownership transferred
 
         me->free = curr;
-        if (me->count > 0) me->count--;
+        if (me->count > 0)
+            me->count--;
         deleted++;
 
         // After the head, overflow blocks must be MARK_AS_NEXT.
@@ -1888,7 +1964,8 @@ static u8 storage_dio_delete(struct storage *me, i64 offset, char **e) {
 
     if (deleted > 0) {
         storage_dio_commit(me, STORAGE_COMMIT_LAZY, e);
-        if (e && *e) THROW_S(e);
+        if (e && *e)
+            THROW_S(e);
         return 1;
     }
     return 0;
@@ -1898,14 +1975,16 @@ EXCEPTION:
 }
 
 static u8 storage_dio_flush(struct storage *me, char **e) {
-    if (!me) return 0;
+    if (!me)
+        return 0;
 
     if (storage_dio_pflush(me) < 0) {
         THROW(e, "storage_dio_flush: pflush failed");
     }
 
     storage_dio_commit(me, STORAGE_COMMIT_FORCE, e);
-    if (e && *e) THROW_S(e);
+    if (e && *e)
+        THROW_S(e);
     return 1;
 
 EXCEPTION:
@@ -1930,7 +2009,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
 
     while (1) {
         storage_dio_file_inflate(me, curr, e);
-        if (e && *e) THROW_S(*e);
+        if (e && *e)
+            THROW_S(*e);
 
         // Read minimal metadata (status + next pointer) instead of preading the whole block.
         u8 status = STATUS_EMPTY;
@@ -1948,7 +2028,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
             if ((unsigned long long)page_off + (unsigned long long)me->block_bytes <= (unsigned long long)io) {
                 int cached = 0;
                 struct buffer *page = storage_dio_odirect_page_get(me, priv, page_base, &cached);
-                if (!page) THROW(e, "storage_dio_write_priv: O_DIRECT page pread failed at abs=%lld", abs);
+                if (!page)
+                    THROW(e, "storage_dio_write_priv: O_DIRECT page pread failed at abs=%lld", abs);
 
                 char *blk = page->array + page_off;
                 status = (u8)blk[0];
@@ -1956,7 +2037,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
                 memcpy(&next, blk + 8, 8);
                 storage_dio_fixup_uninitialized_meta(curr, &status, mark0, &next);
                 const int old_set = (STATUS_SET == status);
-                if (inserting < 0) inserting = (old_set ? 0 : 1);
+                if (inserting < 0)
+                    inserting = (old_set ? 0 : 1);
 
                 int chunk = (remaining < BLOCK_DATA_BYTES ? remaining : BLOCK_DATA_BYTES);
                 if (STATUS_SET != status) {
@@ -1990,7 +2072,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
                 if (!cached) {
                     ssize_t wn = pwrite_all(me, page->array, page->capacity, page_base);
                     page->free(page);
-                    if (wn < 0) THROW(e, "storage_dio_write_priv: O_DIRECT page pwrite failed at abs=%lld", page_base);
+                    if (wn < 0)
+                        THROW(e, "storage_dio_write_priv: O_DIRECT page pwrite failed at abs=%lld", page_base);
                 } else {
                     u32 limit = priv->page_cache_limit ? priv->page_cache_limit : 8192u;
                     if (me->cache && (u32)me->cache->count_get(me->cache) >= limit) {
@@ -2007,7 +2090,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
                         storage_dio_delete(me, next_last, e);
                     }
                     storage_dio_commit(me, STORAGE_COMMIT_LAZY, e);
-                    if (e && *e) THROW_S(e);
+                    if (e && *e)
+                        THROW_S(e);
                     break;
                 }
 
@@ -2027,7 +2111,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
         }
 
         const int old_set = (STATUS_SET == status);
-        if (inserting < 0) inserting = (old_set ? 0 : 1);
+        if (inserting < 0)
+            inserting = (old_set ? 0 : 1);
 
         int chunk = (remaining < BLOCK_DATA_BYTES ? remaining : BLOCK_DATA_BYTES);
 
@@ -2042,7 +2127,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
         }
 
         p = BUFFER_POOL_BORROW(me->block_bytes);
-        if (!p) THROW(e, "storage_dio_write_priv: OOM allocating block buffer");
+        if (!p)
+            THROW(e, "storage_dio_write_priv: OOM allocating block buffer");
         p->clear(p);
         p->i8_put(p, STATUS_SET, NULL);
         p->i8_put(p, curr_mark, NULL);
@@ -2076,7 +2162,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
                 storage_dio_delete(me, next_last, e);
             }
             storage_dio_commit(me, STORAGE_COMMIT_LAZY, e);
-            if (e && *e) THROW_S(e);
+            if (e && *e)
+                THROW_S(e);
             break;
         }
 
@@ -2085,7 +2172,8 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
     }
 
 EXCEPTION:
-    if (p) p->free(p);
+    if (p)
+        p->free(p);
     return;
 }
 
@@ -2102,8 +2190,9 @@ static i64 storage_dio_write_at(struct storage *me, i64 offset, struct buffer *i
 
 static void storage_dio_close(struct storage *me) {
     assert(me != NULL);
-    if (me->fd <= 0) return;
-    
+    if (me->fd <= 0)
+        return;
+
     if (storage_dio_pflush(me) < 0) {
         WARN("storage_dio_close: pflush failed: %d - %s", errno, strerror(errno));
     }
@@ -2124,13 +2213,13 @@ static void storage_dio_close(struct storage *me) {
         FREE(me->clean);
         me->clean = NULL;
     }
-    #ifdef STORAGE_DIO_USE_BUFFER_POOL
+#ifdef STORAGE_DIO_USE_BUFFER_POOL
     if (me->pool) {
         DEBUG("freeing pool buffer");
         me->pool->free(me->pool);
         me->pool = NULL;
     }
-    #endif
+#endif
     if (me->priv) {
         FREE(me->priv);
         me->priv = NULL;
@@ -2144,13 +2233,13 @@ static void storage_dio_close(struct storage *me) {
 
 /**
  * @brief Direct I/O storage (env overrides: FLINTDB_DIO_OS_CACHE=1, FLINTDB_DIO_O_DIRECT=1, FLINTDB_DIO_PAGE_CACHE=8192)
- * 
- * @param me 
- * @param opts 
- * @param e 
- * @return int 
+ *
+ * @param me
+ * @param opts
+ * @param e
+ * @return int
  */
-static int storage_dio_open(struct storage * me, struct storage_opts opts, char **e) {
+static int storage_dio_open(struct storage *me, struct storage_opts opts, char **e) {
     if (!me)
         return -1;
 
@@ -2164,7 +2253,8 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
 
     // Align increment to OS page size for predictable ftruncate/write patterns.
     i64 inc = (opts.increment <= 0) ? (i64)DEFAULT_INCREMENT_BYTES : (i64)opts.increment;
-    if (inc < (i64)me->block_bytes) inc = (i64)me->block_bytes;
+    if (inc < (i64)me->block_bytes)
+        inc = (i64)me->block_bytes;
     inc = align_up_i64(inc, (i64)flintdb_page_bytes());
     me->increment = (i32)inc;
 
@@ -2177,12 +2267,10 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
         const i32 os_page = flintdb_page_bytes();
         const i32 pages_per_chunk = (os_page > 0) ? (me->mmap_bytes / os_page) : 0;
         const i32 blocks_per_chunk = (me->block_bytes > 0) ? (me->mmap_bytes / me->block_bytes) : 0;
-        LOG("DIO OPEN(SIZE): file=%s, mode=%d, data_block_bytes=%d, block_bytes=%d, increment=%d, mmap_bytes=%d, os_page=%d, pages_per_chunk=%d, blocks_per_chunk=%d",
-            opts.file, opts.mode, opts.block_bytes, me->block_bytes, me->increment, me->mmap_bytes, os_page, pages_per_chunk, blocks_per_chunk);
+        LOG("DIO OPEN(SIZE): file=%s, mode=%d, data_block_bytes=%d, block_bytes=%d, increment=%d, mmap_bytes=%d, os_page=%d, pages_per_chunk=%d, blocks_per_chunk=%d", opts.file, opts.mode, opts.block_bytes, me->block_bytes, me->increment, me->mmap_bytes, os_page, pages_per_chunk, blocks_per_chunk);
     }
 
     memcpy(&me->opts, &opts, sizeof(struct storage_opts));
-
 
     char dir[PATH_MAX] = {0};
     getdir(me->opts.file, dir);
@@ -2227,18 +2315,19 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     }
 #endif
 
-    me->fd = open(me->opts.file, open_flags, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
+    me->fd = open(me->opts.file, open_flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
     if (me->fd < 0) {
         THROW(e, "Cannot open file %s: %s", me->opts.file, strerror(errno));
     }
 
     me->priv = CALLOC(1, sizeof(struct storage_dio_priv));
-    if (!me->priv) THROW(e, "Cannot allocate DIO private data");
+    if (!me->priv)
+        THROW(e, "Cannot allocate DIO private data");
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
 
-    #ifdef _WIN32
-        priv->hfile = (HANDLE)_get_osfhandle(me->fd);
-    #endif
+#ifdef _WIN32
+    priv->hfile = (HANDLE)_get_osfhandle(me->fd);
+#endif
 
     // Default cache sizing (used by both O_DIRECT and non-O_DIRECT page caching).
     // Can be overridden on Linux O_DIRECT via FLINTDB_DIO_DIRECT_PAGE_CACHE.
@@ -2249,48 +2338,48 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
         priv->page_cache_limit = 8192u; // 8K pages
     }
 
-    #ifdef __APPLE__
-        if (oscache == 0) {
-            fcntl(me->fd, F_NOCACHE, 1); // F_GLOBAL_NOCACHE
-            priv->drop_os_cache = 1;
-        }
-        // macOS doesn't provide posix_fadvise/POSIX_FADV_* in all SDKs; use fcntl hints instead.
-        #ifdef F_RDAHEAD
-            (void)fcntl(me->fd, F_RDAHEAD, 1);
-        #endif
-        #ifdef F_RDADVISE
-            {
-                struct radvisory ra;
-                memset(&ra, 0, sizeof(ra));
-                ra.ra_offset = 0;
-                ra.ra_count = 0; // let kernel decide / whole file
-                (void)fcntl(me->fd, F_RDADVISE, &ra);
-            }
-        #endif
-    #endif
-
-    #ifdef __linux__
-        if (oscache == 0) {
-            // If file was opened with O_DIRECT, enable aligned page IO.
-#if defined(O_DIRECT)
-            if (open_flags & O_DIRECT) {
-                priv->o_direct_enabled = 1;
-                priv->direct_align = 4096u;
-                priv->direct_io_bytes = 4096u;
-                const char *env_pages = getenv("FLINTDB_DIO_DIRECT_PAGE_CACHE");
-                priv->page_cache_limit = (env_pages && atoi(env_pages) > 0) ? (u32)atoi(env_pages) : 8192u;
-                DEBUG("DIO: Linux O_DIRECT enabled (align=%u, io=%u, page_cache_limit=%u)", priv->direct_align, priv->direct_io_bytes, priv->page_cache_limit);
-            } else {
-                priv->drop_os_cache = 1;
-            }
-#else
-            priv->drop_os_cache = 1;
+#ifdef __APPLE__
+    if (oscache == 0) {
+        fcntl(me->fd, F_NOCACHE, 1); // F_GLOBAL_NOCACHE
+        priv->drop_os_cache = 1;
+    }
+// macOS doesn't provide posix_fadvise/POSIX_FADV_* in all SDKs; use fcntl hints instead.
+#ifdef F_RDAHEAD
+    (void)fcntl(me->fd, F_RDAHEAD, 1);
 #endif
+#ifdef F_RDADVISE
+    {
+        struct radvisory ra;
+        memset(&ra, 0, sizeof(ra));
+        ra.ra_offset = 0;
+        ra.ra_count = 0; // let kernel decide / whole file
+        (void)fcntl(me->fd, F_RDADVISE, &ra);
+    }
+#endif
+#endif
+
+#ifdef __linux__
+    if (oscache == 0) {
+        // If file was opened with O_DIRECT, enable aligned page IO.
+#if defined(O_DIRECT)
+        if (open_flags & O_DIRECT) {
+            priv->o_direct_enabled = 1;
+            priv->direct_align = 4096u;
+            priv->direct_io_bytes = 4096u;
+            const char *env_pages = getenv("FLINTDB_DIO_DIRECT_PAGE_CACHE");
+            priv->page_cache_limit = (env_pages && atoi(env_pages) > 0) ? (u32)atoi(env_pages) : 8192u;
+            DEBUG("DIO: Linux O_DIRECT enabled (align=%u, io=%u, page_cache_limit=%u)", priv->direct_align, priv->direct_io_bytes, priv->page_cache_limit);
+        } else {
+            priv->drop_os_cache = 1;
         }
-        #if defined(POSIX_FADV_SEQUENTIAL)
-            (void)posix_fadvise(me->fd, 0, 0, POSIX_FADV_SEQUENTIAL);
-        #endif
-    #endif
+#else
+        priv->drop_os_cache = 1;
+#endif
+    }
+#if defined(POSIX_FADV_SEQUENTIAL)
+    (void)posix_fadvise(me->fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
+#endif
 
     struct stat st;
     fstat(me->fd, &st);
@@ -2303,8 +2392,8 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     // Using MAP_PRIVATE here would create a private COW mapping and header writes wouldn't be visible
     // to other processes (e.g., Java reader) nor persisted after process exit.
     void *p = mmap(NULL, HEADER_BYTES, PROT_READ | (opts.mode == FLINTDB_RDWR ? PROT_WRITE : 0), MAP_SHARED, me->fd, 0);
-    if (p == MAP_FAILED) 
-        THROW(e, "Cannot mmap file %s: %s", me->opts.file, strerror(errno)); 
+    if (p == MAP_FAILED)
+        THROW(e, "Cannot mmap file %s: %s", me->opts.file, strerror(errno));
 
     me->h = buffer_mmap(p, 0, HEADER_BYTES);
 
@@ -2323,7 +2412,7 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
     me->read = storage_dio_read;
     me->write = storage_dio_write;
     me->write_at = storage_dio_write_at;
-    me->delete   = storage_dio_delete;
+    me->delete = storage_dio_delete;
     me->flush = storage_dio_flush;
     me->transaction = storage_transaction;
     me->mmap = storage_mmap;
@@ -2333,26 +2422,27 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
         me->free = 0;
         me->count = 0;
         storage_commit(me, STORAGE_COMMIT_FORCE, e);
-        if (e && *e) THROW_S(e);
-    }
-    else {
+        if (e && *e)
+            THROW_S(e);
+    } else {
         struct buffer *h = me->h;
         struct buffer bb = {0};
         h->slice(h, CUSTOM_HEADER_BYTES, COMMON_HEADER_BYTES, &bb, e);
-        if (e && *e) THROW_S(e);
+        if (e && *e)
+            THROW_S(e);
 
-        bb.i64_get(&bb, e); // reserved
+        bb.i64_get(&bb, e);            // reserved
         me->free = bb.i64_get(&bb, e); // The front of deleted blocks
-        bb.i64_get(&bb, e); // The tail of deleted blocks => not used in mmap
-        bb.i16_get(&bb, e); // version:i16
-        i32 inc = bb.i32_get(&bb, e); // increment:i32
+        bb.i64_get(&bb, e);            // The tail of deleted blocks => not used in mmap
+        bb.i16_get(&bb, e);            // version:i16
+        i32 inc = bb.i32_get(&bb, e);  // increment:i32
         if (inc <= 0)
             THROW(e, "Invalid increment size: %d, file:%s", inc, me->opts.file); // old version was (10MB)
         if (inc != me->increment) {
             me->increment = inc;
             me->mmap_bytes = me->block_bytes * (me->increment / me->block_bytes);
         }
-        bb.skip(&bb, R24LEN); // reserved
+        bb.skip(&bb, R24LEN);             // reserved
         i16 blksize = bb.i16_get(&bb, e); // BLOCK Data Max Size (exclude BLOCK Header)
         if (blksize != opts.block_bytes) {
             THROW(e, "Block size mismatch: header=%d, opts=%d", blksize, opts.block_bytes);
@@ -2361,50 +2451,46 @@ static int storage_dio_open(struct storage * me, struct storage_opts opts, char 
         assert(me->count > -1);
     }
 
-    #ifdef STORAGE_DIO_USE_BUFFER_POOL
+#ifdef STORAGE_DIO_USE_BUFFER_POOL
     DEBUG("Initializing DIO buffer pool: block_bytes=%d", me->block_bytes);
     me->pool = buffer_pool_safe_create(STORAGE_DIO_USE_BUFFER_POOL, me->block_bytes, 0); // 256K blocks
-    #endif
+#endif
 
     // LOG("count=%lld, free=%lld", me->count, me->free);
     return 0;
 
 EXCEPTION:
     // WARN("%s", e);
-    if (me) storage_dio_close(me);
+    if (me)
+        storage_dio_close(me);
     return -1;
 }
 
 /**
-* Compressed storage
-*/
-static int storage_compression_open(struct storage * me, struct storage_opts opts, char **e) {
+ * Compressed storage
+ */
+static int storage_compression_open(struct storage *me, struct storage_opts opts, char **e) {
     THROW(e, "Unsupported storage type: %s", opts.type);
 EXCEPTION:
     return -1;
 }
 
-
 /**
  * @brief Open storage based on type
- * 
- * @param me 
- * @param opts 
- * @param e 
- * @return int 
+ *
+ * @param me
+ * @param opts
+ * @param e
+ * @return int
  */
-int storage_open(struct storage * me, struct storage_opts opts, char **e) {
-    if (strncasecmp(opts.type, TYPE_MEMORY, sizeof(TYPE_MEMORY)-1) == 0)
+int storage_open(struct storage *me, struct storage_opts opts, char **e) {
+    if (strncasecmp(opts.type, TYPE_MEMORY, sizeof(TYPE_MEMORY) - 1) == 0)
         return storage_mem_open(me, opts, e);
 
-    if (strncasecmp(opts.type, TYPE_Z, sizeof(TYPE_Z)-1) == 0 
-        || strncasecmp(opts.type, TYPE_LZ4, sizeof(TYPE_LZ4)-1) == 0 
-        || strncasecmp(opts.type, TYPE_ZSTD, sizeof(TYPE_ZSTD)-1) == 0 
-        || strncasecmp(opts.type, TYPE_SNAPPY, sizeof(TYPE_SNAPPY)-1) == 0
-    ) 
+    if (strncasecmp(opts.type, TYPE_Z, sizeof(TYPE_Z) - 1) == 0 || strncasecmp(opts.type, TYPE_LZ4, sizeof(TYPE_LZ4) - 1) == 0 || strncasecmp(opts.type, TYPE_ZSTD, sizeof(TYPE_ZSTD) - 1) == 0 || strncasecmp(opts.type, TYPE_SNAPPY, sizeof(TYPE_SNAPPY) - 1) == 0)
         return storage_compression_open(me, opts, e);
 
-    if (strncasecmp(opts.type, TYPE_DIO, sizeof(TYPE_DIO)-1) == 0)
+    if (strncasecmp(opts.type, TYPE_DIO, sizeof(TYPE_DIO) - 1) == 0)
         return storage_dio_open(me, opts, e); // Experimental Direct I/O storage
 
     return storage_mmap_open(me, opts, e);
@@ -2412,11 +2498,11 @@ int storage_open(struct storage * me, struct storage_opts opts, char **e) {
 
 /**
  * @brief Memory Storage to File transfer
- * 
- * @param src 
- * @param file 
- * @param e 
- * @return int 
+ *
+ * @param src
+ * @param file
+ * @param e
+ * @return int
  */
 int storage_transfer(struct storage *src, const char *file, char **e) {
     assert(src);
