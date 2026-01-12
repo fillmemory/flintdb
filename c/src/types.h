@@ -29,9 +29,8 @@ typedef double f64;
 typedef uintptr_t var;
 #endif
 
-
 typedef u64 keytype;
 typedef u64 valtype;
-#define VALUETYPE_NULL ((valtype)-1LL)
+#define VALUETYPE_NULL ((valtype) - 1LL)
+#define NOT_FOUND -1L
 #endif // FLINTDB_TYPE_H
-

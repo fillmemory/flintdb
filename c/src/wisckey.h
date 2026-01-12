@@ -1,21 +1,19 @@
 #ifndef FLINTDB_WISCKEY_H
 #define FLINTDB_WISCKEY_H
 
-#include "bplustree.h"
-#include "storage.h"
+#include "lsm.h"
 #include "types.h"
 #include <limits.h>
 
 struct wisckey {
-  struct flintdb_table *index;
-  struct flintdb_meta *index_meta;
-  struct storage vlog; // Storage for values
-  char path[PATH_MAX];
-  enum flintdb_open_mode mode;
+    struct lsm_tree *lsm_index;
+    int vlog_fd;
+    i64 vlog_tail_offset;
+    char path[PATH_MAX];
+    enum flintdb_open_mode mode;
 };
 
-int wisckey_open(struct wisckey *me, const char *path,
-                 enum flintdb_open_mode mode, char **e);
+int wisckey_open(struct wisckey *me, const char *path, enum flintdb_open_mode mode, char **e);
 void wisckey_close(struct wisckey *me);
 
 int wisckey_put(struct wisckey *me, i64 key, struct buffer *val, char **e);

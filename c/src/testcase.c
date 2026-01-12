@@ -5390,14 +5390,13 @@ int main(int argc, char **argv) {
 // ./testcase.sh TESTCASE_WISCKEY_PERF
 #include "wisckey.h"
 
-void benchmark_wisckey(int n, int val_size) {
+void benchmark_wisckey(int n, int val_size, const char *path) {
     char *e = NULL;
     struct wisckey wk;
-    const char *path = "./temp/perf_wk";
     char buf[PATH_MAX];
 
     // Robust cleanup
-    const char *suffixes[] = {".index", ".vlog", ".idx", ".index.flintdb", ".index.desc", ".index.i.primary", ".index.i.id", ".wal", ".index.wal"};
+    const char *suffixes[] = {".index", ".vlog", ".idx", ".index.flintdb", ".index.desc", ".index.i.primary", ".index.i.id", ".wal", ".index.wal", ".index.00001.sst", ".index.merged.sst"};
     for (int i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++) {
         snprintf(buf, sizeof(buf), "%s%s", path, suffixes[i]);
         unlink(buf);
@@ -5410,7 +5409,7 @@ void benchmark_wisckey(int n, int val_size) {
     struct buffer val_bb;
     buffer_wrap(val_ptr, val_size, &val_bb);
 
-    printf("--- WiscKey Performance (N=%d, ValSize=%d) ---\n", n, val_size);
+    printf("--- WiscKey (LSM) Performance (N=%d, ValSize=%d) ---\n", n, val_size);
 
     // Warm-up
     for (int i = 0; i < 1000 && i < n; i++) {
@@ -5525,6 +5524,8 @@ int main(int argc, char **argv) {
     // benchmark_wisckey(n, val_size);
     // printf("\n");
     benchmark_table(n, val_size);
+    printf("\n");
+    benchmark_wisckey(n, val_size, "./temp/perf_wk");
 
     return 0;
 }
