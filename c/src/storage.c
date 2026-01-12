@@ -1994,7 +1994,7 @@ EXCEPTION:
 static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mark, struct buffer *in, char **e) {
     assert(me != NULL);
 
-    const int BLOCK_DATA_BYTES = me->opts.block_bytes;
+    const int BLOCK_DATA_BYTES = me->opts.block_bytes - BLOCK_HEADER_BYTES;
     i64 curr = offset;
     u8 curr_mark = mark;
     i32 remaining = in->remaining(in);
