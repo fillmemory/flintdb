@@ -36,6 +36,8 @@ int wisckey_open(struct wisckey *me, const char *path, enum flintdb_open_mode mo
         return -1;
     }
     me->vlog_tail_offset = lseek(me->vlog_fd, 0, SEEK_END);
+    me->vlog_valid_bytes = me->vlog_tail_offset; // Initially all data is valid
+    me->gc_threshold = 3;                        // Trigger GC when vlog > 3x valid data
 
     // 2. Initialize LSM Index
     me->lsm_index = lsm_open(index_path, mode, 8 * 1024 * 1024, e);
@@ -101,7 +103,20 @@ int wisckey_put(struct wisckey *me, i64 key, struct buffer *val, char **e) {
     // 3. Update index (Upsert)
     lsm_put(me->lsm_index, key, offset, e);
 
-    // 4. Cleanup old vLog entry (Manual GC would handle this later)
+    // 4. Update valid bytes tracking
+    if (existing_offset != NOT_FOUND) {
+        // This is an update - old entry becomes garbage
+        // We don't subtract here; GC will reclaim space
+    } else {
+        // New insert - add to valid bytes
+        me->vlog_valid_bytes += nw;
+    }
+
+    // 5. Check if GC is needed
+    if (me->vlog_tail_offset > me->vlog_valid_bytes * me->gc_threshold) {
+        wisckey_gc(me, e);
+    }
+
     return 0;
 }
 
@@ -147,11 +162,81 @@ int wisckey_delete(struct wisckey *me, i64 key, char **e) {
     if (offset == -1 || offset == -2)
         return NOT_FOUND;
 
+    // Read the record size to update valid_bytes
+    char header[20];
+    if (pread(me->vlog_fd, header, 20, offset) == 20) {
+        struct buffer hb;
+        buffer_wrap(header, 20, &hb);
+        hb.i32_get(&hb, e); // magic
+        hb.i32_get(&hb, e); // klen
+        hb.i64_get(&hb, e); // key
+        u32 vlen = (u32)hb.i32_get(&hb, e);
+        // Subtract deleted entry from valid bytes
+        me->vlog_valid_bytes -= (20 + vlen + 4); // header + value + checksum
+    }
+
     lsm_delete(me->lsm_index, key, e);
-    // Physical deletion in append-only log is skipped; GC will handle it.
     return 0;
 }
 
 void wisckey_gc(struct wisckey *me, char **e) {
-    // TODO
+    char new_vlog_path[PATH_MAX];
+    snprintf(new_vlog_path, sizeof(new_vlog_path), "%s.vlog.new", me->path);
+
+    // 1. Create new vLog file
+    int new_fd = open(new_vlog_path, O_RDWR | O_CREAT | O_TRUNC, 0644);
+    if (new_fd < 0)
+        return;
+
+    i64 new_tail = 0;
+    i64 old_offset = 0;
+
+    // 2. Scan old vLog and copy valid entries
+    while (old_offset < me->vlog_tail_offset) {
+        char header[20];
+        if (pread(me->vlog_fd, header, 20, old_offset) != 20)
+            break;
+
+        struct buffer hb;
+        buffer_wrap(header, 20, &hb);
+        u32 magic = (u32)hb.i32_get(&hb, e);
+        if (magic != WISCKEY_MAGIC)
+            break;
+
+        hb.i32_get(&hb, e); // klen
+        i64 key = hb.i64_get(&hb, e);
+        u32 vlen = (u32)hb.i32_get(&hb, e);
+        u32 record_len = 20 + vlen + 4;
+
+        // 3. Check if this record is still valid
+        i64 current_offset = lsm_get(me->lsm_index, key, e);
+        if (current_offset == old_offset) {
+            // Valid entry - copy to new vLog
+            char *record = malloc(record_len);
+            if (record && pread(me->vlog_fd, record, record_len, old_offset) == (ssize_t)record_len) {
+                if (write(new_fd, record, record_len) == (ssize_t)record_len) {
+                    // Update LSM index with new offset
+                    lsm_put(me->lsm_index, key, new_tail, e);
+                    new_tail += record_len;
+                }
+            }
+            free(record);
+        }
+
+        old_offset += record_len;
+    }
+
+    // 4. Swap files
+    close(me->vlog_fd);
+    close(new_fd);
+
+    char old_vlog_path[PATH_MAX];
+    snprintf(old_vlog_path, sizeof(old_vlog_path), "%s.vlog", me->path);
+    unlink(old_vlog_path);
+    rename(new_vlog_path, old_vlog_path);
+
+    // 5. Reopen and update state
+    me->vlog_fd = open(old_vlog_path, O_RDWR, 0644);
+    me->vlog_tail_offset = new_tail;
+    me->vlog_valid_bytes = new_tail; // All data in new log is valid
 }

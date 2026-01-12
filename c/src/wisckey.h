@@ -9,6 +9,8 @@ struct wisckey {
     struct lsm_tree *lsm_index;
     int vlog_fd;
     i64 vlog_tail_offset;
+    i64 vlog_valid_bytes; // Track valid (non-garbage) data size
+    i64 gc_threshold;     // Trigger GC when tail > valid * threshold
     char path[PATH_MAX];
     enum flintdb_open_mode mode;
 };
