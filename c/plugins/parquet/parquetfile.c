@@ -1315,15 +1315,15 @@ struct flintdb_genericfile *parquetfile_open(const char *file, enum flintdb_open
 
             if (schema_sql) {
                 // Parse SQL to meta
-                struct parsed_result parsed = {0};
-                if (flintdb_sql_parse(schema_sql, &parsed, e) == 0) {
-                    if (flintdb_sql_to_meta(&parsed, &priv->meta, e) == 0) {
+                struct flintdb_sql *parsed = flintdb_sql_parse(schema_sql, e);
+                if (parsed && !(e && *e)) {
+                    if (flintdb_sql_to_meta(parsed, &priv->meta, e) == 0) {
                         DEBUG("Read schema from Parquet metadata");
                         free(schema_sql);
-                        flintdb_parsed_result_close(&parsed);
+                        flintdb_sql_free(parsed);
                         goto meta_done;
                     }
-                    flintdb_parsed_result_close(&parsed);
+                    flintdb_sql_free(parsed);
                 }
                 free(schema_sql);
             }
