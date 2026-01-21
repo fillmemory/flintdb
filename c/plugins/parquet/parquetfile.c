@@ -403,8 +403,14 @@ static enum flintdb_variant_type arrow_format_to_flintdb_type(const char *format
         return VARIANT_DOUBLE;
     case 'u':
         return VARIANT_STRING;
+    case 'U':
+        return VARIANT_STRING; // large_utf8
     case 'z':
         return VARIANT_BYTES;
+    case 'Z':
+        return VARIANT_BYTES; // large_binary
+    case 'w':
+        return VARIANT_BYTES; // fixed_size_binary
     case 't':
         if (format[1] == 'd')
             return VARIANT_DATE;
@@ -792,6 +798,12 @@ static struct flintdb_row *parquetfile_cursor_next(struct flintdb_cursor_row *cu
             return NULL;
         }
 
+        // Defensive checks: avoid calling NULL function pointers (segfault at 0x0)
+        if (!cp->stream->get_schema || !cp->stream->get_next) {
+            const char *err = (cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : "unknown");
+            THROW(e, "Invalid Arrow stream (missing get_schema/get_next). Parquet plugin ABI mismatch or initialization failure. LastError: %s", err);
+        }
+
         if (cp->stream->get_schema(cp->stream, &cp->schema) != 0) {
             const char *err = cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : "unknown";
             THROW(e, "Failed to get schema from Arrow stream: %s", err);
@@ -812,6 +824,10 @@ static struct flintdb_row *parquetfile_cursor_next(struct flintdb_cursor_row *cu
             }
 
             // Get next batch from stream
+            if (!cp->stream->get_next) {
+                const char *err = (cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : "unknown");
+                THROW(e, "Invalid Arrow stream (missing get_next). LastError: %s", err);
+            }
             int status = cp->stream->get_next(cp->stream, &cp->current_batch);
             if (status != 0) {
                 const char *err = cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : "unknown";
@@ -864,8 +880,10 @@ static struct flintdb_row *parquetfile_cursor_next(struct flintdb_cursor_row *cu
                 continue;
             }
 
-            // Extract value based on type (data buffer at buffer[1])
+            // Extract value based on type.
             const struct flintdb_column *meta_col = &cp->meta->columns.a[col];
+            const struct ArrowSchema *col_schema = (cp->schema.n_children > (int64_t)col) ? cp->schema.children[col] : NULL;
+            const char *col_format = (col_schema && col_schema->format) ? col_schema->format : NULL;
             const void *data_buf = col_array->buffers[1];
 
             struct flintdb_variant v = {0};
@@ -901,23 +919,190 @@ static struct flintdb_row *parquetfile_cursor_next(struct flintdb_cursor_row *cu
                 v.value.f = ((const double *)data_buf)[row_in_batch];
                 break;
             case VARIANT_STRING: {
-                // String: offset buffer + data buffer
-                const int32_t *offsets = (const int32_t *)col_array->buffers[1];
-                const char *str_data = (const char *)col_array->buffers[2];
-                int32_t start = offsets[row_in_batch];
-                int32_t end = offsets[row_in_batch + 1];
-                u32 len = (u32)(end - start);
-                flintdb_variant_string_set(&v, str_data + start, len);
+                // Arrow string types: utf8 (u) / large_utf8 (U). Also handle dictionary encoding.
+                if (col_schema && col_schema->dictionary && col_array->dictionary) {
+                    // Dictionary encoded: indices in col_array, values in dictionary array
+                    const struct ArrowArray *dict = col_array->dictionary;
+                    const struct ArrowSchema *dict_schema = col_schema->dictionary;
+                    const char *dfmt = (dict_schema && dict_schema->format) ? dict_schema->format : NULL;
+                    int64_t dict_idx = -1;
+                    if (col_format && (col_format[0] == 'i' || col_format[0] == 'I')) {
+                        dict_idx = ((const int32_t *)col_array->buffers[1])[row_in_batch];
+                    } else if (col_format && (col_format[0] == 'l')) {
+                        dict_idx = ((const int64_t *)col_array->buffers[1])[row_in_batch];
+                    }
+                    if (dict_idx >= 0 && dict_idx < dict->length) {
+                        // dict values are typically u/U
+                        if (dfmt && dfmt[0] == 'U') {
+                            const int64_t *offsets = (const int64_t *)dict->buffers[1];
+                            const char *str_data = (const char *)dict->buffers[2];
+                            int64_t start = offsets[dict_idx];
+                            int64_t end = offsets[dict_idx + 1];
+                            u32 len = (u32)(end - start);
+                            flintdb_variant_string_set(&v, str_data + start, len);
+                        } else {
+                            const int32_t *offsets = (const int32_t *)dict->buffers[1];
+                            const char *str_data = (const char *)dict->buffers[2];
+                            int32_t start = offsets[dict_idx];
+                            int32_t end = offsets[dict_idx + 1];
+                            u32 len = (u32)(end - start);
+                            flintdb_variant_string_set(&v, str_data + start, len);
+                        }
+                        break;
+                    }
+                    v.type = VARIANT_NULL;
+                    break;
+                }
+
+                if (col_format && col_format[0] == 'U') {
+                    const int64_t *offsets = (const int64_t *)col_array->buffers[1];
+                    const char *str_data = (const char *)col_array->buffers[2];
+                    int64_t start = offsets[row_in_batch];
+                    int64_t end = offsets[row_in_batch + 1];
+                    u32 len = (u32)(end - start);
+                    flintdb_variant_string_set(&v, str_data + start, len);
+                } else {
+                    // Default: utf8 (u)
+                    const int32_t *offsets = (const int32_t *)col_array->buffers[1];
+                    const char *str_data = (const char *)col_array->buffers[2];
+                    int32_t start = offsets[row_in_batch];
+                    int32_t end = offsets[row_in_batch + 1];
+                    u32 len = (u32)(end - start);
+                    flintdb_variant_string_set(&v, str_data + start, len);
+                }
                 break;
             }
             case VARIANT_BYTES: {
-                // Binary: offset buffer + data buffer
-                const int32_t *offsets = (const int32_t *)col_array->buffers[1];
-                const char *bin_data = (const char *)col_array->buffers[2];
-                int32_t start = offsets[row_in_batch];
-                int32_t end = offsets[row_in_batch + 1];
-                u32 len = (u32)(end - start);
-                flintdb_variant_bytes_set(&v, bin_data + start, len);
+                // Arrow binary types: binary (z) / large_binary (Z) / fixed_size_binary (w) / list (for list<uint8>).
+                // Also handle dictionary encoding.
+                const u32 MAX_CELL_BYTES = 64u * 1024u * 1024u; // 64MB safety cap per cell
+                if (col_schema && col_schema->dictionary && col_array->dictionary) {
+                    const struct ArrowArray *dict = col_array->dictionary;
+                    const struct ArrowSchema *dict_schema = col_schema->dictionary;
+                    const char *dfmt = (dict_schema && dict_schema->format) ? dict_schema->format : NULL;
+                    int64_t dict_idx = -1;
+                    if (col_format && (col_format[0] == 'i' || col_format[0] == 'I')) {
+                        dict_idx = ((const int32_t *)col_array->buffers[1])[row_in_batch];
+                    } else if (col_format && (col_format[0] == 'l')) {
+                        dict_idx = ((const int64_t *)col_array->buffers[1])[row_in_batch];
+                    }
+                    if (dict_idx >= 0 && dict_idx < dict->length) {
+                        if (dfmt && dfmt[0] == 'Z') {
+                            const int64_t *offsets = (const int64_t *)dict->buffers[1];
+                            const char *bin_data = (const char *)dict->buffers[2];
+                            int64_t start = offsets[dict_idx];
+                            int64_t end = offsets[dict_idx + 1];
+                            int64_t diff = end - start;
+                            if (start < 0 || diff < 0 || diff > (int64_t)MAX_CELL_BYTES) {
+                                v.type = VARIANT_NULL;
+                            } else {
+                                flintdb_variant_bytes_set(&v, bin_data + start, (u32)diff);
+                            }
+                        } else if (dfmt && dfmt[0] == 'w') {
+                            int item_size = 0;
+                            if (dfmt[1] == ':' && dfmt[2]) item_size = atoi(dfmt + 2);
+                            if (item_size > 0 && dict->buffers[1]) {
+                                const char *bin_data = (const char *)dict->buffers[1];
+                                int64_t start = dict_idx * (int64_t)item_size;
+                                if ((u32)item_size > MAX_CELL_BYTES) {
+                                    v.type = VARIANT_NULL;
+                                } else {
+                                    flintdb_variant_bytes_set(&v, bin_data + start, (u32)item_size);
+                                }
+                            } else {
+                                v.type = VARIANT_NULL;
+                            }
+                        } else {
+                            const int32_t *offsets = (const int32_t *)dict->buffers[1];
+                            const char *bin_data = (const char *)dict->buffers[2];
+                            int32_t start = offsets[dict_idx];
+                            int32_t end = offsets[dict_idx + 1];
+                            int64_t diff = (int64_t)end - (int64_t)start;
+                            if (start < 0 || diff < 0 || diff > (int64_t)MAX_CELL_BYTES) {
+                                v.type = VARIANT_NULL;
+                            } else {
+                                flintdb_variant_bytes_set(&v, bin_data + start, (u32)diff);
+                            }
+                        }
+                        break;
+                    }
+                    v.type = VARIANT_NULL;
+                    break;
+                }
+
+                if (col_format && col_format[0] == '+') {
+                    // List / large_list can be used to represent bytes as list<uint8>
+                    if (col_format[1] == 'l' || col_format[1] == 'L') {
+                        const struct ArrowArray *values = (col_array->n_children > 0) ? col_array->children[0] : NULL;
+                        const struct ArrowSchema *values_schema = (col_schema && col_schema->n_children > 0) ? col_schema->children[0] : NULL;
+                        const char *vfmt = (values_schema && values_schema->format) ? values_schema->format : NULL;
+                        if (values && vfmt && (vfmt[0] == 'C' || vfmt[0] == 'c')) {
+                            if (col_format[1] == 'L') {
+                                const int64_t *offsets = (const int64_t *)col_array->buffers[1];
+                                int64_t start = offsets[row_in_batch];
+                                int64_t end = offsets[row_in_batch + 1];
+                                int64_t diff = end - start;
+                                const char *b = (const char *)values->buffers[1];
+                                if (start < 0 || diff < 0 || diff > (int64_t)MAX_CELL_BYTES) {
+                                    v.type = VARIANT_NULL;
+                                } else {
+                                    flintdb_variant_bytes_set(&v, b + start, (u32)diff);
+                                }
+                            } else {
+                                const int32_t *offsets = (const int32_t *)col_array->buffers[1];
+                                int32_t start = offsets[row_in_batch];
+                                int32_t end = offsets[row_in_batch + 1];
+                                int64_t diff = (int64_t)end - (int64_t)start;
+                                const char *b = (const char *)values->buffers[1];
+                                if (start < 0 || diff < 0 || diff > (int64_t)MAX_CELL_BYTES) {
+                                    v.type = VARIANT_NULL;
+                                } else {
+                                    flintdb_variant_bytes_set(&v, b + start, (u32)diff);
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                if (col_format && col_format[0] == 'Z') {
+                    const int64_t *offsets = (const int64_t *)col_array->buffers[1];
+                    const char *bin_data = (const char *)col_array->buffers[2];
+                    int64_t start = offsets[row_in_batch];
+                    int64_t end = offsets[row_in_batch + 1];
+                    int64_t diff = end - start;
+                    if (start < 0 || diff < 0 || diff > (int64_t)MAX_CELL_BYTES) {
+                        v.type = VARIANT_NULL;
+                    } else {
+                        flintdb_variant_bytes_set(&v, bin_data + start, (u32)diff);
+                    }
+                } else if (col_format && col_format[0] == 'w') {
+                    int item_size = 0;
+                    if (col_format[1] == ':' && col_format[2]) item_size = atoi(col_format + 2);
+                    if (item_size > 0 && col_array->buffers[1]) {
+                        const char *bin_data = (const char *)col_array->buffers[1];
+                        int64_t start = (int64_t)row_in_batch * (int64_t)item_size;
+                        if ((u32)item_size > MAX_CELL_BYTES) {
+                            v.type = VARIANT_NULL;
+                        } else {
+                            flintdb_variant_bytes_set(&v, bin_data + start, (u32)item_size);
+                        }
+                    } else {
+                        v.type = VARIANT_NULL;
+                    }
+                } else {
+                    // Default: binary (z)
+                    const int32_t *offsets = (const int32_t *)col_array->buffers[1];
+                    const char *bin_data = (const char *)col_array->buffers[2];
+                    int32_t start = offsets[row_in_batch];
+                    int32_t end = offsets[row_in_batch + 1];
+                    int64_t diff = (int64_t)end - (int64_t)start;
+                    if (start < 0 || diff < 0 || diff > (int64_t)MAX_CELL_BYTES) {
+                        v.type = VARIANT_NULL;
+                    } else {
+                        flintdb_variant_bytes_set(&v, bin_data + start, (u32)diff);
+                    }
+                }
                 break;
             }
             default:
@@ -1009,6 +1194,12 @@ static struct flintdb_cursor_row *parquetfile_find(const struct flintdb_genericf
     // Get Arrow stream from reader
     if (g_arrow.reader_get_stream && g_arrow.reader_get_stream(cp->arrow_reader, cp->stream_storage) != 0) {
         THROW(e, "Failed to get Arrow stream from reader");
+    }
+
+    // Validate stream function pointers early to avoid null call crashes later.
+    if (!cp->stream_storage->get_schema || !cp->stream_storage->get_next) {
+        const char *err = (cp->stream_storage->get_last_error ? cp->stream_storage->get_last_error(cp->stream_storage) : "unknown");
+        THROW(e, "Invalid Arrow stream returned by parquet plugin (missing get_schema/get_next). LastError: %s", err);
     }
 
     cp->filter = (struct filter *)filter;
@@ -1301,6 +1492,17 @@ struct flintdb_genericfile *parquetfile_open(const char *file, enum flintdb_open
     priv->buffer_size = 0;
     priv->buffer_capacity = 0;
 
+    // Load Arrow/Parquet plugin before calling any g_arrow function pointers.
+    // The meta.desc embedding logic relies on reader_open_file/reader_get_metadata,
+    // so this must happen before meta handling to avoid NULL function pointer calls.
+    if (!g_arrow_initialized) {
+        if (arrow_load_library(e) != 0) {
+            if (e && *e)
+                THROW_S(e);
+            THROW(e, "Failed to initialize Parquet plugin");
+        }
+    }
+
     // Meta handling similar to genericfile_open
     if (NULL == meta) {
         // Try reading from Parquet metadata first
@@ -1348,27 +1550,6 @@ struct flintdb_genericfile *parquetfile_open(const char *file, enum flintdb_open
         // FLINTDB_RDONLY with provided meta: borrow schema but do not own internals
         priv->meta = *meta;
         priv->meta.priv = NULL;
-    }
-
-    // Load Arrow library on first use
-    if (!g_arrow_initialized) {
-        char *load_err = NULL;
-        if (arrow_load_library(&load_err) != 0) {
-            // Library or wrapper not available
-            DEBUG("Arrow library/wrapper not available: %s", load_err ? load_err : "unknown");
-
-            // Provide helpful error message
-            THROW(e, "Parquet format not fully supported yet. Apache Arrow C wrapper needed.\n"
-                     "\nTo implement Parquet support:\n"
-                     "1. Install Apache Arrow: brew install apache-arrow (macOS) or apt install libarrow-dev (Linux)\n"
-                     "2. Create C wrapper library that exports these functions:\n"
-                     "   - arrow_parquet_reader_open_file()\n"
-                     "   - arrow_parquet_writer_open_file()\n"
-                     "   - arrow_parquet_reader_get_stream()\n"
-                     "   - arrow_parquet_writer_write_batch()\n"
-                     "3. Link wrapper library with flintdb\n"
-                     "\nAlternatively, use CSV/TSV format which is fully supported.");
-        }
     }
 
     DEBUG("parquetfile_open: opened %s (mode=%s)", file, mode == FLINTDB_RDONLY ? "r" : "rw");

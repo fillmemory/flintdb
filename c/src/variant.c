@@ -1064,6 +1064,44 @@ int flintdb_variant_to_string(const struct flintdb_variant *v, char *out, u32 le
 		out[slen] = '\0';
 		return (int)slen;
 	}
+	case VARIANT_BYTES: {
+		// Render a short hex preview: <HEX 0102... (len=123)>
+		static const char HEX[] = "0123456789ABCDEF";
+		const u32 max_preview = 16;
+		const u8 *b = (const u8 *)v->value.b.data;
+		u32 n = v->value.b.length;
+		if (!b) {
+			snprintf(out, len, "%s", NIL_STR);
+			return (int)strlen(out);
+		}
+		u32 show = n < max_preview ? n : max_preview;
+		int w = snprintf(out, len, "<HEX ");
+		if (w < 0 || (u32)w >= len) {
+			out[len - 1] = '\0';
+			return (int)strlen(out);
+		}
+		for (u32 i = 0; i < show; i++) {
+			if ((u32)(w + 2) >= len) break;
+			u8 v8 = b[i];
+			out[w++] = HEX[(v8 >> 4) & 0x0F];
+			out[w++] = HEX[v8 & 0x0F];
+		}
+		if (n > show) {
+			if ((u32)(w + 3) < len) {
+				out[w++] = '.';
+				out[w++] = '.';
+				out[w++] = '.';
+			}
+		}
+		// Always include length if there's space
+		if ((u32)(w + 10) < len) {
+			w += snprintf(out + w, len - (u32)w, " (len=%u)>", n);
+		} else {
+			if ((u32)(w + 1) < len) out[w++] = '>';
+			out[w] = '\0';
+		}
+		return (int)strlen(out);
+	}
 	case VARIANT_INT8:
 	case VARIANT_INT16:
 	case VARIANT_INT32:
