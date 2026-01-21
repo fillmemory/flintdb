@@ -18,8 +18,11 @@ import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.parquet.avro.AvroParquetReader;
 import org.apache.parquet.avro.AvroParquetWriter;
+import org.apache.parquet.avro.AvroReadSupport;
+import org.apache.parquet.example.data.Group;
 import org.apache.parquet.hadoop.ParquetReader;
 import org.apache.parquet.hadoop.ParquetWriter;
+import org.apache.parquet.hadoop.example.GroupReadSupport;
 import org.apache.parquet.io.InputFile;
 import org.apache.parquet.io.OutputFile;
 import org.apache.parquet.hadoop.ParquetFileReader;
@@ -219,10 +222,37 @@ public final class ParquetFile implements GenericFile {
             private boolean initialized = false;
             private boolean finished = false;
             private final AtomicLong n = new AtomicLong(0);
+            private ParquetReader<Group> groupReader = null;
+            private boolean useGroupReader = false;
 
             private void init() throws IOException {
                 if (!initialized) {
-                    reader = AvroParquetReader.<GenericRecord>builder(localInput()).build();
+                    try {
+                        // First try with Avro reader (works for most files)
+                        reader = AvroParquetReader.<GenericRecord>builder(localInput()).build();
+                        // Try reading first record to trigger schema conversion
+                        GenericRecord testRec = reader.read();
+                        if (testRec != null) {
+                            // Success! Close and reopen for actual reading
+                            reader.close();
+                            reader = AvroParquetReader.<GenericRecord>builder(localInput()).build();
+                        }
+                    } catch (Exception e) {
+                        // If Avro reading fails, fall back to Group reading
+                        if (reader != null) {
+                            try {
+                                reader.close();
+                            } catch (Exception ignore) {}
+                            reader = null;
+                        }
+                        logger.log("AvroParquetReader failed: " + e.getMessage() + ", using GroupReadSupport");
+                        useGroupReader = true;
+                        org.apache.hadoop.conf.Configuration conf = new org.apache.hadoop.conf.Configuration();
+                        org.apache.hadoop.fs.Path hadoopPath = new org.apache.hadoop.fs.Path(file.getAbsolutePath());
+                        groupReader = ParquetReader.builder(new GroupReadSupport(), hadoopPath)
+                                .withConf(conf)
+                                .build();
+                    }
                     initialized = true;
                 }
             }
@@ -233,27 +263,50 @@ public final class ParquetFile implements GenericFile {
                     return null;
                 try {
                     init();
-                    GenericRecord rec;
-                    while ((rec = reader.read()) != null) {
-                        final Row row = recordToRow(m, rec);
-                        if (filter.compareTo(row) == 0) {
-                            if (!limit.skip()) {
-                                if (!limit.remains()) {
-                                    finished = true;
-                                    return null;
+                    
+                    if (useGroupReader) {
+                        // Read using Group API (bypasses Avro schema conversion)
+                        Group group;
+                        while ((group = groupReader.read()) != null) {
+                            final Row row = groupToRow(m, group);
+                            if (filter.compareTo(row) == 0) {
+                                if (!limit.skip()) {
+                                    if (!limit.remains()) {
+                                        finished = true;
+                                        return null;
+                                    }
+                                    row.id(n.get());
+                                    n.incrementAndGet();
+                                    return row;
                                 }
-                                row.id(n.get());
-                                n.incrementAndGet();
-                                return row;
                             }
+                            n.incrementAndGet();
                         }
-                        n.incrementAndGet();
+                    } else {
+                        // Read using Avro API (normal path)
+                        GenericRecord rec;
+                        while ((rec = reader.read()) != null) {
+                            final Row row = recordToRow(m, rec);
+                            if (filter.compareTo(row) == 0) {
+                                if (!limit.skip()) {
+                                    if (!limit.remains()) {
+                                        finished = true;
+                                        return null;
+                                    }
+                                    row.id(n.get());
+                                    n.incrementAndGet();
+                                    return row;
+                                }
+                            }
+                            n.incrementAndGet();
+                        }
                     }
                     finished = true;
                     return null;
                 } catch (Exception ex) {
                     finished = true;
-                    throw new RuntimeException("Error reading Parquet file", ex);
+                    throw new RuntimeException("Error reading Parquet file: " + ex.getMessage() + 
+                        " (file: " + file.getAbsolutePath() + ")", ex);
                 }
             }
 
@@ -263,6 +316,12 @@ public final class ParquetFile implements GenericFile {
                 if (reader != null) {
                     try {
                         reader.close();
+                    } catch (Exception ignore) {
+                    }
+                }
+                if (groupReader != null) {
+                    try {
+                        groupReader.close();
                     } catch (Exception ignore) {
                     }
                 }
@@ -326,34 +385,94 @@ public final class ParquetFile implements GenericFile {
             final org.apache.parquet.schema.MessageType mt = footer.getFileMetaData().getSchema();
             // Use Avro schema from file metadata if available
             final String avroSchemaStr = footer.getFileMetaData().getKeyValueMetaData().get("parquet.avro.schema");
-            if (avroSchemaStr != null)
-                return new Schema.Parser().parse(avroSchemaStr);
+            if (avroSchemaStr != null) {
+                logger.log("Found parquet.avro.schema metadata, attempting to parse...");
+                try {
+                    // Try to fix empty field names in the Avro schema JSON string
+                    String fixedSchemaStr = fixEmptyFieldNames(avroSchemaStr);
+                    Schema parsed = new Schema.Parser().parse(fixedSchemaStr);
+                    logger.log("Successfully parsed Avro schema from metadata");
+                    return parsed;
+                } catch (Exception e) {
+                    logger.log("Failed to parse Avro schema from metadata: " + e.getMessage());
+                    logger.log("Falling back to Parquet schema conversion");
+                    // Fall through to fallback
+                }
+            }
             // Fallback: map Parquet MessageType roughly to Avro (strings for unsupported)
             return parquetToAvroFallback(mt);
-        } catch (Exception ignore) {
+        } catch (Exception e) {
+            logger.log("Error reading schema: " + e.getMessage());
         }
         return null;
+    }
+
+    private String fixEmptyFieldNames(String avroSchemaJson) {
+        // Quick and dirty fix for empty field names in Avro schema JSON
+        // Replace: "name":"" with "name":"col<index>"
+        // This is a simple regex-based fix, may need refinement
+        int colIndex = 0;
+        StringBuilder result = new StringBuilder();
+        int pos = 0;
+        String pattern = "\"name\":\"\"";
+        while (pos < avroSchemaJson.length()) {
+            int found = avroSchemaJson.indexOf(pattern, pos);
+            if (found == -1) {
+                result.append(avroSchemaJson.substring(pos));
+                break;
+            }
+            result.append(avroSchemaJson.substring(pos, found));
+            result.append("\"name\":\"col").append(colIndex++).append("\"");
+            pos = found + pattern.length();
+        }
+        return result.toString();
     }
 
     private Schema parquetToAvroFallback(final org.apache.parquet.schema.MessageType mt) {
         // Best-effort: treat primitive fields as their closest Avro types; others as
         // string.
         final List<Field> fields = new ArrayList<>();
+        int fieldIndex = 0;
         for (org.apache.parquet.schema.Type t : mt.getFields()) {
-            final String name = t.getName();
+            String name = t.getName();
+            // Handle empty or null field names
+            if (name == null || name.isEmpty()) {
+                name = "col" + fieldIndex;
+            }
             Schema fSchema = Schema.create(Type.STRING);
             if (t.isPrimitive()) {
-                fSchema = switch (t.asPrimitiveType().getPrimitiveTypeName()) {
-                    case INT32 -> Schema.create(Type.INT);
-                    case INT64 -> Schema.create(Type.LONG);
-                    case DOUBLE -> Schema.create(Type.DOUBLE);
-                    case FLOAT -> Schema.create(Type.FLOAT);
-                    case BINARY -> Schema.create(Type.BYTES);
-                    case BOOLEAN -> Schema.create(Type.INT);
-                    default -> Schema.create(Type.STRING);
-                }; // map to int(0/1)
+                final org.apache.parquet.schema.PrimitiveType pt = t.asPrimitiveType();
+                switch (pt.getPrimitiveTypeName()) {
+                    case INT32:
+                        fSchema = Schema.create(Type.INT);
+                        break;
+                    case INT64:
+                        fSchema = Schema.create(Type.LONG);
+                        break;
+                    case DOUBLE:
+                        fSchema = Schema.create(Type.DOUBLE);
+                        break;
+                    case FLOAT:
+                        fSchema = Schema.create(Type.FLOAT);
+                        break;
+                    case BINARY: {
+                        // Prefer STRING when Parquet declares UTF8 logical type.
+                        final org.apache.parquet.schema.OriginalType ot = pt.getOriginalType();
+                        fSchema = (ot == org.apache.parquet.schema.OriginalType.UTF8)
+                                ? Schema.create(Type.STRING)
+                                : Schema.create(Type.BYTES);
+                        break;
+                    }
+                    case BOOLEAN:
+                        fSchema = Schema.create(Type.INT);
+                        break;
+                    default:
+                        fSchema = Schema.create(Type.STRING);
+                        break;
+                }
             }
             fields.add(new Field(name, nullable(fSchema), null, (Object) null));
+            fieldIndex++;
         }
         final Schema rec = Schema.createRecord(safeName(Meta.name(file.getName())), null, getClass().getPackageName(),
                 false);
@@ -465,12 +584,76 @@ public final class ParquetFile implements GenericFile {
     private Row recordToRow(final Meta meta, final GenericRecord rec) {
         final Column[] cols = meta.columns();
         final Object[] a = new Object[cols.length];
+        final int recordFieldCount = rec.getSchema().getFields().size();
         for (int i = 0; i < cols.length; i++) {
             final Column c = cols[i];
-            final Object v = rec.get(c.name());
+            // Use index-based access instead of name-based to match C version
+            final Object v = (i < recordFieldCount) ? rec.get(i) : null;
             a[i] = fromAvroValue(c, v);
         }
         return Row.create(meta, a);
+    }
+
+    private Row groupToRow(final Meta meta, final Group group) {
+        final Column[] cols = meta.columns();
+        final Object[] a = new Object[cols.length];
+        final int fieldCount = group.getType().getFieldCount();
+        for (int i = 0; i < cols.length && i < fieldCount; i++) {
+            final Column c = cols[i];
+            Object v = null;
+            try {
+                // Check if field is null
+                int repetitionCount = group.getFieldRepetitionCount(i);
+                if (repetitionCount > 0) {
+                    // Get value based on type
+                    org.apache.parquet.schema.Type fieldType = group.getType().getType(i);
+                    if (fieldType.isPrimitive()) {
+                        org.apache.parquet.schema.PrimitiveType pt = fieldType.asPrimitiveType();
+                        switch (pt.getPrimitiveTypeName()) {
+                            case INT32:
+                                v = group.getInteger(i, 0);
+                                break;
+                            case INT64:
+                                v = group.getLong(i, 0);
+                                break;
+                            case DOUBLE:
+                                v = group.getDouble(i, 0);
+                                break;
+                            case FLOAT:
+                                v = group.getFloat(i, 0);
+                                break;
+                            case BINARY:
+                                // Parquet often stores logical strings as BINARY.
+                                // Decide decoding based on FlintDB column type.
+                                if (c.type() == Column.TYPE_BYTES) {
+                                    v = group.getBinary(i, 0).getBytes();
+                                } else {
+                                    v = group.getBinary(i, 0).toStringUsingUTF8();
+                                }
+                                break;
+                            case BOOLEAN:
+                                v = group.getBoolean(i, 0) ? 1 : 0;
+                                break;
+                            default:
+                                v = group.getBinary(i, 0).toStringUsingUTF8();
+                                break;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // Field might not exist or be null
+                v = null;
+            }
+            a[i] = fromGroupValue(c, v);
+        }
+        return Row.create(meta, a);
+    }
+
+    private Object fromGroupValue(final Column c, final Object v) {
+        if (v == null)
+            return null;
+        // Group values are already in primitive types
+        return v;
     }
 
     private Object fromAvroValue(final Column c, final Object v) {
@@ -512,13 +695,20 @@ public final class ParquetFile implements GenericFile {
 
     private Column[] columnsFromAvro(final Schema s) {
         final List<Column> cols = new ArrayList<>();
+        int colIndex = 0;
         for (final Field f : s.getFields()) {
             final Schema t = unwrapNullable(f.schema());
             final short type = toLiteType(t.getType());
             final short defaultBytes = (type == Column.TYPE_STRING || type == Column.TYPE_BYTES) ? Short.MAX_VALUE
                     : (short) -1;
             final short bytes = Column.bytes(type, defaultBytes, (short) 0);
-            cols.add(new Column(f.name(), type, bytes, (short) 0, false, null, null));
+            // Handle empty or null column names by generating a default name
+            String colName = f.name();
+            if (colName == null || colName.isEmpty()) {
+                colName = "col" + colIndex;
+            }
+            cols.add(new Column(colName, type, bytes, (short) 0, false, null, null));
+            colIndex++;
         }
         return cols.toArray(Column[]::new);
     }

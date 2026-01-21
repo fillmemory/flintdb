@@ -40,13 +40,14 @@ fi
 if [[ "${WITH_PARQUET:-0}" == 1 ]]; then
     LIBS+=(
     "org.apache.commons:commons-compress:1.27.1"
+    "org.apache.commons:commons-lang3:3.12.0"
     "com.github.luben:zstd-jni:1.5.6-5"   
     "org.apache.parquet:parquet-avro:1.15.2"
     # Use shaded parquet-hadoop-bundle to avoid Hadoop runtime deps
     "org.apache.parquet:parquet-hadoop-bundle:1.15.2"
     "org.apache.hadoop:hadoop-common:3.4.1"
     "org.apache.hadoop:hadoop-mapreduce-client-core:3.4.1"
-    "oorg.apache.hadoop:hadoop-mapreduce-client-common:3.4.1"
+    "org.apache.hadoop:hadoop-mapreduce-client-common:3.4.1"
     "org.apache.hadoop:hadoop-mapreduce-client-app:3.4.1"
 
     # Snappy runtime (optional but common)
@@ -110,7 +111,7 @@ if [[ "${DISABLE_EXCLUDES:-0}" != 1 ]]; then
         # Default patterns (artifactId globs)
         EXCLUDE_GLOBS=(
             aircompressor* aopalliance* audience* assertj* awaitility* bcprov* byte-buddy* checker* \
-            commons-bean* commons-cli* commons-codec* commons-io* commons-lang* commons-math3* commons-net* commons-pool* commons-text* \
+            commons-bean* commons-cli* commons-codec* commons-io* commons-math3* commons-net* commons-pool* commons-text* \
             curator* dnsjava* error_prone_annotations* failureaccess* guava* guice* hamcrest* \
             hadoop-mapreduce-client-jobclient* hadoop-shaded-protobuf* hadoop-yarn* http* \
             jakarta.* javassist* javax.* jaxb* j2objc* jcip* jersey* jetty* jettison* \
