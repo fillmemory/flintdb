@@ -95,16 +95,12 @@ public final class ParquetFile implements GenericFile {
         if (columns == null || columns.length == 0)
             throw new IllegalArgumentException("columns");
 
-        // Build minimal meta; add synthetic primary key if not provided (first column)
+        // synthetic primary key if not provided (first column)
         final Meta meta = new Meta(file.getName()).columns(columns);
         try {
             meta.indexes(new Index[] { new Table.PrimaryKey(new String[] { columns[0].name() }) });
         } catch (RuntimeException ignore) {
             /* if already validated elsewhere */ }
-
-        // Persist meta alongside data file for faster future loads (ignore if index
-        // missing)
-        Meta.make(file, meta);
 
         final ParquetFile f = new ParquetFile(file, meta, logger, compressionCodec);
         f.openWriter();
@@ -173,31 +169,27 @@ public final class ParquetFile implements GenericFile {
         if (cachedMeta != null)
             return cachedMeta;
 
-        // Prefer .desc if exists
-        try {
-            cachedMeta = Meta.read(file);
-            return cachedMeta;
-        } catch (IOException ex) {
-            // Fallback: infer from Parquet schema
+        // Try to read schema from Parquet metadata first
+        try (ParquetFileReader fr = ParquetFileReader.open(localInput())) {
+            final ParquetMetadata footer = fr.getFooter();
+            final java.util.Map<String, String> kv = footer.getFileMetaData().getKeyValueMetaData();
+            final String schemaSql = kv.get("flintdb.schema");
+            if (schemaSql != null) {
+                this.cachedMeta = SQL.parse(schemaSql).meta();
+                return cachedMeta;
+            }
+        } catch (Exception ignore) {
+            // Fallback to inference
         }
 
-        try (final ParquetReader<GenericRecord> r = AvroParquetReader.<GenericRecord>builder(localInput()).build()) {
-            final GenericRecord rec = r.read(); // read first record to get schema (or null if empty)
-            final Schema s = (rec != null) ? rec.getSchema() : readSchemaDirect();
-            if (s == null)
-                throw new IOException("Cannot read Parquet schema: " + file);
-            this.avroSchema = s;
-            this.cachedMeta = new Meta(file.getName()).columns(columnsFromAvro(s));
-            return cachedMeta;
-        } catch (IOException ioe) {
-            // Try direct footer if empty file
-            final Schema s = readSchemaDirect();
-            if (s == null)
-                throw ioe;
-            this.avroSchema = s;
-            this.cachedMeta = new Meta(file.getName()).columns(columnsFromAvro(s));
-            return cachedMeta;
-        }
+        // Fallback: infer from Parquet schema
+        final Schema s = readSchemaDirect();
+        if (s == null)
+            throw new IOException("Cannot read Parquet schema: " + file);
+
+        this.avroSchema = s;
+        this.cachedMeta = new Meta(file.getName()).columns(columnsFromAvro(s));
+        return cachedMeta;
     }
 
     // ---------- Read ----------
@@ -299,9 +291,15 @@ public final class ParquetFile implements GenericFile {
     private void openWriter() throws IOException {
         final Meta m = (cachedMeta != null) ? cachedMeta : meta();
         this.avroSchema = ensureAvroSchema(m);
+
+        final java.util.Map<String, String> metadata = new java.util.HashMap<>();
+        metadata.put("flintdb.schema", SQL.stringify(m));
+        metadata.put("flintdb.version", "1.0");
+
         this.writer = AvroParquetWriter.<GenericRecord>builder(localOutput())
                 .withSchema(avroSchema)
                 .withCompressionCodec(compressionCodec)
+                .withExtraMetaData(metadata)
                 .build();
         logger.log("open w, file : " + file);
     }
@@ -357,7 +355,8 @@ public final class ParquetFile implements GenericFile {
             }
             fields.add(new Field(name, nullable(fSchema), null, (Object) null));
         }
-        final Schema rec = Schema.createRecord(safeName(Meta.name(file.getName())), null, getClass().getPackageName(), false);
+        final Schema rec = Schema.createRecord(safeName(Meta.name(file.getName())), null, getClass().getPackageName(),
+                false);
         rec.setFields(fields);
         return rec;
     }
