@@ -1,24 +1,25 @@
 #include <assert.h>
-#include <math.h>
+#include <math.h> // IWYU pragma: keep
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-#include "flintdb.h"
-#include "runtime.h"
-#include "internal.h"
-#include "allocator.h"
-#include "bplustree.h"
-#include "buffer.h"
-#include "hashmap.h"
-#include "hyperloglog.h"
-#include "iostream.h"
-#include "list.h"
-#include "roaringbitmap.h"
-#include "sql.h"
-#include "storage.h"
-#include "plugin.h"
+// Kept for -DTESTCASE_* variants; clangd sees none of those macros by default.
+#include "flintdb.h" // IWYU pragma: keep
+#include "runtime.h" // IWYU pragma: keep
+#include "internal.h" // IWYU pragma: keep
+#include "allocator.h" // IWYU pragma: keep
+#include "bplustree.h" // IWYU pragma: keep
+#include "buffer.h" // IWYU pragma: keep
+#include "hashmap.h" // IWYU pragma: keep
+#include "hyperloglog.h" // IWYU pragma: keep
+#include "iostream.h" // IWYU pragma: keep
+#include "list.h" // IWYU pragma: keep
+#include "roaringbitmap.h" // IWYU pragma: keep
+#include "sql.h" // IWYU pragma: keep
+#include "storage.h" // IWYU pragma: keep
+#include "plugin.h" // IWYU pragma: keep
 
 
 extern void print_memory_leak_info(); // in debug.c

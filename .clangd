@@ -1,0 +1,8 @@
+# testcase.c is a bundle of mutually exclusive -DTESTCASE_* mains.
+# clangd parses it with none of those macros, so includes look unused.
+If:
+  PathMatch: .*/testcase\.c
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+  Suppress: unused-includes
