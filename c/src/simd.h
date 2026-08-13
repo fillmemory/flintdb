@@ -1,6 +1,21 @@
-
 #ifndef FLINTDB_SIMD_H
 #define FLINTDB_SIMD_H
+
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+#ifndef _WIN32
+#include <arpa/inet.h>
+#else
+#include <winsock2.h>
+#endif
+
+#ifdef __cplusplus
+#define SIMD_RESTRICT __restrict
+#else
+#define SIMD_RESTRICT restrict
+#endif
 
 // SIMD headers for optimizations
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
@@ -20,7 +35,7 @@
 // ============================================================================
 
 // Optimized memcpy for buffer operations with SIMD
-static inline void simd_memcpy(void* restrict dst, const void* restrict src, size_t n) {
+static inline void simd_memcpy(void* SIMD_RESTRICT dst, const void* SIMD_RESTRICT src, size_t n) {
     unsigned char* d = (unsigned char*)dst;  // char 대신 unsigned char
     const unsigned char* s = (const unsigned char*)src;  // 🔥 src로 수정!
     

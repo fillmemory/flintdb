@@ -2,7 +2,6 @@
 #include "runtime.h"
 #include "allocator.h"
 #include "internal.h"
-#include "pool.h"
 #include "simd.h"
 #include <stdlib.h>
 #include <errno.h>
