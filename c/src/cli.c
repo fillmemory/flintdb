@@ -504,45 +504,75 @@ EXCEPTION:
 // Pretty Print Implementation
 // ============================================================================
 
-static int utf8_char_width(const char *s) {
-    unsigned char c = (unsigned char)*s;
-    if (c >= 0x80) {
-        // Multibyte UTF-8 character - assume width 2 for CJK characters
-        if ((c & 0xE0) == 0xC0)
-            return 2; // 2-byte UTF-8
-        if ((c & 0xF0) == 0xE0) {
-            // 3-byte UTF-8 - check if it's CJK range
-            // CJK Unified Ideographs (U+4E00 to U+9FFF)
-            if (c == 0xE4 || c == 0xE5 || c == 0xE6 || c == 0xE7 || c == 0xE8 || c == 0xE9) {
-                return 2; // Wide character
-            }
-            return 1;
-        }
-        if ((c & 0xF8) == 0xF0)
-            return 2; // 4-byte UTF-8
+/* Decode one UTF-8 code point. Returns bytes consumed (>= 1 if *s != 0). */
+static int utf8_next_cp(const char *s, unsigned int *cp) {
+    const unsigned char *p = (const unsigned char *)s;
+    unsigned char c = p[0];
+    if (c < 0x80) {
+        *cp = c;
+        return 1;
+    }
+    if ((c & 0xE0) == 0xC0 && (p[1] & 0xC0) == 0x80) {
+        *cp = ((unsigned int)(c & 0x1F) << 6) | (unsigned int)(p[1] & 0x3F);
         return 2;
     }
-    return 1; // ASCII character
+    if ((c & 0xF0) == 0xE0 && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80) {
+        *cp = ((unsigned int)(c & 0x0F) << 12) | ((unsigned int)(p[1] & 0x3F) << 6) | (unsigned int)(p[2] & 0x3F);
+        return 3;
+    }
+    if ((c & 0xF8) == 0xF0 && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80 && (p[3] & 0xC0) == 0x80) {
+        *cp = ((unsigned int)(c & 0x07) << 18) | ((unsigned int)(p[1] & 0x3F) << 12) |
+              ((unsigned int)(p[2] & 0x3F) << 6) | (unsigned int)(p[3] & 0x3F);
+        return 4;
+    }
+    *cp = c; /* invalid lead byte */
+    return 1;
+}
+
+/* Terminal cell width of a code point (Unicode TR11 East Asian Width). */
+static int unicode_display_width(unsigned int cp) {
+    if (cp == 0 || cp < 0x20 || (cp >= 0x7F && cp < 0xA0))
+        return 0;
+    /* Combining marks, variation selectors, zero-width format */
+    if ((cp >= 0x0300 && cp <= 0x036F) || (cp >= 0x0483 && cp <= 0x0489) ||
+        (cp >= 0x0591 && cp <= 0x05BD) || cp == 0x05BF || (cp >= 0x05C1 && cp <= 0x05C2) ||
+        (cp >= 0x05C4 && cp <= 0x05C5) || cp == 0x05C7 || (cp >= 0x0610 && cp <= 0x061A) ||
+        (cp >= 0x064B && cp <= 0x065F) || cp == 0x0670 || (cp >= 0x06D6 && cp <= 0x06DC) ||
+        (cp >= 0x06DF && cp <= 0x06E4) || (cp >= 0x06E7 && cp <= 0x06E8) ||
+        (cp >= 0x06EA && cp <= 0x06ED) || (cp >= 0x1AB0 && cp <= 0x1ACE) ||
+        (cp >= 0x1DC0 && cp <= 0x1DFF) || (cp >= 0x20D0 && cp <= 0x20F0) ||
+        (cp >= 0xFE00 && cp <= 0xFE0F) || (cp >= 0xFE20 && cp <= 0xFE2F) ||
+        (cp >= 0xE0100 && cp <= 0xE01EF) || cp == 0x200B || cp == 0x200C || cp == 0x200D ||
+        cp == 0x2060 || cp == 0xFEFF)
+        return 0;
+    /* Wide / Fullwidth: Hangul, CJK, kana, fullwidth forms, emoji, CJK Ext B+ */
+    if ((cp >= 0x1100 && cp <= 0x115F) || /* Hangul Jamo */
+        cp == 0x2329 || cp == 0x232A ||
+        (cp >= 0x2E80 && cp <= 0xA4CF && cp != 0x303F) || /* CJK radicals .. Yi */
+        (cp >= 0xA960 && cp <= 0xA97C) ||                 /* Hangul Jamo Extended-A */
+        (cp >= 0xAC00 && cp <= 0xD7FF) ||                 /* Hangul Syllables + Jamo Ext-B */
+        (cp >= 0xF900 && cp <= 0xFAFF) ||                 /* CJK Compatibility Ideographs */
+        (cp >= 0xFE10 && cp <= 0xFE19) ||                 /* Vertical forms */
+        (cp >= 0xFE30 && cp <= 0xFE6F) ||                 /* CJK Compatibility Forms */
+        (cp >= 0xFF00 && cp <= 0xFF60) ||                 /* Fullwidth Forms */
+        (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+        (cp >= 0x1F300 && cp <= 0x1F64F) || /* Emoji */
+        (cp >= 0x1F680 && cp <= 0x1F6FF) || (cp >= 0x1F900 && cp <= 0x1F9FF) ||
+        (cp >= 0x1FA00 && cp <= 0x1FAFF) || (cp >= 0x20000 && cp <= 0x2FFFD) ||
+        (cp >= 0x30000 && cp <= 0x3FFFD))
+        return 2;
+    return 1;
 }
 
 static int string_display_width(const char *s) {
     int width = 0;
+    if (!s)
+        return 0;
     while (*s) {
-        int char_width = utf8_char_width(s);
-        width += char_width;
-
-        // Move to next character
-        unsigned char c = (unsigned char)*s;
-        if (c < 0x80)
-            s++;
-        else if ((c & 0xE0) == 0xC0)
-            s += 2;
-        else if ((c & 0xF0) == 0xE0)
-            s += 3;
-        else if ((c & 0xF8) == 0xF0)
-            s += 4;
-        else
-            s++;
+        unsigned int cp;
+        int n = utf8_next_cp(s, &cp);
+        width += unicode_display_width(cp);
+        s += n;
     }
     return width;
 }
@@ -629,8 +659,9 @@ static void pretty_table_flintdb_print_row(struct pretty_table *table, struct bu
         const char *cell = row[i] ? row[i] : "\\N";
         int display_width = string_display_width(cell);
         int padding = table->col_widths[i] - display_width;
+        if (padding < 0)
+            padding = 0;
 
-        // Print cell with padding
         bufio_print(bufout, cell, e);
         for (int p = 0; p < padding; p++) {
             bufio_print(bufout, " ", e);
