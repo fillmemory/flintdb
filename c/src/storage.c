@@ -416,7 +416,11 @@ static struct buffer *storage_mmap_read(struct storage *me, i64 offset, char **e
     i32 length = mbb.i32_get(&mbb, e);
     i64 next = mbb.i64_get(&mbb, e);
 
-    if (next > NEXT_END && length > (me->opts.block_bytes)) {
+    // A record is chained iff it did not fit into the first block, i.e. the
+    // total length exceeds the first chunk (limit). Comparing against the
+    // block size instead can silently truncate records whose length falls
+    // between the writable payload and the block size.
+    if (next > NEXT_END && length > limit) {
         struct buffer *p = buffer_alloc(length);
         // copy only the first chunk (limit) from the first block
         struct buffer first = {0};
@@ -454,7 +458,14 @@ EXCEPTION:
 }
 
 static inline void storage_mmap_write_priv(struct storage *me, i64 offset, u8 mark, struct buffer *in, char **e) {
-    const int BLOCK_DATA_BYTES = me->opts.block_bytes - BLOCK_HEADER_BYTES;
+    // Writable payload per block. me->block_bytes already includes the block
+    // header, so the payload is block_bytes - header (== opts.block_bytes for
+    // regular tables, or opts.compact for compact tables). Subtracting the
+    // header from opts.block_bytes instead under-counted the payload by 16
+    // bytes: records in that window were chain-written but the reader did not
+    // reassemble them (silent 16-byte truncation), and payloads <= 16 bytes
+    // produced a negative chunk size (SIGBUS via huge memmove).
+    const int BLOCK_DATA_BYTES = me->block_bytes - BLOCK_HEADER_BYTES;
     i64 curr = offset;
     u8 curr_mark = mark;
     i32 remaining = in->remaining(in);
@@ -827,7 +838,8 @@ static struct buffer *storage_mem_read(struct storage *me, i64 offset, char **e)
     i32 length = mbb.i32_get(&mbb, e);
     i64 next = mbb.i64_get(&mbb, e);
 
-    if (next > NEXT_END && length > (me->opts.block_bytes)) {
+    // Chained iff total length exceeds the first chunk (see storage_mmap_read).
+    if (next > NEXT_END && length > limit) {
         struct buffer *p = buffer_alloc(length);
         struct buffer first = {0};
         mbb.slice(&mbb, 0, limit, &first, e);
@@ -862,7 +874,8 @@ EXCEPTION:
 }
 
 static inline void storage_mem_write_priv(struct storage *me, i64 offset, u8 mark, struct buffer *in, char **e) {
-    const int BLOCK_DATA_BYTES = me->opts.block_bytes - BLOCK_HEADER_BYTES;
+    // Writable payload per block (see storage_mmap_write_priv).
+    const int BLOCK_DATA_BYTES = me->block_bytes - BLOCK_HEADER_BYTES;
     i64 curr = offset;
     u8 curr_mark = mark;
     i32 remaining = in->remaining(in);
@@ -1986,7 +1999,8 @@ static struct buffer *storage_dio_read(struct storage *me, i64 offset, char **e)
     i32 length = blk->i32_get(blk, e);
     i64 next = blk->i64_get(blk, e);
 
-    if (next > NEXT_END && length > (me->opts.block_bytes)) {
+    // Chained iff total length exceeds the first chunk (see storage_mmap_read).
+    if (next > NEXT_END && length > limit) {
         struct buffer *out = BUFFER_POOL_BORROW((u32)length);
         // copy only the first chunk (limit) from the first block
         out->array_put(out, blk->array_get(blk, limit, NULL), (u32)limit, NULL);
@@ -2122,7 +2136,8 @@ EXCEPTION:
 static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mark, struct buffer *in, char **e) {
     assert(me != NULL);
 
-    const int BLOCK_DATA_BYTES = me->opts.block_bytes - BLOCK_HEADER_BYTES;
+    // Writable payload per block (see storage_mmap_write_priv).
+    const int BLOCK_DATA_BYTES = me->block_bytes - BLOCK_HEADER_BYTES;
     i64 curr = offset;
     u8 curr_mark = mark;
     i32 remaining = in->remaining(in);
