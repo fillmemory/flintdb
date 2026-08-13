@@ -2,6 +2,7 @@
 #define FLINTDB_SQL_H
 
 #include "flintdb.h"
+#include "pool.h"
 #include "types.h"
 
 #include <limits.h>
@@ -81,6 +82,9 @@ struct flintdb_sql {
     
     // Dynamically allocated large field (Phase 2)
     char *option;
+
+    // Scratch/field strings for this parse; reset on sql_free (pool return).
+    struct arena arena;
 };
 
 

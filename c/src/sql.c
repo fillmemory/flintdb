@@ -18,38 +18,6 @@
 #define sql_parser_POOL_CAPACITY 32
 #endif
 
-static void sql_context_clear_fields(struct flintdb_sql *q) {
-    if (!q)
-        return;
-#define SQL_FREE_FIELD(f) do { if (q->f) { FREE(q->f); q->f = NULL; } } while (0)
-    SQL_FREE_FIELD(object);
-    SQL_FREE_FIELD(index);
-    SQL_FREE_FIELD(ignore);
-    SQL_FREE_FIELD(limit);
-    SQL_FREE_FIELD(orderby);
-    SQL_FREE_FIELD(groupby);
-    SQL_FREE_FIELD(having);
-    SQL_FREE_FIELD(from);
-    SQL_FREE_FIELD(into);
-    SQL_FREE_FIELD(where);
-    SQL_FREE_FIELD(connect);
-    SQL_FREE_FIELD(dictionary);
-    SQL_FREE_FIELD(directory);
-    SQL_FREE_FIELD(compressor);
-    SQL_FREE_FIELD(compact);
-    SQL_FREE_FIELD(cache);
-    SQL_FREE_FIELD(date);
-    SQL_FREE_FIELD(storage);
-    SQL_FREE_FIELD(header);
-    SQL_FREE_FIELD(delimiter);
-    SQL_FREE_FIELD(quote);
-    SQL_FREE_FIELD(nullString);
-    SQL_FREE_FIELD(format);
-    SQL_FREE_FIELD(wal);
-    SQL_FREE_FIELD(option);
-#undef SQL_FREE_FIELD
-}
-
 static void *sql_context_alloc(void *ctx) {
     (void)ctx;
     return CALLOC(1, sizeof(struct flintdb_sql));
@@ -58,14 +26,17 @@ static void *sql_context_alloc(void *ctx) {
 static void sql_context_reset(void *obj, void *ctx) {
     (void)ctx;
     struct flintdb_sql *q = (struct flintdb_sql *)obj;
-    sql_context_clear_fields(q);
+    arena_reset(&q->arena);
+    struct arena saved = q->arena;
     memset(q, 0, sizeof(struct flintdb_sql));
+    q->arena = saved;
 }
 
 static void sql_context_dtor(void *obj, void *ctx) {
     (void)ctx;
-    sql_context_clear_fields((struct flintdb_sql *)obj);
-    FREE(obj);
+    struct flintdb_sql *q = (struct flintdb_sql *)obj;
+    arena_destroy(&q->arena);
+    FREE(q);
 }
 
 static struct object_pool *sql_parser_pool_new(void) {
@@ -113,24 +84,12 @@ static i32 parse_on_off_default(const char *v, i32 default_value) {
 // s_copy, s_cat, trim now provided inline in internal.h
 
 // Helper function to set dynamically allocated string fields in struct flintdb_sql
-static inline void sql_set_string(char **dest, const char *src) {
+static inline void sql_set_string(struct flintdb_sql *q, char **dest, const char *src) {
     if (!dest)
         return;
-    
-    // Free existing allocation
-    if (*dest) {
-        FREE(*dest);
-        *dest = NULL;
-    }
-    
-    // Allocate and copy if src is not empty
-    if (src && src[0] != '\0') {
-        size_t len = strlen(src);
-        *dest = (char *)MALLOC(len + 1);
-        if (*dest) {
-            memcpy(*dest, src, len + 1);
-        }
-    }
+    *dest = NULL;
+    if (q && src && src[0] != '\0')
+        *dest = arena_strdup(&q->arena, src);
 }
 
 // Remove comments from SQL string
@@ -322,32 +281,35 @@ static inline char *sql_unwrap(char *s) {
 struct tokens {
     char **a;
     int n;
+    int cap;
 };
 
 static void tokens_free(struct tokens *t) {
-    if (!t || !t->a)
+    if (!t)
         return;
-    for (int i = 0; i < t->n; i++)
-        FREE(t->a[i]);
-    FREE(t->a);
     t->a = NULL;
     t->n = 0;
+    t->cap = 0;
 }
 
-static int tokens_push(struct tokens *t, const char *s, size_t len, char **e) {
+static int tokens_push(struct tokens *t, struct arena *ar, const char *s, size_t len, char **e) {
     if (len == 0)
         return 0;
-    char *dup = (char *)MALLOC(len + 1);
+    if (!ar)
+        THROW(e, "tokens_push: arena is NULL");
+    if (t->n >= t->cap) {
+        int ncap = t->cap ? t->cap * 2 : 32;
+        char **na = (char **)arena_alloc(ar, sizeof(char *) * (size_t)ncap);
+        if (!na)
+            THROW(e, "failed to allocate tokens array (count: %d)", ncap);
+        if (t->a)
+            memcpy(na, t->a, sizeof(char *) * (size_t)t->n);
+        t->a = na;
+        t->cap = ncap;
+    }
+    char *dup = arena_strndup(ar, s, len);
     if (!dup)
         THROW(e, "failed to allocate memory for token (size: %zu)", len + 1);
-    memcpy(dup, s, len);
-    dup[len] = '\0';
-    char **na = (char **)REALLOC(t->a, sizeof(char *) * (t->n + 1));
-    if (!na) {
-        FREE(dup);
-        THROW(e, "failed to reallocate tokens array (count: %d)", t->n + 1);
-    }
-    t->a = na;
     t->a[t->n++] = dup;
     return 0;
 
@@ -355,13 +317,13 @@ EXCEPTION:
     return -1;
 }
 
-static int tokenize(const char *input, struct tokens *out, char **e) {
+static int tokenize(struct arena *ar, const char *input, struct tokens *out, char **e) {
     memset(out, 0, sizeof(*out));
     if (!input)
         return 0;
     size_t L = strlen(input);
     // allow one extra space sentinel
-    char *buf = (char *)MALLOC(L + 2);
+    char *buf = (char *)arena_alloc(ar, L + 2);
     if (!buf)
         THROW(e, "failed to allocate tokenize buffer (size: %zu)", L + 2);
     memcpy(buf, input, L);
@@ -378,8 +340,7 @@ static int tokenize(const char *input, struct tokens *out, char **e) {
         } else if (ch == '(') {
             if (par == 0 && start < i) {
                 // flush previous token
-                if (tokens_push(out, buf + start, i - start, e) < 0) {
-                    FREE(buf);
+                if (tokens_push(out, ar, buf + start, i - start, e) < 0) {
                     return -1;
                 }
                 // start new token at '('
@@ -396,8 +357,7 @@ static int tokenize(const char *input, struct tokens *out, char **e) {
             q = 1;
         } else if (isspace((unsigned char)ch)) {
             if (i > start) {
-                if (tokens_push(out, buf + start, i - start, e) < 0) {
-                    FREE(buf);
+                if (tokens_push(out, ar, buf + start, i - start, e) < 0) {
                     return -1;
                 }
             }
@@ -406,21 +366,18 @@ static int tokenize(const char *input, struct tokens *out, char **e) {
         prev = ch;
     }
     // append terminator
-    tokens_push(out, SQL_TERM, strlen(SQL_TERM), e);
-    FREE(buf);
+    tokens_push(out, ar, SQL_TERM, strlen(SQL_TERM), e);
     return 0;
 
 EXCEPTION:
-    FREE(buf);
     return -1;
 }
 
 // seek: join tokens with spaces until control keywords
-static char *seek_tokens(char **a, int n, int offset) {
-    size_t cap = SQL_STRING_LIMIT;
-    char *res = (char *)CALLOC(1, cap);
-    if (!res)
+static char *seek_tokens(char **a, int n, int offset, char *out, size_t cap) {
+    if (!out || cap == 0)
         return NULL;
+    out[0] = '\0';
     for (int i = offset; i < n; i++) {
         const char *s = a[i];
         if (equals_ic(s, SQL_TERM))
@@ -432,41 +389,44 @@ static char *seek_tokens(char **a, int n, int offset) {
             break;
         if (equals_ic(s, "GROUP") && i + 1 < n && equals_ic(a[i + 1], "BY"))
             break;
-        if (res[0] != '\0')
-            s_cat(res, cap, " ");
-        s_cat(res, cap, s);
+        if (out[0] != '\0')
+            s_cat(out, cap, " ");
+        s_cat(out, cap, s);
     }
-    return res;
+    return out[0] ? out : NULL;
 }
 
 // split string by top-level delimiter (ignore parentheses and quotes)
 struct strlist {
     char **a;
     int n;
+    int cap;
 };
 
 static void strlist_free(struct strlist *l) {
-    if (!l || !l->a)
+    if (!l)
         return;
-    for (int i = 0; i < l->n; i++)
-        FREE(l->a[i]);
-    FREE(l->a);
     l->a = NULL;
     l->n = 0;
+    l->cap = 0;
 }
 
-static int strlist_push(struct strlist *l, const char *s, size_t len, char **e) {
-    char *dup = (char *)MALLOC(len + 1);
+static int strlist_push(struct strlist *l, struct arena *ar, const char *s, size_t len, char **e) {
+    if (!ar)
+        THROW(e, "strlist_push: arena is NULL");
+    if (l->n >= l->cap) {
+        int ncap = l->cap ? l->cap * 2 : 16;
+        char **na = (char **)arena_alloc(ar, sizeof(char *) * (size_t)ncap);
+        if (!na)
+            THROW(e, "failed to allocate string list array (count: %d)", ncap);
+        if (l->a)
+            memcpy(na, l->a, sizeof(char *) * (size_t)l->n);
+        l->a = na;
+        l->cap = ncap;
+    }
+    char *dup = arena_strndup(ar, s, len);
     if (!dup)
         THROW(e, "failed to allocate memory for string (size: %zu)", len + 1);
-    memcpy(dup, s, len);
-    dup[len] = '\0';
-    char **na = (char **)REALLOC(l->a, sizeof(char *) * (l->n + 1));
-    if (!na) {
-        FREE(dup);
-        THROW(e, "failed to reallocate string list array (count: %d)", l->n + 1);
-    }
-    l->a = na;
     l->a[l->n++] = trim(dup);
     return 0;
 
@@ -474,12 +434,12 @@ EXCEPTION:
     return -1;
 }
 
-static int split_top(const char *s, char delim, struct strlist *out, char **e) {
+static int split_top(struct arena *ar, const char *s, char delim, struct strlist *out, char **e) {
     memset(out, 0, sizeof(*out));
     if (!s)
         return 0;
     size_t L = strlen(s);
-    char *buf = (char *)MALLOC(L + 2);
+    char *buf = (char *)arena_alloc(ar, L + 2);
     if (!buf)
         THROW(e, "failed to allocate split buffer (size: %zu)", L + 2);
     memcpy(buf, s, L);
@@ -503,8 +463,7 @@ static int split_top(const char *s, char delim, struct strlist *out, char **e) {
             q = 1;
         } else if (ch == delim) {
             if (i >= start) {
-                if (strlist_push(out, buf + start, i - start, e) < 0) {
-                    FREE(buf);
+                if (strlist_push(out, ar, buf + start, i - start, e) < 0) {
                     return -1;
                 }
             }
@@ -512,11 +471,9 @@ static int split_top(const char *s, char delim, struct strlist *out, char **e) {
         }
         prev = ch;
     }
-    FREE(buf);
     return 0;
 
 EXCEPTION:
-    FREE(buf);
     return -1;
 }
 
@@ -527,7 +484,7 @@ static void parse_values_into(const char *s, struct flintdb_sql *q, char **e) {
         return;
     struct strlist list;
     memset(&list, 0, sizeof(list));
-    if (split_top(s, ',', &list, e) != 0)
+    if (split_top(&q->arena, s, ',', &list, e) != 0)
         return;
     for (int i = 0; i < list.n && q->values.length < SQL_COLUMNS_LIMIT; i++) {
         char *v = list.a[i];
@@ -778,6 +735,7 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
         return;
     char **a = toks->a;
     int n = toks->n;
+    char seekbuf[SQL_STRING_LIMIT];
     s_copy(q->statement, sizeof(q->statement), a[0]);
 
     if (equals_ic(a[0], "SELECT")) {
@@ -827,7 +785,7 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
                         char tmp[SQL_OBJECT_STRING_LIMIT];
                         memcpy(tmp, v + 1, L - 2);
                         tmp[L - 2] = '\0';
-                        sql_set_string(&q->index, tmp);
+                        sql_set_string(q, &q->index, tmp);
                         
                         // Check for missing WHERE clause after USE INDEX
                         if (i + 2 < n) {
@@ -844,36 +802,32 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
                 }
             } else if (equals_ic(s, "CONNECT")) {
                 s_copy(part, sizeof(part), "CONNECT");
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
                     // strip (..)
                     if (starts_with(v, '(') && ends_with(v, ')')) {
                         v[strlen(v) - 1] = '\0';
                         v++;
                     }
-                    sql_set_string(&q->connect, v);
-                    FREE(v);
+                    sql_set_string(q, &q->connect, v);
                 }
             } else if (equals_ic(s, "WHERE")) {
                 s_copy(part, sizeof(part), "WHERE");
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
                     if (strlen(v) >= SQL_STRING_LIMIT) {
                         if (e) {
                             snprintf(TL_ERROR, ERROR_BUFSZ - 1, "WHERE clause too long (%zu bytes, max: %d)", strlen(v), SQL_STRING_LIMIT - 1);
                             *e = TL_ERROR;
                         }
-                        FREE(v);
                         return;
                     }
-                    sql_set_string(&q->where, v);
-                    FREE(v);
+                    sql_set_string(q, &q->where, v);
                 }
             } else if (equals_ic(s, "LIMIT")) {
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
-                    sql_set_string(&q->limit, v);
-                    FREE(v);
+                    sql_set_string(q, &q->limit, v);
                 }
             } else if (equals_ic(s, "ORDER")) {
                 s_copy(part, sizeof(part), "ORDER");
@@ -881,44 +835,39 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
                 s_copy(part, sizeof(part), "GROUP");
             } else if (equals_ic(s, "BY")) {
                 if (equals_ic(part, "ORDER")) {
-                    char *v = seek_tokens(a, n, i + 1);
+                    char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                     if (v) {
                         if (strlen(v) >= SQL_STRING_LIMIT) {
                             if (e) {
                                 snprintf(TL_ERROR, ERROR_BUFSZ - 1, "ORDER BY clause too long (%zu bytes, max: %d)", strlen(v), SQL_STRING_LIMIT - 1);
                                 *e = TL_ERROR;
                             }
-                            FREE(v);
                             return;
                         }
-                        sql_set_string(&q->orderby, v);
-                        FREE(v);
+                        sql_set_string(q, &q->orderby, v);
                     }
                 } else if (equals_ic(part, "GROUP")) {
-                    char *v = seek_tokens(a, n, i + 1);
+                    char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                     if (v) {
                         if (strlen(v) >= SQL_STRING_LIMIT) {
                             if (e) {
                                 snprintf(TL_ERROR, ERROR_BUFSZ - 1, "GROUP BY clause too long (%zu bytes, max: %d)", strlen(v), SQL_STRING_LIMIT - 1);
                                 *e = TL_ERROR;
                             }
-                            FREE(v);
                             return;
                         }
-                        sql_set_string(&q->groupby, v);
-                        FREE(v);
+                        sql_set_string(q, &q->groupby, v);
                     }
                 }
             } else if (equals_ic(s, "HAVING")) {
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
-                    sql_set_string(&q->having, v);
-                    FREE(v);
+                    sql_set_string(q, &q->having, v);
                 }
             } else if (equals_ic(s, "INTO")) {
                 s_copy(part, sizeof(part), "INTO");
                 if (i + 1 < n)
-                    sql_set_string(&q->into, a[i + 1]);
+                    sql_set_string(q, &q->into, a[i + 1]);
             }
             if (part[0] == '\0') {
                 if (cols[0] != '\0')
@@ -931,7 +880,7 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
         if (cols[0]) {
             struct strlist list;
             memset(&list, 0, sizeof(list));
-            split_top(cols, ',', &list, e);
+            split_top(&q->arena, cols, ',', &list, e);
             q->columns.length = 0;
             for (int i = 0; i < list.n && q->columns.length < SQL_COLUMNS_LIMIT; i++) {
                 s_copy(q->columns.name[q->columns.length++], SQL_OBJECT_STRING_LIMIT, list.a[i]);
@@ -955,19 +904,17 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
                     char tmp[SQL_OBJECT_STRING_LIMIT];
                     memcpy(tmp, v + 1, L - 2);
                     tmp[L - 2] = '\0';
-                    sql_set_string(&q->index, tmp);
+                    sql_set_string(q, &q->index, tmp);
                 }
             } else if (equals_ic(s, "WHERE")) {
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
-                    sql_set_string(&q->where, v);
-                    FREE(v);
+                    sql_set_string(q, &q->where, v);
                 }
             } else if (equals_ic(s, "LIMIT")) {
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
-                    sql_set_string(&q->limit, v);
-                    FREE(v);
+                    sql_set_string(q, &q->limit, v);
                 }
             }
         }
@@ -996,25 +943,23 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
                     char tmp[SQL_OBJECT_STRING_LIMIT];
                     memcpy(tmp, v + 1, L - 2);
                     tmp[L - 2] = '\0';
-                    sql_set_string(&q->index, tmp);
+                    sql_set_string(q, &q->index, tmp);
                 }
             } else if (equals_ic(s, "WHERE")) {
                 s_copy(part, sizeof(part), "WHERE");
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
-                    sql_set_string(&q->where, v);
-                    FREE(v);
+                    sql_set_string(q, &q->where, v);
                 }
             } else if (equals_ic(s, "LIMIT")) {
                 s_copy(part, sizeof(part), "LIMIT");
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
-                    sql_set_string(&q->limit, v);
-                    FREE(v);
+                    sql_set_string(q, &q->limit, v);
                 }
             }
             if (equals_ic(part, "SET")) {
-                strlist_push(&c, s, strlen(s), e);
+                strlist_push(&c, &q->arena, s, strlen(s), e);
             }
         }
         // Convert c into columns/values pairs: support both "col = val" and "col=val"
@@ -1066,7 +1011,7 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
             if (equals_ic(s, SQL_TERM))
                 break;
             if (equals_ic(s, "IGNORE")) {
-                sql_set_string(&q->ignore, "IGNORE");
+                sql_set_string(q, &q->ignore, "IGNORE");
             } else if (equals_ic(s, "INTO")) {
                 s_copy(part, sizeof(part), "INTO");
                 if (i + 1 < n)
@@ -1076,7 +1021,7 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
             } else if (equals_ic(s, "FROM")) {
                 s_copy(part, sizeof(part), "FROM");
                 if (i + 1 < n)
-                    sql_set_string(&q->from, a[i + 1]);
+                    sql_set_string(q, &q->from, a[i + 1]);
             } else if (equals_ic(part, "INTO") && starts_with(s, '(') && ends_with(s, ')')) {
                 char tmp[SQL_STRING_LIMIT];
                 s_copy(tmp, sizeof(tmp), s);
@@ -1085,7 +1030,7 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
                 // split columns by comma top-level
                 struct strlist list;
                 memset(&list, 0, sizeof(list));
-                split_top(tmp, ',', &list, e);
+                split_top(&q->arena, tmp, ',', &list, e);
                 q->columns.length = 0;
                 for (int k = 0; k < list.n && q->columns.length < SQL_COLUMNS_LIMIT; k++)
                     s_copy(q->columns.name[q->columns.length++], SQL_OBJECT_STRING_LIMIT, list.a[k]);
@@ -1097,17 +1042,15 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
                 parse_values_into(tmp + 1, q, e);
             } else if (equals_ic(s, "LIMIT")) {
                 s_copy(part, sizeof(part), "LIMIT");
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
-                    sql_set_string(&q->limit, v);
-                    FREE(v);
+                    sql_set_string(q, &q->limit, v);
                 }
             } else if (equals_ic(s, "WHERE")) {
                 s_copy(part, sizeof(part), "WHERE");
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
-                    sql_set_string(&q->where, v);
-                    FREE(v);
+                    sql_set_string(q, &q->where, v);
                 }
             }
         }
@@ -1136,17 +1079,16 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
             if (equals_ic(s, SQL_TERM))
                 break;
             if (equals_ic(s, "CONNECT")) {
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
                     if (starts_with(v, '(') && ends_with(v, ')')) {
                         v[strlen(v) - 1] = '\0';
                         v++;
                     }
-                    sql_set_string(&q->connect, v);
-                    FREE(v);
+                    sql_set_string(q, &q->connect, v);
                 }
             } else if (equals_ic(s, "INTO") && i + 1 < n) {
-                sql_set_string(&q->into, a[i + 1]);
+                sql_set_string(q, &q->into, a[i + 1]);
             }
         }
         return;
@@ -1154,22 +1096,20 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
 
     if (equals_ic(a[0], "SHOW")) {
         if (n > 1)
-            sql_set_string(&q->object, a[1]);
+            sql_set_string(q, &q->object, a[1]);
         for (int i = 2; i < n; i++) {
             char *s = a[i];
             if (equals_ic(s, SQL_TERM))
                 break;
             if (equals_ic(s, "WHERE")) {
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
-                    sql_set_string(&q->where, v);
-                    FREE(v);
+                    sql_set_string(q, &q->where, v);
                 }
             } else if (equals_ic(s, "OPTION")) {
-                char *v = seek_tokens(a, n, i + 1);
+                char *v = seek_tokens(a, n, i + 1, seekbuf, sizeof(seekbuf));
                 if (v) {
-                    sql_set_string(&q->option, v);
-                    FREE(v);
+                    sql_set_string(q, &q->option, v);
                 }
             }
         }
@@ -1216,11 +1156,11 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
                 v = eq + 1;
             }
             if (equals_ic(k, "DIRECTORY"))
-                sql_set_string(&q->directory, v);
+                sql_set_string(q, &q->directory, v);
             else if (equals_ic(k, "STORAGE"))
-                sql_set_string(&q->storage, v);
+                sql_set_string(q, &q->storage, v);
             else if (equals_ic(k, "WAL"))
-                sql_set_string(&q->wal, v);
+                sql_set_string(q, &q->wal, v);
             else if (equals_ic(k, "WAL_BATCH_SIZE"))
                 q->wal_batch_size = parse_long(v);
             else if (equals_ic(k, "WAL_CHECKPOINT_INTERVAL"))
@@ -1234,19 +1174,19 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
             else if (equals_ic(k, "WAL_COMPRESSION_THRESHOLD"))
                 q->wal_compression_threshold = parse_bytes(v);
             else if (equals_ic(k, "DICTIONARY"))
-                sql_set_string(&q->dictionary, v);
+                sql_set_string(q, &q->dictionary, v);
             else if (equals_ic(k, "COMPRESSOR")) {
                 char tmp[SQL_OBJECT_STRING_LIMIT];
                 s_copy(tmp, sizeof(tmp), v);
                 for (char *p = tmp; *p; ++p)
                     *p = (char)tolower((unsigned char)*p);
-                sql_set_string(&q->compressor, tmp);
+                sql_set_string(q, &q->compressor, tmp);
             } else if (equals_ic(k, "COMPACT")) {
                 char tmp[SQL_OBJECT_STRING_LIMIT];
                 s_copy(tmp, sizeof(tmp), v);
                 for (char *p = tmp; *p; ++p)
                     *p = (char)toupper((unsigned char)*p);
-                sql_set_string(&q->compact, tmp);
+                sql_set_string(q, &q->compact, tmp);
             }
             // else if (equals_ic(k, "INCREMENT")) { char tmp[SQL_OBJECT_STRING_LIMIT]; s_copy(tmp, sizeof(tmp), v); for (char *p = tmp; *p; ++p) *p = (char)toupper((unsigned char)*p); s_copy(q->increment, sizeof(q->increment), tmp); }
             else if (equals_ic(k, "CACHE")) {
@@ -1254,23 +1194,23 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
                 s_copy(tmp, sizeof(tmp), v);
                 for (char *p = tmp; *p; ++p)
                     *p = (char)toupper((unsigned char)*p);
-                sql_set_string(&q->cache, tmp);
+                sql_set_string(q, &q->cache, tmp);
             } else if (equals_ic(k, "DATE")) {
                 char tmp[SQL_OBJECT_STRING_LIMIT];
                 s_copy(tmp, sizeof(tmp), v);
                 for (char *p = tmp; *p; ++p)
                     *p = (char)toupper((unsigned char)*p);
-                sql_set_string(&q->date, tmp);
+                sql_set_string(q, &q->date, tmp);
             } else if (equals_ic(k, "HEADER"))
-                sql_set_string(&q->header, v);
+                sql_set_string(q, &q->header, v);
             else if (equals_ic(k, "DELIMITER"))
-                sql_set_string(&q->delimiter, v);
+                sql_set_string(q, &q->delimiter, v);
             else if (equals_ic(k, "QUOTE"))
-                sql_set_string(&q->quote, v);
+                sql_set_string(q, &q->quote, v);
             else if (equals_ic(k, "NULL"))
-                sql_set_string(&q->nullString, v);
+                sql_set_string(q, &q->nullString, v);
             else if (equals_ic(k, "FORMAT"))
-                sql_set_string(&q->format, v);
+                sql_set_string(q, &q->format, v);
             else if (equals_ic(k, "MAX")) { /* ignore */
             }
         }
@@ -1281,7 +1221,7 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
         char *def_body = def + (starts_with(def, '(') ? 1 : 0);
         struct strlist list;
         memset(&list, 0, sizeof(list));
-        split_top(def_body, ',', &list, e);
+        split_top(&q->arena, def_body, ',', &list, e);
         q->definition.length = 0;
         for (int k = 0; k < list.n && q->definition.length < SQL_COLUMNS_LIMIT; k++) {
             if (strlen(list.a[k]) >= SQL_OBJECT_STRING_LIMIT) {
@@ -1335,7 +1275,7 @@ struct flintdb_sql *flintdb_sql_parse(const char *sql, char **e) {
     char norm[SQL_STRING_LIMIT];
     memset(norm, 0, sizeof(norm));
     trim_mws(sql, norm, sizeof(norm));
-    if (tokenize(norm, &toks, e) != 0)
+    if (tokenize(&out->arena, norm, &toks, e) != 0)
         THROW(e, "failed to tokenize SQL statement");
     parse_statements(&toks, out, e);
     if (e && *e)
@@ -1493,7 +1433,7 @@ int flintdb_sql_to_meta(struct flintdb_sql *in, struct flintdb_meta *out, char *
         s_copy(def, sizeof(def), in->definition.object[i]);
         // tokenize this def line
         struct tokens toks = {0};
-        if (tokenize(def, &toks, e) != 0) {
+        if (tokenize(&in->arena, def, &toks, e) != 0) {
             tokens_free(&toks);
             THROW(e, "failed to tokenize column definition: %s", def);
         }
@@ -1518,7 +1458,7 @@ int flintdb_sql_to_meta(struct flintdb_sql *in, struct flintdb_meta *out, char *
                 char *body = tmp + 1;
                 struct strlist keys;
                 memset(&keys, 0, sizeof(keys));
-                if (split_top(body, ',', &keys, e) != 0) {
+                if (split_top(&in->arena, body, ',', &keys, e) != 0) {
                     tokens_free(&toks);
                     THROW(e, "failed to parse primary key columns: %s", body);
                 }
@@ -1556,7 +1496,7 @@ int flintdb_sql_to_meta(struct flintdb_sql *in, struct flintdb_meta *out, char *
                 char *body = grp + 1;
                 struct strlist keys;
                 memset(&keys, 0, sizeof(keys));
-                if (split_top(body, ',', &keys, e) != 0) {
+                if (split_top(&in->arena, body, ',', &keys, e) != 0) {
                     tokens_free(&toks);
                     THROW(e, "failed to parse index key columns: %s", body);
                 }
@@ -1606,7 +1546,7 @@ int flintdb_sql_to_meta(struct flintdb_sql *in, struct flintdb_meta *out, char *
                 char *body = tmp + 1;
                 struct strlist parts;
                 memset(&parts, 0, sizeof(parts));
-                if (split_top(body, ',', &parts, e) != 0) {
+                if (split_top(&in->arena, body, ',', &parts, e) != 0) {
                     tokens_free(&toks);
                     THROW(e, "failed to parse column type parameters (prefix): %s", body);
                 }
@@ -1623,7 +1563,7 @@ int flintdb_sql_to_meta(struct flintdb_sql *in, struct flintdb_meta *out, char *
                 i++;
                 struct strlist parts;
                 memset(&parts, 0, sizeof(parts));
-                if (split_top(body, ',', &parts, e) != 0) {
+                if (split_top(&in->arena, body, ',', &parts, e) != 0) {
                     tokens_free(&toks);
                     THROW(e, "failed to parse column type parameters: %s", body);
                 }

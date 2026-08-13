@@ -184,3 +184,53 @@ struct string_pool *string_pool_create(u32 capacity, u32 str_size, u32 preload) 
     }
     return pool;
 }
+
+void *arena_alloc_chunk(struct arena *a, u32 need) {
+    if (!a || need == 0)
+        return NULL;
+    if (a->chunk_size == 0)
+        a->chunk_size = ARENA_DEFAULT_CHUNK;
+    u32 cap = a->chunk_size;
+    if (need > cap)
+        cap = need;
+    struct arena_chunk *chunk = (struct arena_chunk *)CALLOC(1, sizeof(struct arena_chunk) + (size_t)cap);
+    if (!chunk)
+        return NULL;
+    chunk->cap = cap;
+    chunk->used = 0;
+    chunk->next = NULL;
+    if (!a->first)
+        a->first = chunk;
+    else if (a->head)
+        a->head->next = chunk;
+    a->head = chunk;
+    void *p = (char *)(chunk + 1);
+    chunk->used = need;
+    return p;
+}
+
+void arena_reset(struct arena *a) {
+    if (!a || !a->first)
+        return;
+    struct arena_chunk *c = a->first->next;
+    while (c) {
+        struct arena_chunk *n = c->next;
+        FREE(c);
+        c = n;
+    }
+    a->first->next = NULL;
+    a->first->used = 0;
+    a->head = a->first;
+}
+
+void arena_destroy(struct arena *a) {
+    if (!a)
+        return;
+    struct arena_chunk *c = a->first;
+    while (c) {
+        struct arena_chunk *n = c->next;
+        FREE(c);
+        c = n;
+    }
+    memset(a, 0, sizeof(*a));
+}

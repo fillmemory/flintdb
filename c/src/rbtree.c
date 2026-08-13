@@ -9,37 +9,34 @@
 #define rb_is_red(node) ((node) != NULL && (node)->color == RED)
 #define rb_size(node) ((node) == NULL ? 0 : (node)->size)
 
-// Node pool for fast allocation/deallocation
-#if RBTREE_NODE_POOL_LIMIT > 0
-static struct rbnode *rb_node_alloc(struct rbtree *tree) {
-    if (tree->pool) {
-        struct rbnode *node = (struct rbnode *)tree->pool;
-        tree->pool = ((struct rbnode *)tree->pool)->left; // reuse left as next pointer
-        tree->pool_size--;
-        memset(node, 0, sizeof(*node));
-        return node;
-    }
-    return (struct rbnode *)CALLOC(1, sizeof(struct rbnode));
+static void *rb_node_pool_alloc(void *ctx) {
+    (void)ctx;
+    return CALLOC(1, sizeof(struct rbnode));
 }
 
-static void rb_node_pool_free(struct rbtree *tree, struct rbnode *node) {
-    if (!node) return;
-    if (tree->pool_size < tree->pool_limit) {
-        // push to pool
-        node->left = (struct rbnode *)tree->pool;
-        tree->pool = node;
-        tree->pool_size++;
-    } else {
-        FREE(node);
-    }
+static void rb_node_pool_reset(void *obj, void *ctx) {
+    (void)ctx;
+    if (obj)
+        memset(obj, 0, sizeof(struct rbnode));
 }
-#else
-#define rb_node_alloc(tree) ((struct rbnode*)CALLOC(1, sizeof(struct rbnode)))
-#define rb_node_pool_free(tree, node) do { if (node) FREE(node); } while(0)
-#endif
+
+static void rb_node_pool_dtor(void *obj, void *ctx) {
+    (void)ctx;
+    FREE(obj);
+}
+
+static inline struct rbnode *rb_node_alloc(struct rbtree *tree) {
+    return (struct rbnode *)object_pool_borrow(&tree->node_pool);
+}
+
+static inline void rb_node_pool_free(struct rbtree *tree, struct rbnode *node) {
+    object_pool_return(&tree->node_pool, node);
+}
 
 struct rbnode *rb_node_new(struct rbtree *tree, keytype key, valtype val, rb_color color, i64 size, void (*dealloc)(keytype, valtype)) {
     struct rbnode *node = rb_node_alloc(tree);
+    if (!node)
+        return NULL;
     node->key = key;
     node->val = val;
     node->left = node->right = NULL;
@@ -69,16 +66,7 @@ static void rb_node_free(struct rbtree *tree, struct rbnode *x) {
 
 static void rbtree_free(struct rbtree *tree) {
     rb_node_free(tree, tree->root);
-    
-    // Free all pooled nodes
-    #if RBTREE_NODE_POOL_LIMIT > 0
-    while (tree->pool) {
-        struct rbnode *node = (struct rbnode *)tree->pool;
-        tree->pool = node->left;
-        FREE(node);
-    }
-    #endif
-    
+    object_pool_deinit(&tree->node_pool);
     FREE(tree);
 }
 
@@ -279,12 +267,8 @@ struct rbtree *rbtree_new(i32 (*compare)(keytype a, keytype b)) {
     tree->put = rb_put;
     tree->remove = rb_remove;
 
-    // Initialize node pool
-    #if RBTREE_NODE_POOL_LIMIT > 0
-    tree->pool = NULL;
-    tree->pool_size = 0;
-    tree->pool_limit = RBTREE_NODE_POOL_LIMIT;
-    #endif
+    object_pool_init(&tree->node_pool, RBTREE_NODE_POOL_LIMIT, 0, rb_node_pool_alloc, rb_node_pool_reset,
+                     rb_node_pool_dtor, NULL);
 
     return tree;
 }

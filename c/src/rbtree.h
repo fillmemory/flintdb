@@ -6,6 +6,7 @@
  */
 
 #include "types.h"
+#include "pool.h"
 
 // Performance knobs
 #ifndef RBTREE_NODE_POOL_LIMIT
@@ -35,10 +36,7 @@ struct rbtree {
 	void (*put)(struct rbtree *, keytype, valtype, void (*dealloc)(keytype, valtype));
 	void (*remove)(struct rbtree *, keytype);
 
-	// Node pool for fast allocation/deallocation
-	void *pool;
-	u32 pool_size;
-	u32 pool_limit;
+	struct object_pool node_pool;
 };
 
 struct rbtree *rbtree_new(i32 (*compare)(keytype, keytype));

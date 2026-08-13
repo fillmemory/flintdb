@@ -182,4 +182,65 @@ static inline void string_pool_free(struct string_pool *pool) {
     FREE(pool);
 }
 
+// --- bump arena (request-scoped; reset keeps the first chunk) ---
+
+#ifndef ARENA_DEFAULT_CHUNK
+#define ARENA_DEFAULT_CHUNK 8192u
+#endif
+
+struct arena_chunk {
+    struct arena_chunk *next;
+    u32 cap;
+    u32 used;
+};
+
+struct arena {
+    struct arena_chunk *head;
+    struct arena_chunk *first;
+    u32 chunk_size;
+};
+
+void *arena_alloc_chunk(struct arena *a, u32 need);
+void arena_reset(struct arena *a);
+void arena_destroy(struct arena *a);
+
+static inline void arena_init(struct arena *a, u32 chunk_size) {
+    if (!a)
+        return;
+    memset(a, 0, sizeof(*a));
+    a->chunk_size = chunk_size ? chunk_size : ARENA_DEFAULT_CHUNK;
+}
+
+static inline void *arena_alloc(struct arena *a, size_t n) {
+    if (UNLIKELY(!a))
+        return NULL;
+    if (n == 0)
+        n = 1;
+    u32 need = (u32)((n + 7u) & ~(size_t)7);
+    if (need < n)
+        return NULL; // overflow
+    if (LIKELY(a->head && need <= a->head->cap - a->head->used)) {
+        void *p = (char *)(a->head + 1) + a->head->used;
+        a->head->used += need;
+        return p;
+    }
+    return arena_alloc_chunk(a, need);
+}
+
+static inline char *arena_strndup(struct arena *a, const char *s, size_t n) {
+    char *p = (char *)arena_alloc(a, n + 1);
+    if (!p)
+        return NULL;
+    if (s && n)
+        memcpy(p, s, n);
+    p[n] = '\0';
+    return p;
+}
+
+static inline char *arena_strdup(struct arena *a, const char *s) {
+    if (!s)
+        return NULL;
+    return arena_strndup(a, s, strlen(s));
+}
+
 #endif // FLINTDB_POOL_H
