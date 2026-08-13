@@ -4,208 +4,79 @@
 #include "allocator.h"
 #include "buffer.h"
 #include "internal.h" // unified internal string helpers
+#include "pool.h"
 #include "runtime.h"
 
 #include <ctype.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define SQL_TERM "<END>"
 
-// Thread-local pool for sql_context allocation
 #ifndef sql_parser_POOL_CAPACITY
 #define sql_parser_POOL_CAPACITY 32
 #endif
 
-static pthread_key_t sql_parser_POOL_KEY;
-static pthread_once_t sql_parser_POOL_KEY_ONCE = PTHREAD_ONCE_INIT;
-static _Thread_local struct flintdb_sql_pool *sql_parser_POOL_CACHED = NULL;
-
-struct flintdb_sql_pool {
-    int capacity;
-    int top;
-    struct flintdb_sql **items;
-
-    struct flintdb_sql *(*borrow)(struct flintdb_sql_pool *pool);
-    void (*return_context)(struct flintdb_sql_pool *pool, struct flintdb_sql *q);
-    void (*free)(struct flintdb_sql_pool *pool);
-};
-
-static struct flintdb_sql *sql_pool_borrow(struct flintdb_sql_pool *pool) {
-    if (!pool)
-        return NULL;
-    if (pool->top > 0) {
-        return pool->items[--pool->top];
-    }
-    // Pool empty, allocate new
-    struct flintdb_sql *q = (struct flintdb_sql *)CALLOC(1, sizeof(struct flintdb_sql));
-    if (q) {
-        // Initialize pointer fields to NULL
-        q->object = NULL;
-        q->index = NULL;
-        q->ignore = NULL;
-        q->limit = NULL;
-        q->orderby = NULL;
-        q->groupby = NULL;
-        q->having = NULL;
-        q->from = NULL;
-        q->into = NULL;
-        q->where = NULL;
-        q->connect = NULL;
-        q->dictionary = NULL;
-        q->directory = NULL;
-        q->compressor = NULL;
-        q->compact = NULL;
-        q->cache = NULL;
-        q->date = NULL;
-        q->storage = NULL;
-        q->header = NULL;
-        q->delimiter = NULL;
-        q->quote = NULL;
-        q->nullString = NULL;
-        q->format = NULL;
-        q->wal = NULL;
-        q->option = NULL;
-    }
-    return q;
-}
-
-static void sql_pool_return(struct flintdb_sql_pool *pool, struct flintdb_sql *q) {
-    if (!pool || !q)
+static void sql_context_clear_fields(struct flintdb_sql *q) {
+    if (!q)
         return;
-    
-    // Free dynamically allocated fields (only if non-NULL to avoid mtrace warnings)
-    if (q->object) FREE(q->object);
-    if (q->index) FREE(q->index);
-    if (q->ignore) FREE(q->ignore);
-    if (q->limit) FREE(q->limit);
-    if (q->orderby) FREE(q->orderby);
-    if (q->groupby) FREE(q->groupby);
-    if (q->having) FREE(q->having);
-    if (q->from) FREE(q->from);
-    if (q->into) FREE(q->into);
-    if (q->where) FREE(q->where);
-    if (q->connect) FREE(q->connect);
-    if (q->dictionary) FREE(q->dictionary);
-    if (q->directory) FREE(q->directory);
-    if (q->compressor) FREE(q->compressor);
-    if (q->compact) FREE(q->compact);
-    if (q->cache) FREE(q->cache);
-    if (q->date) FREE(q->date);
-    if (q->storage) FREE(q->storage);
-    if (q->header) FREE(q->header);
-    if (q->delimiter) FREE(q->delimiter);
-    if (q->quote) FREE(q->quote);
-    if (q->nullString) FREE(q->nullString);
-    if (q->format) FREE(q->format);
-    if (q->wal) FREE(q->wal);
-    if (q->option) FREE(q->option);
-    
-    if (pool->top < pool->capacity) {
-        // Clear the context before returning to pool
-        memset(q, 0, sizeof(struct flintdb_sql));
-        pool->items[pool->top++] = q;
-    } else {
-        // Pool full, free the context
-        FREE(q);
-    }
+#define SQL_FREE_FIELD(f) do { if (q->f) { FREE(q->f); q->f = NULL; } } while (0)
+    SQL_FREE_FIELD(object);
+    SQL_FREE_FIELD(index);
+    SQL_FREE_FIELD(ignore);
+    SQL_FREE_FIELD(limit);
+    SQL_FREE_FIELD(orderby);
+    SQL_FREE_FIELD(groupby);
+    SQL_FREE_FIELD(having);
+    SQL_FREE_FIELD(from);
+    SQL_FREE_FIELD(into);
+    SQL_FREE_FIELD(where);
+    SQL_FREE_FIELD(connect);
+    SQL_FREE_FIELD(dictionary);
+    SQL_FREE_FIELD(directory);
+    SQL_FREE_FIELD(compressor);
+    SQL_FREE_FIELD(compact);
+    SQL_FREE_FIELD(cache);
+    SQL_FREE_FIELD(date);
+    SQL_FREE_FIELD(storage);
+    SQL_FREE_FIELD(header);
+    SQL_FREE_FIELD(delimiter);
+    SQL_FREE_FIELD(quote);
+    SQL_FREE_FIELD(nullString);
+    SQL_FREE_FIELD(format);
+    SQL_FREE_FIELD(wal);
+    SQL_FREE_FIELD(option);
+#undef SQL_FREE_FIELD
 }
 
-static void sql_pool_free(struct flintdb_sql_pool *pool) {
-    if (!pool)
-        return;
-    if (pool->items) {
-        for (int i = 0; i < pool->top; i++) {
-            struct flintdb_sql *q = pool->items[i];
-            if (q) {
-                // Free all dynamically allocated string fields
-                if (q->object) FREE(q->object);
-                if (q->index) FREE(q->index);
-                if (q->ignore) FREE(q->ignore);
-                if (q->limit) FREE(q->limit);
-                if (q->orderby) FREE(q->orderby);
-                if (q->groupby) FREE(q->groupby);
-                if (q->having) FREE(q->having);
-                if (q->from) FREE(q->from);
-                if (q->into) FREE(q->into);
-                if (q->where) FREE(q->where);
-                if (q->connect) FREE(q->connect);
-                if (q->dictionary) FREE(q->dictionary);
-                if (q->directory) FREE(q->directory);
-                if (q->compressor) FREE(q->compressor);
-                if (q->compact) FREE(q->compact);
-                if (q->cache) FREE(q->cache);
-                if (q->date) FREE(q->date);
-                if (q->storage) FREE(q->storage);
-                if (q->header) FREE(q->header);
-                if (q->delimiter) FREE(q->delimiter);
-                if (q->quote) FREE(q->quote);
-                if (q->nullString) FREE(q->nullString);
-                if (q->format) FREE(q->format);
-                if (q->wal) FREE(q->wal);
-                if (q->option) FREE(q->option);
-                FREE(q);
-            }
-        }
-        FREE(pool->items);
-    }
-    FREE(pool);
+static void *sql_context_alloc(void *ctx) {
+    (void)ctx;
+    return CALLOC(1, sizeof(struct flintdb_sql));
 }
 
-static struct flintdb_sql_pool *sql_pool_create(int capacity) {
-    struct flintdb_sql_pool *pool = (struct flintdb_sql_pool *)CALLOC(1, sizeof(struct flintdb_sql_pool));
-    if (!pool)
-        return NULL;
-
-    pool->items = (struct flintdb_sql **)CALLOC(capacity, sizeof(struct flintdb_sql *));
-    if (!pool->items) {
-        FREE(pool);
-        return NULL;
-    }
-
-    pool->capacity = capacity;
-    pool->top = 0;
-    pool->borrow = sql_pool_borrow;
-    pool->return_context = sql_pool_return;
-    pool->free = sql_pool_free;
-
-    return pool;
+static void sql_context_reset(void *obj, void *ctx) {
+    (void)ctx;
+    struct flintdb_sql *q = (struct flintdb_sql *)obj;
+    sql_context_clear_fields(q);
+    memset(q, 0, sizeof(struct flintdb_sql));
 }
 
-static void sql_pool_destroy(void *p) {
-    if (p)
-        ((struct flintdb_sql_pool *)p)->free((struct flintdb_sql_pool *)p);
-    DEBUG("SQL context pool destroyed");
+static void sql_context_dtor(void *obj, void *ctx) {
+    (void)ctx;
+    sql_context_clear_fields((struct flintdb_sql *)obj);
+    FREE(obj);
 }
 
-static void sql_pool_make_key(void) {
-    (void)pthread_key_create(&sql_parser_POOL_KEY, sql_pool_destroy);
-    DEBUG("SQL context pool created");
+static struct object_pool *sql_parser_pool_new(void) {
+    return object_pool_create(sql_parser_POOL_CAPACITY, 0, sql_context_alloc, sql_context_reset,
+                              sql_context_dtor, NULL);
 }
 
-static inline struct flintdb_sql_pool *sql_pool_get(void) {
-    if (sql_parser_POOL_CACHED != NULL) {
-        return sql_parser_POOL_CACHED;
-    }
-    (void)pthread_once(&sql_parser_POOL_KEY_ONCE, sql_pool_make_key);
-    struct flintdb_sql_pool *pool = (struct flintdb_sql_pool *)pthread_getspecific(sql_parser_POOL_KEY);
-    if (!pool) {
-        pool = sql_pool_create(sql_parser_POOL_CAPACITY);
-        (void)pthread_setspecific(sql_parser_POOL_KEY, pool);
-    }
-    sql_parser_POOL_CACHED = pool;
-    return pool;
-}
+TLS_OBJECT_POOL_DEFINE(sql_parser, sql_parser_pool_new, "SQL context pool")
 
-// Cleanup function to explicitly free the main thread's SQL pool
 void sql_pool_cleanup(void) {
-    if (sql_parser_POOL_CACHED != NULL) {
-        struct flintdb_sql_pool *pool = sql_parser_POOL_CACHED;
-        pool->free(pool);
-        sql_parser_POOL_CACHED = NULL;
-    }
+    sql_parser_cleanup_main();
 }
 
 // --- small string helpers
@@ -1431,39 +1302,11 @@ static void parse_statements(struct tokens *toks, struct flintdb_sql *q, char **
 void flintdb_sql_free(struct flintdb_sql *q) {
     if (!q)
         return;
-    // Return to thread-local pool instead of freeing
-    struct flintdb_sql_pool *pool = sql_pool_get();
-    if (pool) {
-        pool->return_context(pool, q);
-    } else {
-        // No pool available, free directly
-        if (q->object) FREE(q->object);
-        if (q->index) FREE(q->index);
-        if (q->ignore) FREE(q->ignore);
-        if (q->limit) FREE(q->limit);
-        if (q->orderby) FREE(q->orderby);
-        if (q->groupby) FREE(q->groupby);
-        if (q->having) FREE(q->having);
-        if (q->from) FREE(q->from);
-        if (q->into) FREE(q->into);
-        if (q->where) FREE(q->where);
-        if (q->connect) FREE(q->connect);
-        if (q->dictionary) FREE(q->dictionary);
-        if (q->directory) FREE(q->directory);
-        if (q->compressor) FREE(q->compressor);
-        if (q->compact) FREE(q->compact);
-        if (q->cache) FREE(q->cache);
-        if (q->date) FREE(q->date);
-        if (q->storage) FREE(q->storage);
-        if (q->header) FREE(q->header);
-        if (q->delimiter) FREE(q->delimiter);
-        if (q->quote) FREE(q->quote);
-        if (q->nullString) FREE(q->nullString);
-        if (q->format) FREE(q->format);
-        if (q->wal) FREE(q->wal);
-        if (q->option) FREE(q->option);
-        FREE(q);
-    }
+    struct object_pool *pool = sql_parser_get();
+    if (pool)
+        object_pool_return(pool, q);
+    else
+        sql_context_dtor(q, NULL);
 }
 
 struct flintdb_sql *flintdb_sql_parse(const char *sql, char **e) {
@@ -1478,13 +1321,11 @@ struct flintdb_sql *flintdb_sql_parse(const char *sql, char **e) {
     if (sql_len >= SQL_STRING_LIMIT)
         THROW(e, "SQL statement too long (%zu bytes, max: %d)", sql_len, SQL_STRING_LIMIT - 1);
 
-    // Use thread-local pool allocator for sql_context
-    struct flintdb_sql_pool *pool = sql_pool_get();
-    if (pool) {
-        out = pool->borrow(pool);
-    } else {
+    struct object_pool *pool = sql_parser_get();
+    if (pool)
+        out = (struct flintdb_sql *)object_pool_borrow(pool);
+    else
         out = (struct flintdb_sql *)CALLOC(1, sizeof(struct flintdb_sql));
-    }
     if (!out)
         THROW(e, "failed to allocate memory for sql_context");
 

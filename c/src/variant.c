@@ -1,8 +1,8 @@
 #include "flintdb.h"
 #include "runtime.h"
-#include "buffer.h"
 #include "allocator.h"
 #include "internal.h"
+#include "pool.h"
 #include "simd.h"
 #include <stdlib.h>
 #include <errno.h>
@@ -48,65 +48,36 @@ static void variant__tempstr_make_key(void) {
 #define VARIANT_STRPOOL_PRELOAD 16u
 #endif
 
-// Thread-local string pool with cleanup on thread exit (POSIX pthread TLS).
-// This path works with MinGW (pthread-win32) as well.
-static pthread_key_t VARIANT_STRPOOL_KEY;
-static pthread_once_t VARIANT_STRPOOL_KEY_ONCE = PTHREAD_ONCE_INIT;
-static void variant__strpool_destroy(void *p) {
-	if (p) ((struct string_pool*)p)->free((struct string_pool*)p);
-	DEBUG("Variant string pool destroyed");
+static void *variant_str_alloc(void *ctx) {
+	u32 sz = (u32)(uintptr_t)ctx;
+	if (sz == 0)
+		sz = 1;
+	return MALLOC(sz);
 }
-static void variant__strpool_make_key(void) {
-	(void)pthread_key_create(&VARIANT_STRPOOL_KEY, variant__strpool_destroy);
-	DEBUG("Variant string pool created");
-}
-// Thread-local cached pool pointer to avoid repeated pthread_getspecific calls
-static _Thread_local struct string_pool *VARIANT_STRPOOL_CACHED = NULL;
 
-// Cleanup function to explicitly free the main thread's variant string pool
+static void variant_str_dtor(void *obj, void *ctx) {
+	(void)ctx;
+	FREE(obj);
+}
+
+static struct object_pool *variant_str_pool_new(void) {
+	return object_pool_create(VARIANT_STRPOOL_CAPACITY, VARIANT_STRPOOL_PRELOAD, variant_str_alloc, NULL,
+	                          variant_str_dtor, (void *)(uintptr_t)VARIANT_STRPOOL_STR_SIZE);
+}
+
+TLS_OBJECT_POOL_DEFINE(variant_str, variant_str_pool_new, "Variant string pool")
+
 void variant_strpool_cleanup(void) {
-	// Only cleanup if the pool was actually created
-	if (VARIANT_STRPOOL_CACHED != NULL) {
-		struct string_pool *pool = VARIANT_STRPOOL_CACHED;
-		pool->free(pool);
-		VARIANT_STRPOOL_CACHED = NULL;
-	}
+	variant_str_cleanup_main();
 }
 
-static inline struct string_pool * variant__pool(void) {
-	if (LIKELY(VARIANT_STRPOOL_CACHED != NULL)) {
-		return VARIANT_STRPOOL_CACHED;
-	}
-	(void)pthread_once(&VARIANT_STRPOOL_KEY_ONCE, variant__strpool_make_key);
-	struct string_pool *pool = (struct string_pool*)pthread_getspecific(VARIANT_STRPOOL_KEY);
-	if (!pool) {
-		pool = string_pool_create(VARIANT_STRPOOL_CAPACITY, VARIANT_STRPOOL_STR_SIZE, VARIANT_STRPOOL_PRELOAD);
-		(void)pthread_setspecific(VARIANT_STRPOOL_KEY, pool);
-	}
-	VARIANT_STRPOOL_CACHED = pool;
-	return pool;
+static inline struct object_pool *variant__pool(void) {
+	return variant_str_get();
 }
 
 // ownership marker: 0 = ref, 1 = malloc, 2 = pool
 #define OWNED_HEAP 1
 #define OWNED_POOL 2
-
-// Inline pool borrow for hot path performance
-static inline char *variant__pool_borrow_inline(struct string_pool *pool) {
-	if (LIKELY(pool->top > 0)) {
-		return pool->items[--pool->top];
-	}
-	return (char *)MALLOC(pool->str_size);
-}
-
-// Inline pool return for hot path performance
-static inline void variant__pool_return_inline(struct string_pool *pool, char *s) {
-	if (LIKELY(pool->top < pool->capacity)) {
-		pool->items[pool->top++] = s;
-	} else {
-		FREE(s);
-	}
-}
 
 static inline char *variant__alloc_for(u32 needed, i8 *owned_out) {
 	if (needed == 0) {
@@ -116,9 +87,9 @@ static inline char *variant__alloc_for(u32 needed, i8 *owned_out) {
 	}
 	u32 bytes = needed + 1; // room for trailing NUL for convenience
 	if (bytes <= VARIANT_STRPOOL_STR_SIZE) {
-		struct string_pool *pool = variant__pool();
+		struct object_pool *pool = variant__pool();
 		if (pool) {
-			char *p = variant__pool_borrow_inline(pool);
+			char *p = (char *)object_pool_borrow(pool);
 			if (p) {
 				if (owned_out) *owned_out = OWNED_POOL;
 				return p;
@@ -134,8 +105,8 @@ static inline char *variant__alloc_for(u32 needed, i8 *owned_out) {
 static inline void variant__free_owned(char *p, i8 owned) {
 	if (!p) return;
 	if (owned == OWNED_POOL) {
-		struct string_pool *pool = variant__pool();
-		if (pool) variant__pool_return_inline(pool, p);
+		struct object_pool *pool = variant__pool();
+		if (pool) object_pool_return(pool, p);
 		else FREE(p); // very unlikely; fallback
 	} else if (owned) {
 		FREE(p);
@@ -300,8 +271,7 @@ int flintdb_variant_string_set(struct flintdb_variant *v, const char *str, u32 l
 	char *buf;
 	i8 owned;
 	if (LIKELY(length <= VARIANT_STRPOOL_STR_SIZE)) {
-		struct string_pool *pool = variant__pool();
-		buf = variant__pool_borrow_inline(pool);
+		buf = (char *)object_pool_borrow(variant__pool());
 		owned = OWNED_POOL;
 	} else {
 		buf = (char *)MALLOC((size_t)length + 1);

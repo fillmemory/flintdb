@@ -596,14 +596,10 @@ struct buffer_pool *buffer_pool_create(u32 capacity, u32 align, u32 preload) {
 static struct buffer *buffer_pool_safe_borrow(struct buffer_pool_safe *me, u32 buf_size) {
     if (!me || !me->pool)
         return NULL;
-    // Use C11 stdatomic spinlock (cross-platform: Linux, macOS, Windows MinGW)
     atomic_int *lock = (atomic_int *)me->mtx;
-    int expected = 0;
-    while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1, memory_order_acquire, memory_order_relaxed)) {
-        expected = 0;
-    }
+    pool_spin_lock(lock);
     struct buffer *b = me->pool->borrow(me->pool, buf_size);
-    atomic_store_explicit(lock, 0, memory_order_release);
+    pool_spin_unlock(lock);
     return b;
 }
 
@@ -614,12 +610,9 @@ static void buffer_pool_safe_return(struct buffer_pool_safe *me, struct buffer *
         return;
     }
     atomic_int *lock = (atomic_int *)me->mtx;
-    int expected = 0;
-    while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1, memory_order_acquire, memory_order_relaxed)) {
-        expected = 0;
-    }
+    pool_spin_lock(lock);
     me->pool->return_buffer(me->pool, b);
-    atomic_store_explicit(lock, 0, memory_order_release);
+    pool_spin_unlock(lock);
 }
 
 static void buffer_pool_safe_free(struct buffer_pool_safe *me) {
@@ -656,69 +649,4 @@ struct buffer_pool_safe *buffer_pool_safe_create(u32 capacity, u32 align, u32 pr
     safe->return_buffer = &buffer_pool_safe_return;
     safe->free = &buffer_pool_safe_free;
     return safe;
-}
-
-HOT_PATH
-char *string_pool_borrow(struct string_pool *pool) {
-    if (UNLIKELY(!pool))
-        return NULL;
-    if (LIKELY(pool->top > 0)) {
-        return pool->items[--pool->top];
-    }
-    // Lazy allocate when pool is empty (rare with preload)
-    u32 sz = (pool->str_size == 0) ? 1 : pool->str_size;
-    char *s = (char *)MALLOC(sz);
-    return s;
-}
-
-HOT_PATH
-void string_pool_return(struct string_pool *pool, char *s) {
-    if (UNLIKELY(!pool || !s))
-        return;
-    if (LIKELY(pool->top < pool->capacity)) {
-        pool->items[pool->top++] = s;
-    } else {
-        FREE(s);
-    }
-}
-
-void string_pool_free(struct string_pool *pool) {
-    if (!pool)
-        return;
-    for (int i = 0; i < pool->top; i++) {
-        if (pool->items[i]) {
-            FREE(pool->items[i]);
-        }
-    }
-    FREE(pool->items);
-    FREE(pool);
-}
-
-struct string_pool *string_pool_create(u32 capacity, u32 str_size, u32 preload) {
-    struct string_pool *pool = CALLOC(1, sizeof(struct string_pool));
-    if (!pool)
-        return NULL;
-    pool->capacity = (int)capacity;
-    pool->top = 0;
-    pool->str_size = (str_size == 0) ? 1 : str_size;
-    pool->items = CALLOC((size_t)capacity, sizeof(char *));
-    if (!pool->items) {
-        FREE(pool);
-        return NULL;
-    }
-
-    // Preload strings to avoid lazy allocation overhead
-    u32 count = (preload > capacity) ? capacity : preload;
-    for (u32 i = 0; i < count; i++) {
-        char *s = (char *)MALLOC(pool->str_size);
-        if (LIKELY(s)) {
-            pool->items[pool->top++] = s;
-        }
-    }
-
-    pool->borrow = &string_pool_borrow;
-    pool->return_string = &string_pool_return;
-    pool->free = &string_pool_free;
-
-    return pool;
 }

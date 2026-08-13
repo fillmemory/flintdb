@@ -6,6 +6,7 @@
 #include "iostream.h"
 #include "list.h"
 #include "flintdb.h"
+#include "pool.h"
 #include "roaringbitmap.h"
 #include "runtime.h"
 #include "sql.h"
@@ -193,8 +194,8 @@ struct pooled_table {
 };
 
 // Use C11 stdatomic spinlock for cross-platform compatibility (macOS, Linux, Windows MinGW)
-#define TABLE_POOL_LOCK(lock) do { int expected = 0; while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1, memory_order_acquire, memory_order_relaxed)) { expected = 0; } } while(0)
-#define TABLE_POOL_UNLOCK(lock) atomic_store_explicit(lock, 0, memory_order_release)
+#define TABLE_POOL_LOCK(lock) pool_spin_lock(lock)
+#define TABLE_POOL_UNLOCK(lock) pool_spin_unlock(lock)
 
 static struct {
     atomic_int lock;

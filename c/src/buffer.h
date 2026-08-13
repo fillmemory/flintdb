@@ -6,6 +6,7 @@
 #define FLINTDB_BUFFER_H
 
 #include "types.h"
+#include "pool.h"
 
 // Buffer ownership sentinel values (must never collide with real pointers)
 // Used in buffer->owner to mark internal ownership states.
@@ -95,19 +96,5 @@ struct buffer_pool_safe {
 
 // Create a thread-safe buffer pool with given capacity, minimum buffer size (align) and preload count.
 struct buffer_pool_safe * buffer_pool_safe_create(u32 capacity, u32 align, u32 preload);
-
-
-struct string_pool {
-    int capacity;           // total slots
-    int top;                // current count (stack top)
-    char **items;          // strings
-    u32 str_size;          // size of each string
-
-    char * (*borrow)(struct string_pool *pool);
-    void (*return_string)(struct string_pool *pool, char *s);
-    void (*free)(struct string_pool *pool);
-};
-
-struct string_pool * string_pool_create(u32 capacity, u32 str_size, u32 preload);
 
 #endif // FLINTDB_BUFFER_H

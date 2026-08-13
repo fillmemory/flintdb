@@ -2,136 +2,93 @@
 #include "runtime.h"
 #include "buffer.h"
 #include "internal.h"
+#include "pool.h"
 #include "simd.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <strings.h>
 #include <math.h>
-#include <stdatomic.h>
 
 // Forward declarations for DECIMAL helper functions
 static inline void decimal_from_twos_bytes(const u8 *p, u32 n, int scale, struct flintdb_decimal  *out);
 
 // Optional row pooling to reduce per-row malloc/free churn in hot paths (e.g. table scans).
 // Pool stores up to ROW_POOL_MAX reusable row objects per meta schema. Rows are cleaned
-// (variants freed + reinitialized) before reuse. Only structure/array allocation is reused.
-// Enable by using flintdb_row_pool_acquire()/flintdb_row_pool_release() instead of flintdb_row_new()/row->free().
-// Safe because variant memory is released on return to pool.
+// (variants freed + reinitialized) on return. Only structure/array allocation is reused.
 #define ROW_POOL_MAX 256
 
-struct flintdb_row_pool_bucket {
-    struct flintdb_meta *meta;            // schema this bucket serves
-    struct flintdb_row *rows[ROW_POOL_MAX];
-    int count;                    // number of cached rows
+static void *row_pool_alloc(void *key);
+static void row_pool_reset(void *obj, void *key);
+static void row_pool_dtor(void *obj, void *key);
+
+static struct keyed_object_pool g_row_pool = {
+    .bucket_cap = KEYED_OBJECT_POOL_MAX_BUCKETS,
+    .slot_capacity = ROW_POOL_MAX,
+    .alloc = row_pool_alloc,
+    .reset = row_pool_reset,
+    .dtor = row_pool_dtor,
 };
 
-// Use C11 stdatomic spinlock for cross-platform compatibility (macOS, Linux, Windows MinGW)
-#define ROW_POOL_LOCK(lock) do { int expected = 0; while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1, memory_order_acquire, memory_order_relaxed)) { expected = 0; } } while(0)
-#define ROW_POOL_UNLOCK(lock) atomic_store_explicit(lock, 0, memory_order_release)
-
-// Simple linear bucket array; for small distinct metas this is fine.
-static struct {
-    atomic_int lock;
-    int bucket_count;
-    struct flintdb_row_pool_bucket buckets[32]; // supports up to 32 distinct metas in pool
-} g_row_pool = {0, 0, {{0}}};
-
-static void row_pool_cleanup_row(struct flintdb_row *r) {
-    if (!r) return;
-    // Free owned variant data then re-init variants for clean reuse.
+static void row_pool_reset(void *obj, void *key) {
+    (void)key;
+    struct flintdb_row *r = (struct flintdb_row *)obj;
+    if (!r)
+        return;
     for (int i = 0; i < r->length; i++) {
         flintdb_variant_free(&r->array[i]);
-        flintdb_variant_init(&r->array[i]); // reset to NIL
+        flintdb_variant_init(&r->array[i]);
     }
     r->rowid = -1;
+    r->refcount = 1;
 }
 
-// Acquire a pooled row for given meta; allocate new if none available.
+static void row_pool_dtor(void *obj, void *key) {
+    (void)key;
+    struct flintdb_row *r = (struct flintdb_row *)obj;
+    if (!r)
+        return;
+    for (int i = 0; i < r->length; i++)
+        flintdb_variant_free(&r->array[i]);
+    FREE(r->array);
+    FREE(r);
+}
+
+static void *row_pool_alloc(void *key) {
+    char *e = NULL;
+    struct flintdb_row *r = flintdb_row_new((struct flintdb_meta *)key, &e);
+    if (!r)
+        return NULL;
+    r->free = (void (*)(struct flintdb_row *))flintdb_row_pool_release;
+    return r;
+}
+
 struct flintdb_row *flintdb_row_pool_acquire(struct flintdb_meta *meta, char **e) {
     if (!meta) {
         if (e) *e = "row_pool_acquire: meta is NULL";
         return NULL;
     }
     if (e) *e = NULL;
-    ROW_POOL_LOCK(&g_row_pool.lock);
-    // Find bucket
-    int bi = -1;
-    for (int i = 0; i < g_row_pool.bucket_count; i++) {
-        if (g_row_pool.buckets[i].meta == meta) { bi = i; break; }
+    struct flintdb_row *r = (struct flintdb_row *)keyed_object_pool_borrow(&g_row_pool, meta);
+    if (!r) {
+        if (e) *e = "row_pool_acquire: out of memory";
+        return NULL;
     }
-    if (bi >= 0) {
-        struct flintdb_row_pool_bucket *b = &g_row_pool.buckets[bi];
-        if (b->count > 0) {
-            struct flintdb_row *r = b->rows[--b->count];
-            b->rows[b->count] = NULL;
-            ROW_POOL_UNLOCK(&g_row_pool.lock);
-            row_pool_cleanup_row(r); // ensure clean state
-            return r;
-        }
-    }
-    ROW_POOL_UNLOCK(&g_row_pool.lock);
-    // Allocate new row (not found or empty bucket)
-    struct flintdb_row *r = flintdb_row_new(meta, e);
-    if (!r) return NULL;
-    // Override free to pooled release
-    r->free = (void (*)(struct flintdb_row *))flintdb_row_pool_release;
     return r;
 }
 
-// Release a row back to pool (called via r->free). Falls back to real free if pool full.
 void flintdb_row_pool_release(struct flintdb_row *r) {
-    if (!r) return;
-    struct flintdb_meta *meta = r->meta;
-    if (!meta) { // if meta missing just hard free
-        // restore original behavior
-        for (int i = 0; i < r->length; i++) flintdb_variant_free(&r->array[i]);
-        FREE(r->array);
-        FREE(r);
+    if (!r)
         return;
-    }
-    ROW_POOL_LOCK(&g_row_pool.lock);
-    int bi = -1;
-    for (int i = 0; i < g_row_pool.bucket_count; i++) {
-        if (g_row_pool.buckets[i].meta == meta) { bi = i; break; }
-    }
-    if (bi < 0) { // create new bucket if space
-        if (g_row_pool.bucket_count < (int)(sizeof(g_row_pool.buckets)/sizeof(g_row_pool.buckets[0]))) {
-            bi = g_row_pool.bucket_count++;
-            g_row_pool.buckets[bi].meta = meta;
-            g_row_pool.buckets[bi].count = 0;
-        } else {
-            bi = -1; // no bucket space; will hard free below
-        }
-    }
-    if (bi >= 0) {
-        struct flintdb_row_pool_bucket *b = &g_row_pool.buckets[bi];
-        if (b->count < ROW_POOL_MAX) {
-            row_pool_cleanup_row(r);
-            b->rows[b->count++] = r;
-            ROW_POOL_UNLOCK(&g_row_pool.lock);
-            return;
-        }
-    }
-    ROW_POOL_UNLOCK(&g_row_pool.lock);
-    // Pool full or no bucket: hard free
-    for (int i = 0; i < r->length; i++) flintdb_variant_free(&r->array[i]);
-    FREE(r->array);
-    FREE(r);
+    keyed_object_pool_return(&g_row_pool, r->meta, r);
 }
 
-// Optional stats helper (not exported unless prototype added)
+void row_pool_cleanup(void) {
+    keyed_object_pool_drain(&g_row_pool);
+}
+
 int row_pool_size(struct flintdb_meta *meta) {
-    ROW_POOL_LOCK(&g_row_pool.lock);
-    for (int i = 0; i < g_row_pool.bucket_count; i++) {
-        if (g_row_pool.buckets[i].meta == meta) {
-            int c = g_row_pool.buckets[i].count;
-            ROW_POOL_UNLOCK(&g_row_pool.lock);
-            return c;
-        }
-    }
-    ROW_POOL_UNLOCK(&g_row_pool.lock);
-    return 0;
+    return keyed_object_pool_size(&g_row_pool, meta);
 }
 
 
@@ -2686,7 +2643,7 @@ static int text_split_fast_unquoted(struct text_formatter_priv *priv, const char
         } else {
             // Prefer pool when field fits
             if (priv->pool && flen + 1 <= priv->pool->str_size) {
-                fieldstr = priv->pool->borrow(priv->pool);
+                fieldstr = string_pool_borrow(priv->pool);
                 use_pool = 1;
             } else {
                 fieldstr = (char *)MALLOC((size_t)flen + 1);
@@ -2765,7 +2722,7 @@ static int text_split(struct text_formatter_priv *priv, const char *line, u32 li
     u32 sbcap = 0;
     int sb_borrowed = 0; // 1 if from pool
     if (priv->pool) {
-        sb = priv->pool->borrow(priv->pool);
+        sb = string_pool_borrow(priv->pool);
         sbcap = priv->pool->str_size;
         sb_borrowed = 1;
     } else {
@@ -2794,7 +2751,7 @@ static int text_split(struct text_formatter_priv *priv, const char *line, u32 li
             fieldstr = NULL;                                                             \
         } else {                                                                         \
             if (priv->pool && sbn + 1 <= priv->pool->str_size) {                         \
-                fieldstr = priv->pool->borrow(priv->pool);                               \
+                fieldstr = string_pool_borrow(priv->pool);                               \
                 use_pool = 1;                                                            \
             } else {                                                                     \
                 fieldstr = (char *)MALLOC((size_t)sbn + 1);                              \
@@ -2916,7 +2873,7 @@ static int text_split(struct text_formatter_priv *priv, const char *line, u32 li
 
     // Return or free scratch buffer
     if (sb_borrowed && priv->pool) {
-        priv->pool->return_string(priv->pool, sb);
+        string_pool_return(priv->pool, sb);
     } else if (!sb_borrowed) {
         FREE(sb);
     }
@@ -3200,7 +3157,7 @@ static int text_decode(struct formatter *me, struct buffer *in, struct flintdb_r
         char *fv = fields[i];
         if (!fv) continue;
         if (priv->temp_is_pool && priv->temp_is_pool[i]) {
-            if (priv->pool) priv->pool->return_string(priv->pool, fv);
+            if (priv->pool) string_pool_return(priv->pool, fv);
             priv->temp_is_pool[i] = 0;
         } else {
             FREE(fv);
@@ -3228,7 +3185,7 @@ void formatter_close(struct formatter *me) {
             char *p = priv->temp_fields[i];
             if (!p) continue;
             if (priv->temp_is_pool && priv->temp_is_pool[i]) {
-                if (priv->pool) priv->pool->return_string(priv->pool, p);
+                if (priv->pool) string_pool_return(priv->pool, p);
             } else {
                 FREE(p);
             }
@@ -3239,7 +3196,7 @@ void formatter_close(struct formatter *me) {
         priv->temp_fields = NULL;
     }
     if (priv->temp_is_pool) { FREE(priv->temp_is_pool); priv->temp_is_pool = NULL; }
-    if (priv->pool) { priv->pool->free(priv->pool); priv->pool = NULL; }
+    if (priv->pool) { string_pool_free(priv->pool); priv->pool = NULL; }
 
     FREE(me->priv);
     me->priv = NULL;
