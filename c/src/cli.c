@@ -39,7 +39,6 @@
 #define MAX_PRETTY_ROWS 10000
 #define MAX_PRETTY_COLS 100
 
-extern int variant_to_string_fast(const struct flintdb_variant *v, char *out, u32 len); // in variant.c
 
 // Signal handler for graceful shutdown
 static void signal_handler(int signum) {
@@ -394,7 +393,7 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
                             THROW_S(e);
                         }
                         if (v) {
-                            variant_to_string_fast(v, buf, buf_len); // variant_to_string_fast(v, buf, buf_len);
+                            flintdb_variant_to_string(v, buf, buf_len);
                             row_data[i] = STRDUP(buf);
                         } else {
                             row_data[i] = STRDUP("\\N");
@@ -419,7 +418,7 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
                         if (e && *e)
                             THROW_S(e);
                         if (v) {
-                            variant_to_string_fast(v, buf, buf_len); // variant_to_string_fast(v, buf, buf_len);
+                            flintdb_variant_to_string(v, buf, buf_len);
                             bufio_print(bufout, buf, e);
                         } else {
                             bufio_print(bufout, "\\N", e);

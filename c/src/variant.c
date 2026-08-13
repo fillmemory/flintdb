@@ -1076,13 +1076,27 @@ int flintdb_variant_to_string(const struct flintdb_variant *v, char *out, u32 le
 	case VARIANT_INT32:
 	case VARIANT_UINT8:
 	case VARIANT_UINT16:
-	case VARIANT_UINT32: {
-		snprintf(out, len, "%lld", (long long)v->value.i);
-		return strlen(out);
-	}
+	case VARIANT_UINT32:
 	case VARIANT_INT64: {
-		snprintf(out, len, "%lld", (long long)v->value.i);
-		return strlen(out);
+		// Manual base-10 conversion: avoids snprintf overhead on hot paths.
+		long long val = (long long)v->value.i;
+		unsigned long long u = (val < 0) ? (unsigned long long)(-val) : (unsigned long long)val;
+		char tmp[32];
+		int ti = 0;
+		do {
+			tmp[ti++] = (char)('0' + (u % 10ULL));
+			u /= 10ULL;
+		} while (u && ti < (int)sizeof(tmp) - 1);
+		if (val < 0 && ti < (int)sizeof(tmp) - 1) tmp[ti++] = '-';
+		if ((u32)ti >= len) {
+			// Buffer too small: fall back to snprintf
+			snprintf(out, len, "%lld", (long long)v->value.i);
+			return (int)strlen(out);
+		}
+		int w = 0;
+		while (ti > 0) out[w++] = tmp[--ti];
+		out[w] = '\0';
+		return w;
 	}
 	case VARIANT_FLOAT:
 	case VARIANT_DOUBLE: {
@@ -1121,41 +1135,6 @@ int flintdb_variant_to_string(const struct flintdb_variant *v, char *out, u32 le
 	}
 }
 
-// Optimized textual conversion for hot CLI scan paths.
-// Provides faster integer formatting than snprintf and delegates
-// to variant_to_string for all other types. Returns number of bytes written.
-int variant_to_string_fast(const struct flintdb_variant *v, char *out, u32 len) {
-	if (!v || !out || len == 0) return -1;
-	switch (v->type) {
-	case VARIANT_INT8: case VARIANT_INT16: case VARIANT_INT32: case VARIANT_UINT8: case VARIANT_UINT16: case VARIANT_UINT32: case VARIANT_INT64: {
-		// Manual int to string (base 10) without snprintf overhead.
-		// Use unsigned conversion for magnitude then prepend sign if needed.
-		long long val = (long long)v->value.i;
-		unsigned long long u = (val < 0) ? (unsigned long long)(-val) : (unsigned long long)val;
-		char buf[32];
-		int i = 0;
-		do {
-			buf[i++] = (char)('0' + (u % 10ULL));
-			u /= 10ULL;
-		} while (u && i < (int)sizeof(buf)-1);
-		if (val < 0 && i < (int)sizeof(buf)-1) buf[i++] = '-';
-		// Reverse into out (ensure space)
-		if ((u32)i >= len) { // Fallback if not enough room
-			return flintdb_variant_to_string(v, out, len);
-		}
-		int w = 0;
-		while (i > 0) {
-			out[w++] = buf[--i];
-		}
-		out[w] = '\0';
-		return w;
-	}
-	case VARIANT_STRING: // Direct copy already efficient; reuse original path.
-		return flintdb_variant_to_string(v, out, len);
-	default:
-		return flintdb_variant_to_string(v, out, len);
-	}
-}
 
 int flintdb_variant_to_decimal(const struct flintdb_variant *v, struct flintdb_decimal  *out, char **e) {
 	if (e) *e = NULL;
