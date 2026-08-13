@@ -164,17 +164,33 @@ static int arrow_load_library(char **e) {
                                "flintdb_parquet.dll",      // Windows
                                NULL};
 
-    const char *search_paths[] = {"./lib",                  // Relative to binary
-                                  "../lib",                 // Relative to binary (one level up)
+    void *handle = NULL;
+    char lib_path[PATH_MAX];
+
+    // If this code is already running inside the plugin (loaded via plugin.c),
+    // reopen the same image instead of searching CWD-relative paths.
+#if !defined(_WIN32)
+    {
+        Dl_info info;
+        memset(&info, 0, sizeof(info));
+        if (dladdr((void *)&arrow_load_library, &info) && info.dli_fname && info.dli_fname[0]) {
+            handle = dlopen(info.dli_fname, RTLD_LAZY | RTLD_LOCAL);
+            if (handle) {
+                DEBUG("Loaded Parquet plugin: %s", info.dli_fname);
+                goto found;
+            }
+        }
+    }
+#endif
+
+    const char *search_paths[] = {"./lib",                  // Relative to CWD
+                                  "../lib",                 // One level up from CWD
                                   "./c/lib",                // From workspace root
                                   "/usr/local/lib/flintdb", // System install
                                   "/opt/flintdb/lib",       // Alternative system install
                                   "/mingw64/lib",           // MSYS2
                                   "C:/msys64/mingw64/lib",  // MSYS2 (absolute)
                                   NULL};
-
-    void *handle = NULL;
-    char lib_path[PATH_MAX];
 
     // Try each combination of path and library name
     for (int i = 0; search_paths[i] != NULL; i++) {

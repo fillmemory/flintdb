@@ -740,10 +740,10 @@ struct flintdb_genericfile *flintdb_genericfile_open(const char *file, enum flin
             // Default: text-based formats (CSV, TSV, etc.)
             return textfile_open(file, mode, meta, e);
         case FORMAT_PARQUET:
-            THROW(e, "Parquet format requires plugin. Install libflintdb_parquet plugin to lib/ directory: %s", file);
+            THROW(e, "Parquet format requires plugin. Place libflintdb_parquet in lib/ next to the binary (or set FLINTDB_PLUGIN_PATH): %s", file);
             break;
         case FORMAT_JSONL:
-            THROW(e, "JSONL format requires plugin. Install libflintdb_jsonl plugin to lib/ directory: %s", file);
+            THROW(e, "JSONL format requires plugin. Place libflintdb_jsonl in lib/ next to the binary (or set FLINTDB_PLUGIN_PATH): %s", file);
             break;
         default:
             THROW(e, "Unsupported file format for file: %s", file);

@@ -7,7 +7,18 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
 #define MAX_PLUGINS 32
+#define MAX_PLUGIN_SEARCH_DIRS 24
+
+#ifdef _WIN32
+#define PLUGIN_PATH_LIST_SEP ';'
+#else
+#define PLUGIN_PATH_LIST_SEP ':'
+#endif
 
 static struct {
     struct plugin_handle *handles[MAX_PLUGINS];
@@ -15,36 +26,189 @@ static struct {
     int initialized;
 } plugin_registry = {0};
 
+static int plugin_path_join(char *dst, size_t dstsz, const char *a, const char *b) {
+    if (!dst || dstsz == 0 || !a || !*a)
+        return 0;
+    if (!b || !*b) {
+        snprintf(dst, dstsz, "%s", a);
+        return dst[0] != '\0';
+    }
+    size_t alen = strlen(a);
+    int need_sep = (a[alen - 1] != '/' && a[alen - 1] != '\\');
+    int n;
+    if (need_sep)
+        n = snprintf(dst, dstsz, "%s%c%s", a, PATH_CHAR, b);
+    else
+        n = snprintf(dst, dstsz, "%s%s", a, b);
+    return n > 0 && (size_t)n < dstsz;
+}
+
+static int plugin_add_dir(char dirs[][PATH_MAX], int *n, int maxn, const char *dir) {
+    if (!dir || !*dir || !n || *n >= maxn)
+        return 0;
+
+    char resolved[PATH_MAX];
+    const char *p = dir;
+#ifndef _WIN32
+    if (realpath(dir, resolved))
+        p = resolved;
+#endif
+    for (int i = 0; i < *n; i++) {
+        if (strcmp(dirs[i], p) == 0)
+            return 0;
+    }
+    snprintf(dirs[*n], PATH_MAX, "%s", p);
+    (*n)++;
+    return 1;
+}
+
+static void plugin_add_neighbors(char dirs[][PATH_MAX], int *n, int maxn, const char *base) {
+    char buf[PATH_MAX];
+    char parent[PATH_MAX];
+
+    if (!base || !*base)
+        return;
+
+    plugin_add_dir(dirs, n, maxn, base);
+    if (plugin_path_join(buf, sizeof(buf), base, "lib"))
+        plugin_add_dir(dirs, n, maxn, buf);
+
+    getdir(base, parent);
+    if (parent[0] && plugin_path_join(buf, sizeof(buf), parent, "lib"))
+        plugin_add_dir(dirs, n, maxn, buf);
+}
+
+static void plugin_add_path_list(char dirs[][PATH_MAX], int *n, int maxn, const char *list) {
+    if (!list || !*list)
+        return;
+
+    char *copy = STRDUP(list);
+    if (!copy)
+        return;
+
+    char *cur = copy;
+    while (*cur) {
+        char *sep = strchr(cur, PLUGIN_PATH_LIST_SEP);
+        if (sep)
+            *sep = '\0';
+        if (*cur)
+            plugin_add_dir(dirs, n, maxn, cur);
+        if (!sep)
+            break;
+        cur = sep + 1;
+    }
+    FREE(copy);
+}
+
+// Directory of the loaded image that contains plugin_manager_init
+// (libflintdb when the CLI is dynamically linked, or the CLI itself if static).
+static int plugin_module_dir(char *out, size_t outsz) {
+    char file[PATH_MAX];
+
+#if defined(_WIN32)
+    HMODULE hm = NULL;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCSTR)(void *)&plugin_manager_init, &hm) ||
+        !hm)
+        return 0;
+    DWORD n = GetModuleFileNameA(hm, file, (DWORD)sizeof(file));
+    if (n == 0 || n >= sizeof(file))
+        return 0;
+#else
+    Dl_info info;
+    memset(&info, 0, sizeof(info));
+    if (!dladdr((void *)&plugin_manager_init, &info) || !info.dli_fname || !info.dli_fname[0])
+        return 0;
+    if (!realpath(info.dli_fname, file))
+        snprintf(file, sizeof(file), "%s", info.dli_fname);
+#endif
+
+    char dir[PATH_MAX];
+    getdir(file, dir);
+    if (!dir[0])
+        return 0;
+    snprintf(out, outsz, "%s", dir);
+    return 1;
+}
+
+static int plugin_exe_dir(char *out, size_t outsz) {
+    char file[PATH_MAX];
+
+#if defined(_WIN32)
+    DWORD n = GetModuleFileNameA(NULL, file, (DWORD)sizeof(file));
+    if (n == 0 || n >= sizeof(file))
+        return 0;
+#elif defined(__APPLE__)
+    uint32_t size = sizeof(file);
+    if (_NSGetExecutablePath(file, &size) != 0)
+        return 0;
+    char resolved[PATH_MAX];
+    if (realpath(file, resolved))
+        snprintf(file, sizeof(file), "%s", resolved);
+#else
+    ssize_t n = readlink("/proc/self/exe", file, sizeof(file) - 1);
+    if (n <= 0)
+        return 0;
+    file[n] = '\0';
+#endif
+
+    char dir[PATH_MAX];
+    getdir(file, dir);
+    if (!dir[0])
+        return 0;
+    snprintf(out, outsz, "%s", dir);
+    return 1;
+}
+
+// Collect unique plugin directories. Typical layouts:
+//   <prefix>/bin/flintdb
+//   <prefix>/lib/libflintdb.{so,dylib}
+//   <prefix>/lib/libflintdb_parquet.{so,dylib}
+static int plugin_collect_search_dirs(char dirs[][PATH_MAX], int maxn) {
+    int n = 0;
+    char buf[PATH_MAX];
+
+    // 1. FLINTDB_PLUGIN_PATH (PATH-style, ':' on Unix / ';' on Windows)
+    plugin_add_path_list(dirs, &n, maxn, getenv("FLINTDB_PLUGIN_PATH"));
+
+    // 2. Directory of libflintdb (and lib/, ../lib next to it)
+    if (plugin_module_dir(buf, sizeof(buf)))
+        plugin_add_neighbors(dirs, &n, maxn, buf);
+
+    // 3. Directory of the running executable (and lib/, ../lib)
+    if (plugin_exe_dir(buf, sizeof(buf)))
+        plugin_add_neighbors(dirs, &n, maxn, buf);
+
+    // 4. CWD-relative (development: run from c/ with ./lib)
+    if (getcwd(buf, sizeof(buf)))
+        plugin_add_neighbors(dirs, &n, maxn, buf);
+
+    // 5. System install locations
+    plugin_add_dir(dirs, &n, maxn, "/usr/local/lib/flintdb");
+    plugin_add_dir(dirs, &n, maxn, "/opt/flintdb/lib");
+    plugin_add_dir(dirs, &n, maxn, "/usr/lib/flintdb");
+
+    return n;
+}
+
 int plugin_manager_init(char **e) {
     if (plugin_registry.initialized)
         return 0;
-    
+
+    (void)e;
     memset(&plugin_registry, 0, sizeof(plugin_registry));
     plugin_registry.initialized = 1;
-    
-    // Scan default plugin directories
-    // 1. Try ./lib directory (relative to current working directory)
-    char plugin_dir[PATH_MAX] = {0};
-    char *cwd = getcwd(plugin_dir, sizeof(plugin_dir) - 5); // Reserve space for "/lib"
-    if (cwd) {
-        size_t len = strlen(plugin_dir);
-        if (len > 0 && len < sizeof(plugin_dir) - 5) {
-            plugin_dir[len] = '/';
-            plugin_dir[len + 1] = 'l';
-            plugin_dir[len + 2] = 'i';
-            plugin_dir[len + 3] = 'b';
-            plugin_dir[len + 4] = '\0';
-            plugin_scan_directory(plugin_dir, NULL); // Ignore errors
-        }
+
+    char dirs[MAX_PLUGIN_SEARCH_DIRS][PATH_MAX];
+    int ndirs = plugin_collect_search_dirs(dirs, MAX_PLUGIN_SEARCH_DIRS);
+    for (int i = 0; i < ndirs; i++) {
+        DEBUG("plugin_manager_init: scanning '%s'", dirs[i]);
+        plugin_scan_directory(dirs[i], NULL);
     }
-    
-    // 2. Try environment variable FLINTDB_PLUGIN_PATH
-    const char *env_path = getenv("FLINTDB_PLUGIN_PATH");
-    if (env_path && *env_path) {
-        plugin_scan_directory(env_path, NULL); // Ignore errors
-    }
-    
-    DEBUG("plugin_manager_init: loaded %d plugins", plugin_registry.count);
+
+    DEBUG("plugin_manager_init: loaded %d plugins from %d directories",
+          plugin_registry.count, ndirs);
     return 0;
 }
 
