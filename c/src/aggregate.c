@@ -3,8 +3,6 @@
 #include "internal.h"
 #include "flintdb.h"
 #include "roaringbitmap.h"
-#include "runtime.h"
-#include "sql.h"
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
