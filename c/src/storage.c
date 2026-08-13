@@ -7,6 +7,7 @@
 #include <string.h>
 #ifndef _WIN32
 #include <sys/mman.h>
+#include <pthread.h>
 #endif
 
 #include <fcntl.h>
@@ -192,6 +193,97 @@ EXCEPTION:
     return NULL;
 }
 
+#ifndef _WIN32
+/**
+ * Background flusher for mmap storage.
+ *
+ * Bulk writes dirty mmap pages faster than the kernel writes them back, so
+ * without help all the disk I/O piles up into a synchronous flush inside
+ * close()/vnode-reclaim (notably on macOS). Calling msync() from the writer
+ * thread is not enough: even MS_ASYNC blocks under I/O throttling. A small
+ * dedicated thread absorbs that blocking so writeback overlaps with the
+ * CPU-bound write path.
+ *
+ * Lifetime safety: mmap regions live in me->cache which is an unbounded
+ * hashmap (no LRU eviction); regions are only unmapped in close(), after
+ * the flusher has been joined.
+ */
+#define MMAP_FLUSHER_QLEN 256
+
+struct mmap_flusher {
+    pthread_t thread;
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+    struct { void *addr; size_t len; } q[MMAP_FLUSHER_QLEN];
+    u32 head, count;
+    u8 shutdown;
+};
+
+static void *mmap_flusher_main(void *arg) {
+    struct mmap_flusher *f = (struct mmap_flusher *)arg;
+    pthread_mutex_lock(&f->mu);
+    for (;;) {
+        while (f->count == 0 && !f->shutdown)
+            pthread_cond_wait(&f->cv, &f->mu);
+        if (f->count == 0 && f->shutdown)
+            break;
+        void *addr = f->q[f->head].addr;
+        size_t len = f->q[f->head].len;
+        f->head = (f->head + 1) % MMAP_FLUSHER_QLEN;
+        f->count--;
+        pthread_mutex_unlock(&f->mu);
+        // MS_SYNC applies I/O backpressure to this thread, not the writer.
+        msync(addr, len, MS_SYNC);
+        pthread_mutex_lock(&f->mu);
+    }
+    pthread_mutex_unlock(&f->mu);
+    return NULL;
+}
+
+static void mmap_flusher_enqueue(struct storage *me, void *addr, size_t len) {
+    struct mmap_flusher *f = (struct mmap_flusher *)me->priv;
+    if (!f) {
+        f = CALLOC(1, sizeof(struct mmap_flusher));
+        if (!f)
+            return; // no flusher: close() still flushes everything
+        pthread_mutex_init(&f->mu, NULL);
+        pthread_cond_init(&f->cv, NULL);
+        if (pthread_create(&f->thread, NULL, mmap_flusher_main, f) != 0) {
+            pthread_mutex_destroy(&f->mu);
+            pthread_cond_destroy(&f->cv);
+            FREE(f);
+            return;
+        }
+        me->priv = f;
+    }
+    pthread_mutex_lock(&f->mu);
+    if (f->count < MMAP_FLUSHER_QLEN) {
+        u32 tail = (f->head + f->count) % MMAP_FLUSHER_QLEN;
+        f->q[tail].addr = addr;
+        f->q[tail].len = len;
+        f->count++;
+        pthread_cond_signal(&f->cv);
+    }
+    // Queue full: drop the request; close() flushes any leftovers.
+    pthread_mutex_unlock(&f->mu);
+}
+
+static void mmap_flusher_close(struct storage *me) {
+    struct mmap_flusher *f = (struct mmap_flusher *)me->priv;
+    if (!f)
+        return;
+    pthread_mutex_lock(&f->mu);
+    f->shutdown = 1;
+    pthread_cond_signal(&f->cv);
+    pthread_mutex_unlock(&f->mu);
+    pthread_join(f->thread, NULL);
+    pthread_mutex_destroy(&f->mu);
+    pthread_cond_destroy(&f->cv);
+    FREE(f);
+    me->priv = NULL;
+}
+#endif // !_WIN32
+
 static void storage_mmap_buffer_get(struct storage *me, i64 index, struct buffer *out) {
     i64 absolute = me->block_bytes * index;
     i64 i = absolute / me->mmap_bytes;
@@ -235,6 +327,22 @@ static void storage_mmap_buffer_get(struct storage *me, i64 index, struct buffer
         storage_commit(me, STORAGE_COMMIT_LAZY, &e);
         if (e && *e)
             THROW_S(e);
+
+#ifndef _WIN32
+        // The file just grew into a new region, so the previous region is
+        // complete for append-style writes (bulk insert). Hand it to the
+        // background flusher so disk writeback overlaps with ongoing CPU work;
+        // otherwise dirty pages accumulate and close() stalls in a synchronous
+        // flush during vnode reclaim (notably on macOS).
+        if (i > 0) {
+            valtype prev = me->cache->get(me->cache, i - 1);
+            if (HASHMAP_INVALID_VAL != prev) {
+                struct buffer *pb = (struct buffer *)prev;
+                if (pb->mapped.addr && pb->mapped.length > 0)
+                    mmap_flusher_enqueue(me, pb->mapped.addr, pb->mapped.length);
+            }
+        }
+#endif
     }
 
     mbb->slice(mbb, r, me->block_bytes, out, &e);
@@ -448,6 +556,26 @@ static void storage_mmap_close(struct storage *me) {
 
     // Force commit any pending changes before closing
     storage_commit(me, STORAGE_COMMIT_FORCE, NULL);
+
+#ifndef _WIN32
+    // Drain the background flusher before unmapping anything it may touch.
+    mmap_flusher_close(me);
+
+    // Kick off asynchronous writeback of all dirty mapped regions before
+    // munmap/close(). The kernel starts flushing immediately, so the
+    // synchronous flush during close()/vnode-reclaim has less left to do and
+    // overlaps with closing of sibling storages (data file, index files).
+    if (me->opts.mode == FLINTDB_RDWR && me->cache) {
+        struct map_iterator it = {0};
+        while (me->cache->iterate(me->cache, &it) == 1) {
+            struct buffer *pb = (struct buffer *)it.val;
+            if (pb && pb->mapped.addr && pb->mapped.length > 0)
+                msync(pb->mapped.addr, pb->mapped.length, MS_ASYNC);
+        }
+        if (me->h && me->h->mapped.addr)
+            msync(me->h->mapped.addr, me->h->mapped.length, MS_ASYNC);
+    }
+#endif
 
     if (me->cache) {
         DEBUG("freeing cache %p", me->cache);
