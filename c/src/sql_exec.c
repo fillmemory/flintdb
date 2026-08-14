@@ -160,6 +160,26 @@ static char *bytes_human(i64 bytes, char *buf, size_t cap) {
 }
 
 // Helper: relativize path to current working directory
+static void path_join(char *dst, size_t dstsz, const char *dir, const char *name) {
+    if (!dst || dstsz == 0)
+        return;
+    dst[0] = '\0';
+    if (!dir || !*dir) {
+        if (name)
+            strncpy_safe(dst, name, dstsz);
+        return;
+    }
+    if (!name || !*name) {
+        strncpy_safe(dst, dir, dstsz);
+        return;
+    }
+    size_t n = strlen(dir);
+    if (dir[n - 1] == '/' || dir[n - 1] == '\\')
+        snprintf(dst, dstsz, "%s%s", dir, name);
+    else
+        snprintf(dst, dstsz, "%s/%s", dir, name);
+}
+
 static void relativize_path(const char *abs, char *out, size_t cap) {
     if (!abs || !out || cap == 0)
         return;
@@ -1308,6 +1328,9 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
         strncpy_safe(base_dir, ".", sizeof(base_dir));
     } else {
         strncpy_safe(base_dir, q->where, sizeof(base_dir));
+        size_t blen = strlen(base_dir);
+        while (blen > 1 && (base_dir[blen - 1] == '/' || base_dir[blen - 1] == '\\'))
+            base_dir[--blen] = '\0';
     }
 
     // Validate directory
@@ -1371,7 +1394,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
             if (de->d_name[0] == '.')
                 continue; // skip hidden and . / ..
             char full[PATH_MAX];
-            snprintf(full, sizeof(full), "%s/%s", current, de->d_name);
+            path_join(full, sizeof(full), current, de->d_name);
             struct stat fst;
             if (stat(full, &fst) != 0)
                 continue;

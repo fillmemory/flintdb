@@ -146,8 +146,19 @@ void *flintdb_parquet_reader_open(const char *path, char **error) {
         reader->file_reader = std::move(*maybe_reader);
 #endif
 
-        // Get metadata
-        auto metadata = reader->file_reader->parquet_reader()->metadata();
+        // Get metadata (old/unsupported parquet files may open but lack metadata)
+        auto pq_reader = reader->file_reader ? reader->file_reader->parquet_reader() : nullptr;
+        if (!pq_reader) {
+            set_error(error, "Invalid Parquet reader (unsupported or corrupt file)");
+            delete reader;
+            return nullptr;
+        }
+        auto metadata = pq_reader->metadata();
+        if (!metadata) {
+            set_error(error, "Missing Parquet metadata (unsupported or corrupt file)");
+            delete reader;
+            return nullptr;
+        }
         reader->num_rows = metadata->num_rows();
 
         // Store file-level key-value metadata for schema extraction
@@ -181,6 +192,9 @@ void *flintdb_parquet_reader_open(const char *path, char **error) {
         return reader;
     } catch (const std::exception &e) {
         set_error(error, std::string("Exception: ") + e.what());
+        return nullptr;
+    } catch (...) {
+        set_error(error, "Unknown exception while opening Parquet file");
         return nullptr;
     }
 }

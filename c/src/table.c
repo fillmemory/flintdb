@@ -1009,7 +1009,8 @@ static void table_close(struct flintdb_table *me) {
         for(int i=0; i<(priv->sorters.length); i++) {
             struct sorter *s = &priv->sorters.s[i];
             assert(s);
-            assert(s->tree.close);
+            if (!s->tree.close)
+                continue;
             DEBUG("closing sorter[%d] %s", i, s->name);
             s->tree.close(&s->tree);
         }
@@ -1050,7 +1051,8 @@ static void table_close(struct flintdb_table *me) {
         }
 
         DEBUG("closing formatter");
-        priv->formatter.close(&priv->formatter);
+        if (priv->formatter.close)
+            priv->formatter.close(&priv->formatter);
         DEBUG("closing meta");
         flintdb_meta_close(&priv->meta);
 
@@ -1370,6 +1372,7 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
     priv = CALLOC(1, sizeof(struct flintdb_table_priv));
     if (!priv) THROW(e, "Failed to allocate memory for table_priv");
     table->priv = priv;
+    TABLE_LOCK_INIT(&priv->lock);
     snprintf(priv->file, sizeof(priv->file), "%s", file);
     priv->mode = mode;
     priv->meta = m;
@@ -1416,9 +1419,6 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
 
     if (!priv->cache) THROW(e, "Failed to create row cache");
 
-    // Initialize table-level lock (os_unfair_lock on macOS, spinlock on Linux)
-    TABLE_LOCK_INIT(&priv->lock);
-
     // priv->header = priv->storage->mmap(priv->storage, 0, HEAD_SZ, NULL);
     priv->header = priv->storage->head(priv->storage, 0, HEAD_SZ, NULL);
 
@@ -1436,7 +1436,7 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
         //h.free(&h); // uneccessary
     }
 
-    priv->sorters.length = m.indexes.length;
+    priv->sorters.length = 0;
     for(int i=0; i<m.indexes.length; i++) {
         struct sorter *s = &priv->sorters.s[i];
         s->table = table;
@@ -1466,6 +1466,7 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
             bplustree_init(&s->tree, ixf, cache_limit * 1, mode, priv->meta.storage, s, &sorter_index_cmpr, wal, e);
             if (e && *e)  THROW_S(e);
         }
+        priv->sorters.length++;
     }
 
     //  
