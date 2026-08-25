@@ -13,8 +13,10 @@
 
 /**
  * @brief SQL parser but not a full-featured SQL engine.
- * 
- * TODO: Replace to pratt parser or other proper parser in the future.
+ *
+ * Clause strings are interpreted once in sql_bind.c (struct sql_bound)
+ * before execution. A Pratt/expression parser is only needed when SELECT
+ * items become real expressions rather than column names and aggregates.
  */
 
 struct flintdb_sql {
