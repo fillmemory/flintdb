@@ -2,7 +2,14 @@
 #define FLINTDB_RBTREE_H
 
 /**
- * @reference https://algs4.cs.princeton.edu/33balanced/RedBlackBST.java
+ * Red-Black BST implementation
+ *
+ * Adapted and ported to C from the Java implementation by
+ * Robert Sedgewick and Kevin Wayne (Princeton University).
+ *
+ * Reference:
+ *   https://algs4.cs.princeton.edu/33balanced/RedBlackBST.java
+ *   "Algorithms, 4th Edition" by Robert Sedgewick and Kevin Wayne
  */
 
 #include "types.h"
