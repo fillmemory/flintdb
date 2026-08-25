@@ -26,6 +26,7 @@ struct storage {
     int fd;
     i64 count;
     struct hashmap *cache;  // buffer cache for mmap/memory storage
+    i64 file_size;          // cached on-disk length (mmap grow path; avoids per-miss fstat)
 
 #ifdef STORAGE_DIO_USE_BUFFER_POOL
     struct buffer_pool_safe *pool; // Direct I/O buffer pool

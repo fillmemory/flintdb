@@ -73,7 +73,7 @@ static inline int _ftruncate(i32 fd, off_t length) {
     if (fcntl(fd, F_PREALLOCATE, &fst) == -1) {
         fst.fst_flags = F_ALLOCATEALL;
         if (fcntl(fd, F_PREALLOCATE, &fst) == -1) {
-            return -1;
+            return ftruncate(fd, length);
         }
     }
     return ftruncate(fd, length);
@@ -84,7 +84,11 @@ static inline int _ftruncate(i32 fd, off_t length) {
 
 static i64 storage_count_get(struct storage *me) { return me->count; }
 
-static i64 storage_bytes_get(struct storage *me) { return file_length(me->opts.file); }
+static i64 storage_bytes_get(struct storage *me) {
+    if (me && me->file_size > 0)
+        return me->file_size;
+    return file_length(me->opts.file);
+}
 
 static void storage_commit(struct storage *me, u8 force, char **e) {
     assert(me);
@@ -140,23 +144,21 @@ static struct buffer *storage_mmap(struct storage *me, i64 offset, i32 length, c
     assert(offset > -1);
 
     struct buffer *mbb = NULL;
+    void *p = MAP_FAILED;
+    i64 map_size = 0;
     i64 limit = length + offset;
-    struct stat st;
-    fstat(me->fd, &st);
-    if (limit > st.st_size) {
-        _ftruncate(me->fd, limit);
+    if (limit > me->file_size) {
+        if (_ftruncate(me->fd, (off_t)limit) != 0)
+            THROW(e, "ftruncate() : %d - %s", errno, strerror(errno));
+        me->file_size = limit;
     }
 
     i32 page_size = flintdb_page_bytes();
     i64 page_offset = offset % page_size;
     i64 map_offset = offset - page_offset;
-    i64 map_size = length + page_offset;
-    // printf("offset : %lld, page_offset : %lld, map_offset : %lld, map_size : %lld \n", offset, page_offset, map_offset, map_size);
+    map_size = length + page_offset;
     int mmap_flags = MAP_SHARED;
-#ifdef MAP_POPULATE
-    mmap_flags |= MAP_POPULATE;
-#endif
-    void *p = mmap(NULL, map_size, PROT_READ | (me->opts.mode == FLINTDB_RDWR ? PROT_WRITE : 0), mmap_flags, me->fd, map_offset);
+    p = mmap(NULL, map_size, PROT_READ | (me->opts.mode == FLINTDB_RDWR ? PROT_WRITE : 0), mmap_flags, me->fd, map_offset);
     if (p == MAP_FAILED)
         THROW(e, "mmap() : %d - %s", errno, strerror(errno));
 
@@ -164,32 +166,25 @@ static struct buffer *storage_mmap(struct storage *me, i64 offset, i32 length, c
     if (!mbb)
         THROW(e, "Out of memory");
 
-    //     /* advise kernel about expected access pattern to improve read-ahead */
-    // #ifdef MADV_WILLNEED
-    //     // Hint kernel to read-ahead this data for better performance
-    //     madvise(p, map_size, MADV_WILLNEED);
-    // #endif
-
-    // #ifdef MADV_RANDOM
-    //     madvise(p, map_size, MADV_RANDOM);
-    // #endif
-
-    // #ifdef POSIX_FADV_WILLNEED
-    //     // Async readahead at file descriptor level
-    //     posix_fadvise(me->fd, map_offset, map_size, POSIX_FADV_WILLNEED);
-    // #endif
-
-    // #ifdef POSIX_FADV_RANDOM
-    //     posix_fadvise(me->fd, map_offset, map_size, POSIX_FADV_RANDOM);
-    // #endif
+    /* Prefetch for reads. Skip MADV_SEQUENTIAL on the write path: it lets the
+     * kernel reclaim dirty pages while we (and the flusher) still need them. */
+    if (me->opts.mode != FLINTDB_RDWR) {
+#if defined(MADV_WILLNEED)
+        (void)madvise(p, (size_t)map_size, MADV_WILLNEED);
+#endif
+#if defined(POSIX_FADV_WILLNEED)
+        (void)posix_fadvise(me->fd, (off_t)map_offset, (off_t)map_size, POSIX_FADV_WILLNEED);
+#endif
+    }
 
     return mbb;
 
 EXCEPTION:
-    if (mbb)
+    if (mbb) {
         mbb->free(mbb);
-    if (p != MAP_FAILED)
+    } else if (p != MAP_FAILED && map_size > 0) {
         munmap(p, map_size);
+    }
     return NULL;
 }
 
@@ -208,7 +203,7 @@ EXCEPTION:
  * hashmap (no LRU eviction); regions are only unmapped in close(), after
  * the flusher has been joined.
  */
-#define MMAP_FLUSHER_QLEN 256
+#define MMAP_FLUSHER_QLEN 1024
 
 struct mmap_flusher {
     pthread_t thread;
@@ -263,9 +258,12 @@ static void mmap_flusher_enqueue(struct storage *me, void *addr, size_t len) {
         f->q[tail].len = len;
         f->count++;
         pthread_cond_signal(&f->cv);
+        pthread_mutex_unlock(&f->mu);
+        return;
     }
-    // Queue full: drop the request; close() flushes any leftovers.
     pthread_mutex_unlock(&f->mu);
+    /* Queue full: don't drop silently — kick async writeback. */
+    msync(addr, len, MS_ASYNC);
 }
 
 static void mmap_flusher_close(struct storage *me) {
@@ -299,16 +297,16 @@ static void storage_mmap_buffer_get(struct storage *me, i64 index, struct buffer
         return;
     }
 
-    struct stat st;
-    fstat(me->fd, &st);
-
     i64 offset = HEADER_BYTES + (i * me->mmap_bytes);
-    i64 before = st.st_size;
+    i64 before = me->file_size;
     struct buffer *mbb = storage_mmap(me, offset, me->mmap_bytes, NULL);
+    if (!mbb) {
+        e = "storage_mmap failed";
+        THROW_S(e);
+    }
     me->cache->put(me->cache, i, (valtype)mbb, storage_cache_free);
 
-    fstat(me->fd, &st);
-    if (me->opts.mode == FLINTDB_RDWR && before < st.st_size) {
+    if (me->opts.mode == FLINTDB_RDWR && before < me->file_size) {
         i32 blocks = me->mmap_bytes / me->block_bytes;
         i64 next = 1 + (i * blocks);
         struct buffer bb = {0};
@@ -398,7 +396,21 @@ EXCEPTION:
 }
 
 static u8 storage_mmap_flush(struct storage *me, char **e) {
-    // no-op for mmap storage
+    (void)e;
+    if (!me || me->opts.mode != FLINTDB_RDWR)
+        return 1;
+#ifndef _WIN32
+    if (me->cache) {
+        struct map_iterator it = {0};
+        while (me->cache->iterate(me->cache, &it) == 1) {
+            struct buffer *pb = (struct buffer *)it.val;
+            if (pb && pb->mapped.addr && pb->mapped.length > 0)
+                mmap_flusher_enqueue(me, pb->mapped.addr, pb->mapped.length);
+        }
+    }
+    if (me->h && me->h->mapped.addr && me->h->mapped.length > 0)
+        mmap_flusher_enqueue(me, me->h->mapped.addr, me->h->mapped.length);
+#endif
     return 1;
 }
 
@@ -639,8 +651,14 @@ static int storage_mmap_open(struct storage *me, struct storage_opts opts, char 
     struct stat st;
     fstat(me->fd, &st);
 
-    if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES)
-        _ftruncate(me->fd, (off_t)HEADER_BYTES);
+    const int fresh = (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES);
+    if (fresh) {
+        if (_ftruncate(me->fd, (off_t)HEADER_BYTES) != 0)
+            THROW(e, "Cannot ftruncate file %s: %s", me->opts.file, strerror(errno));
+        me->file_size = HEADER_BYTES;
+    } else {
+        me->file_size = st.st_size;
+    }
 
     // Map the file header with MAP_SHARED so updates (e.g., magic, counts) are persisted to disk
     // Using MAP_PRIVATE here would create a private COW mapping and header writes wouldn't be visible
@@ -668,7 +686,7 @@ static int storage_mmap_open(struct storage *me, struct storage_opts opts, char 
     me->mmap = storage_mmap;
     me->head = storage_head;
 
-    if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES) {
+    if (fresh) {
         // Fresh file: initialize free-list head to first block index (1)
         me->free = 0;
         me->count = 0;
@@ -1063,10 +1081,25 @@ struct storage_dio_priv {
     u32 direct_io_bytes;  // e.g., 4096 (must be multiple of direct_align)
     u32 page_cache_limit; // max cached pages before flush
 
+    // Last O_DIRECT read page. Kept out of the write-back cache so sequential
+    // reads do not force a later pflush of clean pages.
+    struct buffer *read_page;
+    i64 read_page_base; // -1 if invalid
+
 #ifdef _WIN32
     HANDLE hfile;
 #endif
 };
+
+static inline void storage_dio_read_cache_invalidate(struct storage_dio_priv *priv) {
+    if (priv)
+        priv->read_page_base = -1;
+}
+
+static inline void storage_dio_read_cache_invalidate_page(struct storage_dio_priv *priv, i64 page_base) {
+    if (priv && priv->read_page_base == page_base)
+        priv->read_page_base = -1;
+}
 
 #ifdef _WIN32
 #define PREAD_FUNC(me, buf, size, offset) pread_win32(((struct storage_dio_priv *)((me)->priv))->hfile, buf, size, offset)
@@ -1395,34 +1428,41 @@ static inline ssize_t storage_dio_buffer_get(struct storage *me, i64 offset, str
             }
         }
 
-        // Miss: do an aligned page pread.
-        struct buffer *page = buffer_alloc_aligned(io, priv->direct_align);
-        if (!page) {
-            if (out)
-                *out = NULL;
-            return -1;
-        }
-        ssize_t n = PREAD_FUNC(me, page->array, page->capacity, page_base);
-        if (n <= 0) {
-            page->free(page);
-            if (out)
-                *out = NULL;
-            return n;
-        }
-        if ((u32)n < page->capacity) {
-            memset(page->array + n, 0, (size_t)page->capacity - (size_t)n);
+        // Miss: reuse a single last-page buffer. Do not insert clean reads into
+        // the write-back cache (that would make pflush rewrite unmodified pages).
+        struct buffer *page = NULL;
+        if (priv->read_page && priv->read_page_base == page_base) {
+            page = priv->read_page;
+        } else {
+            if (!priv->read_page) {
+                priv->read_page = buffer_alloc_aligned(io, priv->direct_align);
+                if (!priv->read_page) {
+                    if (out)
+                        *out = NULL;
+                    return -1;
+                }
+            }
+            page = priv->read_page;
+            ssize_t n = PREAD_FUNC(me, page->array, page->capacity, page_base);
+            if (n <= 0) {
+                priv->read_page_base = -1;
+                if (out)
+                    *out = NULL;
+                return n;
+            }
+            if ((u32)n < page->capacity)
+                memset(page->array + n, 0, (size_t)page->capacity - (size_t)n);
+            priv->read_page_base = page_base;
         }
 
         struct buffer *bb = BUFFER_POOL_BORROW((u32)me->block_bytes);
         if (!bb) {
-            page->free(page);
             if (out)
                 *out = NULL;
             return -1;
         }
         bb->clear(bb);
         memcpy(bb->array, page->array + page_off, (size_t)me->block_bytes);
-        page->free(page);
 
         if (out)
             *out = bb;
@@ -1550,10 +1590,8 @@ static inline ssize_t storage_dio_pflush(struct storage *me) {
 #ifdef STORAGE_DIO_CACHE_BLOCKS
     int fd = me->fd;
     struct hashmap *cache = me->cache;
-
-#ifdef __linux__
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
-#endif
+    storage_dio_read_cache_invalidate(priv);
 
 #if defined(__linux__) && defined(O_DIRECT)
     if (priv && priv->o_direct_enabled) {
@@ -1756,8 +1794,10 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
             // Insert into cache (cache owns page).
             if (!cache->put(cache, (keytype)page_base, (valtype)page, storage_cache_free)) {
                 // If insertion fails, fall back to write-through page.
+                memcpy(page->array + page_off, heap->array, (size_t)nbytes);
                 ssize_t written = pwrite_all(me, page->array, page->capacity, page_base);
                 page->free(page);
+                storage_dio_read_cache_invalidate_page(priv, page_base);
                 if (written < 0) {
                     heap->free(heap);
                     return -1;
@@ -1770,6 +1810,7 @@ static inline ssize_t storage_dio_pwrite(struct storage *me, struct buffer *heap
         if (page) {
             memcpy(page->array + page_off, heap->array, (size_t)nbytes);
         }
+        storage_dio_read_cache_invalidate_page(priv, page_base);
         heap->free(heap);
 
         // Flush cache if too big.
@@ -1915,6 +1956,8 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
             THROW(e, "storage_dio_file_inflate: ftruncate failed to %lld bytes: %s", (long long)new_size, strerror(errno));
         }
         priv->inflated_size = new_size;
+        me->file_size = new_size;
+        storage_dio_read_cache_invalidate(priv);
 
         // The old implementation did per-block pread+pwrite (and often via the write-back cache),
         // which is extremely slow for sequential growth. Initialize newly-extended regions in
@@ -2215,6 +2258,7 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
                 if (!cached) {
                     ssize_t wn = pwrite_all(me, page->array, page->capacity, page_base);
                     page->free(page);
+                    storage_dio_read_cache_invalidate_page(priv, page_base);
                     if (wn < 0)
                         THROW(e, "storage_dio_write_priv: O_DIRECT page pwrite failed at abs=%lld", page_base);
                 } else {
@@ -2364,6 +2408,11 @@ static void storage_dio_close(struct storage *me) {
     }
 #endif
     if (me->priv) {
+        struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
+        if (priv->read_page) {
+            priv->read_page->free(priv->read_page);
+            priv->read_page = NULL;
+        }
         FREE(me->priv);
         me->priv = NULL;
     }
@@ -2530,6 +2579,8 @@ static int storage_dio_open(struct storage *me, struct storage_opts opts, char *
     if (st.st_size >= 0 && st.st_size < (i64)HEADER_BYTES)
         _ftruncate(me->fd, (off_t)HEADER_BYTES);
     priv->inflated_size = (st.st_size >= (i64)HEADER_BYTES) ? (i64)st.st_size : (i64)HEADER_BYTES;
+    priv->read_page_base = -1;
+    me->file_size = priv->inflated_size;
 
     // Map the file header with MAP_SHARED so updates (e.g., magic, counts) are persisted to disk
     // Using MAP_PRIVATE here would create a private COW mapping and header writes wouldn't be visible

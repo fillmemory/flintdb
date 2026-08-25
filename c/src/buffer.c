@@ -242,12 +242,44 @@ static void buffer_borrow_free(struct buffer *me) {
     // do nothing
 }
 
+#ifndef SLICE_STRUCT_POOL
+#define SLICE_STRUCT_POOL 64
+#endif
+static struct {
+    atomic_int lock;
+    struct buffer *items[SLICE_STRUCT_POOL];
+    int top;
+} g_slice_structs;
+
+static struct buffer *slice_struct_acquire(void) {
+    struct buffer *b = NULL;
+    pool_spin_lock(&g_slice_structs.lock);
+    if (g_slice_structs.top > 0)
+        b = g_slice_structs.items[--g_slice_structs.top];
+    pool_spin_unlock(&g_slice_structs.lock);
+    if (b)
+        return b;
+    return (struct buffer *)CALLOC(1, sizeof(struct buffer));
+}
+
+static void slice_struct_release(struct buffer *b) {
+    if (!b)
+        return;
+    pool_spin_lock(&g_slice_structs.lock);
+    if (g_slice_structs.top < SLICE_STRUCT_POOL) {
+        g_slice_structs.items[g_slice_structs.top++] = b;
+        pool_spin_unlock(&g_slice_structs.lock);
+        return;
+    }
+    pool_spin_unlock(&g_slice_structs.lock);
+    FREE(b);
+}
+
 static void buffer_slice_free(struct buffer *me) {
     // Slices do not own the underlying array.
-    // Only free the struct when it was heap-allocated via buffer_slice().
-    if (me && me->owner == BUFFER_OWNER_SLICE_HEAP) {
-        FREE(me);
-    }
+    // Recycle the heap struct allocated by buffer_slice().
+    if (me && me->owner == BUFFER_OWNER_SLICE_HEAP)
+        slice_struct_release(me);
 }
 
 extern int munmap(void *addr, size_t length);
@@ -299,13 +331,13 @@ struct buffer *buffer_slice(struct buffer *in, i32 offset, i32 length, char **e)
     if (UNLIKELY(in == NULL)) {
         THROW(e, "buffer_slice: input buffer is NULL");
     }
-    out = CALLOC(1, sizeof(struct buffer));
+    out = slice_struct_acquire();
     if (!out) {
         THROW(e, "Out of memory");
     }
     buffer_slice_to(in, offset, length, out, e);
     if (e && *e) {
-        FREE(out);
+        slice_struct_release(out);
         return NULL;
     }
     /* buffer_slice_to() clears owner for stack slices; restore heap ownership. */
@@ -315,7 +347,7 @@ struct buffer *buffer_slice(struct buffer *in, i32 offset, i32 length, char **e)
 
 EXCEPTION:
     if (out)
-        FREE(out);
+        slice_struct_release(out);
     return NULL;
 }
 
