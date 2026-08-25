@@ -92,7 +92,7 @@ void sql_exec_cleanup() {
 
 /**
  * 
- * TEST: ./bin/flintdb "SELECT  l_shipmode FROM temp/tpch/lineitem.flintdb  LIMIT 10" -pretty
+ * TEST: ./bin/flintdb "SELECT  l_shipmode FROM temp/c/tpch_lineitem.flintdb  LIMIT 10" -pretty
  * TEST: ./bin/flintdb "SELECT  l_shipmode FROM temp/tpch_lineitem.tsv.gz  LIMIT 10" -pretty
  * TEST: ./bin/flintdb "SELECT l_shipmode, COUNT(*), SUM(l_quantity), SUM(l_extendedprice) FROM temp/tpch_lineitem.flintdb GROUP BY l_shipmode LIMIT 10" -pretty
  * TEST: ./bin/flintdb "SELECT l_shipmode, COUNT(*), SUM(l_quantity), SUM(l_extendedprice) FROM temp/tpch/lineitem.tbl.gz GROUP BY l_shipmode LIMIT 10" -pretty
