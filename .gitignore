@@ -1,6 +1,7 @@
 temp
 .DS_Store
-.vscode/
+.vscode/*
+!.vscode/settings.json
 *.dSYM
 compile_commands.json
 c/compile_commands.json
