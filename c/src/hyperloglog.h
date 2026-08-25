@@ -1,3 +1,14 @@
+/**
+ * HyperLogLog (HLL) Cardinality Estimator
+ *
+ * Implements the standard HyperLogLog algorithm with Linear Counting
+ * for small cardinalities.
+ *
+ * Reference:
+ *   Flajolet, P., Fusy, É., Gandouet, O., & Meunier, F. (2007).
+ *   "HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm"
+ *   DMTCS Conference on Analysis of Algorithms (AOFA '07).
+ */
 #ifndef FLINTDB_HYPERLOGLOG_H
 #define FLINTDB_HYPERLOGLOG_H
 

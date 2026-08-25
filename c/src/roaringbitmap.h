@@ -1,3 +1,15 @@
+/**
+ * A compact integer set based on the Roaring Bitmap format.
+ *
+ * Implements standard ArrayContainer and BitmapContainer representations
+ * with dynamic representation switching based on cardinality.
+ *
+ * Reference:
+ *   Chambi, S., Lemire, D., Kaser, O., & Godin, R. (2016).
+ *   "Better bitmap performance with Roaring bitmaps."
+ *   Software: Practice and Experience, 46(5), 709-719.
+ *   https://arxiv.org/abs/1402.6407
+ */
 #ifndef FLINTDB_ROARINGBITMAP_H
 #define FLINTDB_ROARINGBITMAP_H
 
