@@ -817,7 +817,8 @@ static int sql_exec_insert_from(const struct flintdb_sql *q, struct flintdb_tran
         if (!col_mapping && (e && *e)) THROW_S(e);
 
         if (!tx)
-        tx = flintdb_transaction_begin(table, e);
+            tx = flintdb_transaction_begin(table, e);
+        if (e && *e) THROW_S(e);
 
         // Commit transaction periodically for large bulk inserts to enable WAL checkpointing
         // This prevents WAL file from growing too large and improves performance
@@ -1040,7 +1041,7 @@ static int sql_exec_drop(const struct flintdb_sql *q, char **e) {
 
     if (FORMAT_BIN == fmt) 
         flintdb_table_drop(q->table, e);
-     else
+    else
         flintdb_genericfile_drop(q->table, e);
 
     if (e && *e) THROW_S(e);
