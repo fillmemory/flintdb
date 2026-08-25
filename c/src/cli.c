@@ -34,6 +34,10 @@
 #define BUILD_TIME "unknown"
 #endif
 
+#ifndef GIT_REVISION
+#define GIT_REVISION "unknown"
+#endif
+
 #define CLI_BUFIO_OUTPUT_MAX 8192 // 8KB buffer for CLI output
 // Pretty print structures
 #define MAX_PRETTY_ROWS 10000
@@ -231,7 +235,7 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
             usage(argv[0]);
             return 0;
         } else if (strcmp(s, "-version") == 0) {
-            printf("%s version %s (build: %s)\n", PRODUCT_NAME, VERSION, BUILD_TIME);
+            printf("%s version %s (build: %s, git: %s)\n", PRODUCT_NAME, VERSION, BUILD_TIME, GIT_REVISION);
             return 0;
         } else if (strcmp(s, "-pretty") == 0) {
             pretty = 1;

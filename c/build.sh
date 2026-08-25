@@ -115,6 +115,14 @@ else
 fi
 echo "Using make command: $MAKE_CMD"
 
+# Capture git revision for -version output (short hash, or "unknown")
+GIT_REVISION=$(git rev-parse --short HEAD 2>/dev/null || true)
+if [ -z "$GIT_REVISION" ]; then
+    GIT_REVISION="unknown"
+elif ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+    GIT_REVISION="${GIT_REVISION}-dirty"
+fi
+echo "Git revision: $GIT_REVISION"
 
 # Detect available memory allocator
 ALLOCATOR=none
@@ -151,9 +159,9 @@ echo ""
 echo "[2/3] Building FlintDB core library..."
 "$MAKE_CMD" clean
 if [ $ENABLE_MTRACE -eq 1 ]; then
-    "$MAKE_CMD" BUILD_SO=1 ALLOCATOR=$ALLOCATOR CFLAGS="-DMTRACE=1" $MAKE_ARGS
+    "$MAKE_CMD" BUILD_SO=1 ALLOCATOR=$ALLOCATOR CFLAGS="-DMTRACE=1" GIT_REVISION="$GIT_REVISION" $MAKE_ARGS
 else
-    "$MAKE_CMD" BUILD_SO=1 ALLOCATOR=$ALLOCATOR NDEBUG=1 $MAKE_ARGS
+    "$MAKE_CMD" BUILD_SO=1 ALLOCATOR=$ALLOCATOR NDEBUG=1 GIT_REVISION="$GIT_REVISION" $MAKE_ARGS
 fi
 # make clean
 
@@ -230,6 +238,7 @@ echo ""
 echo "=== Build Complete ==="
 echo "Main library: lib/libflintdb.{so,dylib}"
 echo "Executable: bin/flintdb"
+echo "Git revision: $GIT_REVISION"
 # check successful, list built files
 echo ""
 # ls -l bin/flintdb lib/libflintdb.* lib/libflintdb_*.{so,dylib,dll} 2>/dev/null

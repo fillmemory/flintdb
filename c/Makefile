@@ -178,6 +178,8 @@ TARGET_SO  = $(LIB_DIR)/libflintdb.so
 TARGET_A   = $(LIB_DIR)/libflintdb.a
 
 BUILD_TIME := $(shell date +%Y%m%d%H%M%S)
+# Override from build.sh; fall back to git when make is invoked directly
+GIT_REVISION ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 # Detect the platform, unless already set by cross-compilation
 ifndef PLATFORM
@@ -260,7 +262,7 @@ endif
 
 $(TARGET_CLI): $(TARGET_SO)
 	@mkdir -p $(BIN_DIR)
-	$(CC) $(CFLAGS) -DVERSION='"$(LIB_CURRENT_VERSION)"' -DBUILD_TIME='"$(BUILD_TIME)"' -o $@ $(SRC_DIR)/cli.c -L$(LIB_DIR) -lflintdb $(RPATH_FLAG) $(LDFLAGS)
+	$(CC) $(CFLAGS) -DVERSION='"$(LIB_CURRENT_VERSION)"' -DBUILD_TIME='"$(BUILD_TIME)"' -DGIT_REVISION='"$(GIT_REVISION)"' -o $@ $(SRC_DIR)/cli.c -L$(LIB_DIR) -lflintdb $(RPATH_FLAG) $(LDFLAGS)
 
 # Platform-specific shared library linker flag
 SHARED_FLAG := -shared
@@ -270,7 +272,7 @@ endif
 
 $(TARGET_SO): $(OBJECTS_SO)
 	@mkdir -p $(LIB_DIR)
-	$(CC) $(CFLAGS) $(CFLAGS_SO) $(SHARED_FLAG) -DBUILD_TIME='"$(BUILD_TIME)"'  -o $@ $^ $(LINK_VERSION_FLAGS) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(CFLAGS_SO) $(SHARED_FLAG) -DBUILD_TIME='"$(BUILD_TIME)"' -DGIT_REVISION='"$(GIT_REVISION)"'  -o $@ $^ $(LINK_VERSION_FLAGS) $(LDFLAGS)
 
 $(TARGET_A): $(OBJECTS_SO)
 	@mkdir -p $(LIB_DIR)
@@ -280,11 +282,11 @@ $(TARGET_A): $(OBJECTS_SO)
 
 $(OBJ_CLI_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(OBJ_CLI_DIR)
-	$(CC) $(CFLAGS) $(CFLAGS_CLI) -DVERSION='"$(LIB_CURRENT_VERSION)"' -DBUILD_TIME='"$(BUILD_TIME)"' -c -o $@ $<
+	$(CC) $(CFLAGS) $(CFLAGS_CLI) -DVERSION='"$(LIB_CURRENT_VERSION)"' -DBUILD_TIME='"$(BUILD_TIME)"' -DGIT_REVISION='"$(GIT_REVISION)"' -c -o $@ $<
 
 $(OBJ_SO_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(OBJ_SO_DIR)
-	$(CC) $(CFLAGS) $(CFLAGS_SO) -DBUILD_TIME='"$(BUILD_TIME)"' -c -o $@ $<
+	$(CC) $(CFLAGS) $(CFLAGS_SO) -DBUILD_TIME='"$(BUILD_TIME)"' -DGIT_REVISION='"$(GIT_REVISION)"' -c -o $@ $<
 
 
 
