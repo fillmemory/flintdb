@@ -92,6 +92,7 @@ struct sql_bound {
     struct limit limit;
 };
 
+/* GROUP BY n / ORDER BY n (1-based SELECT-list ordinals) are rewritten in sql_bound_new. */
 struct sql_bound *sql_bound_new(const struct flintdb_sql *q, char **e);
 void sql_bound_free(struct sql_bound *b);
 

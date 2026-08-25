@@ -79,6 +79,27 @@ EOF
 echo "SELECT *"
 ./bin/flintdb "SELECT * FROM ../temp/testcase.flintdb" -log
 
+echo "INSERT duplicate Alice (for GROUP BY counts)"
+./bin/flintdb "INSERT INTO ../temp/testcase.flintdb (id, name, age, salary) VALUES (12, 'Alice', 31, 61000.00)" -log
+
+echo "GROUP BY name"
+./bin/flintdb "SELECT name, COUNT(*) FROM ../temp/testcase.flintdb GROUP BY name" -pretty
+
+echo "GROUP BY 1 (ordinal)"
+./bin/flintdb "SELECT name, COUNT(*) FROM ../temp/testcase.flintdb GROUP BY 1" -pretty
+
+echo "GROUP BY 1, 2 (mixed ordinals)"
+./bin/flintdb "SELECT name, age, COUNT(*) FROM ../temp/testcase.flintdb GROUP BY 1, 2" -pretty
+
+echo "GROUP BY 1 ORDER BY 2"
+./bin/flintdb "SELECT name, COUNT(*) c FROM ../temp/testcase.flintdb GROUP BY 1 ORDER BY 2 DESC" -pretty
+
+echo "SELECT * ORDER BY 1"
+./bin/flintdb "SELECT * FROM ../temp/testcase.flintdb ORDER BY 1 LIMIT 3" -pretty
+
+echo "GROUP BY 2 on aggregate (should fail)"
+./bin/flintdb "SELECT name, COUNT(*) FROM ../temp/testcase.flintdb GROUP BY 2" -pretty
+
 
 
 echo "INSERT INTO tsv.gz FROM FILE"
@@ -95,6 +116,9 @@ EOF
 ./bin/flintdb "INSERT INTO ../temp/testcase.tsv.gz (id, name, age) FROM ../temp/testcase_data3.csv" -log
 echo "SELECT * FROM tsv.gz"
 ./bin/flintdb "SELECT * FROM ../temp/testcase.tsv.gz" -log
+
+echo "GROUP BY 1 on generic file"
+./bin/flintdb "SELECT name, COUNT(*) FROM ../temp/testcase.tsv.gz GROUP BY 1" -pretty
 
 
 # echo ""

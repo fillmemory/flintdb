@@ -4,6 +4,7 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "internal.h"
@@ -201,14 +202,70 @@ static enum flintdb_variant_type column_type(const struct flintdb_meta *meta, co
     return VARIANT_NULL;
 }
 
-static int is_group_key(const struct sql_bound *b, const char *name) {
-    if (!b || !name)
+static int parse_positive_ordinal(const char *s, int *out) {
+    if (!s || !*s || !out)
+        return 0;
+    const char *p = s;
+    while (*p == ' ' || *p == '\t')
+        p++;
+    if (!*p)
+        return 0;
+    for (const char *q = p; *q; q++) {
+        if (*q < '0' || *q > '9')
+            return 0;
+    }
+    char *end = NULL;
+    long v = strtol(p, &end, 10);
+    if (!end || *end != '\0' || v < 1 || v > 100000)
+        return 0;
+    *out = (int)v;
+    return 1;
+}
+
+static int is_group_key(const struct sql_bound *b, const struct sql_select_item *it) {
+    if (!b || !it)
         return 0;
     for (int i = 0; i < b->groupby_count; i++) {
-        if (strcmp(b->groupby_name[i], name) == 0)
+        const char *g = b->groupby_name[i];
+        if (it->name[0] && strcmp(g, it->name) == 0)
+            return 1;
+        if (it->alias[0] && strcmp(g, it->alias) == 0)
+            return 1;
+        if (it->expr[0] && strcmp(g, it->expr) == 0)
             return 1;
     }
     return 0;
+}
+
+static int resolve_select_ordinals(struct sql_bound *b, char **e) {
+    for (int i = 0; i < b->groupby_count; i++) {
+        int ord = 0;
+        if (!parse_positive_ordinal(b->groupby_name[i], &ord))
+            continue;
+        if (b->is_star)
+            THROW(e, "GROUP BY %d is not supported with SELECT *", ord);
+        if (ord > b->item_count)
+            THROW(e, "GROUP BY %d is out of range (SELECT has %d item(s))", ord, b->item_count);
+        const struct sql_select_item *it = &b->items[ord - 1];
+        if (it->kind == SQL_ITEM_STAR)
+            THROW(e, "GROUP BY %d is not supported with SELECT *", ord);
+        if (it->kind != SQL_ITEM_COLUMN)
+            THROW(e, "GROUP BY %d refers to an aggregate, not a column", ord);
+        s_copy(b->groupby_name[i], sizeof(b->groupby_name[i]), it->name);
+    }
+    for (int i = 0; i < b->order_count; i++) {
+        int ord = 0;
+        if (!parse_positive_ordinal(b->order[i].name, &ord))
+            continue;
+        if (b->is_star)
+            continue; /* resolved later against table meta */
+        if (ord > b->item_count)
+            THROW(e, "ORDER BY %d is out of range (SELECT has %d item(s))", ord, b->item_count);
+        s_copy(b->order[i].name, sizeof(b->order[i].name), sql_select_item_label(&b->items[ord - 1]));
+    }
+    return 0;
+EXCEPTION:
+    return -1;
 }
 
 const char *sql_select_item_label(const struct sql_select_item *it) {
@@ -282,6 +339,9 @@ struct sql_bound *sql_bound_new(const struct flintdb_sql *q, char **e) {
         b->is_fast_count = 1;
     }
 
+    if (resolve_select_ordinals(b, e) != 0)
+        THROW_S(e);
+
     return b;
 
 EXCEPTION:
@@ -333,6 +393,13 @@ int sql_bound_resolve_order(struct sql_bound *b, const struct flintdb_meta *meta
     if (b->order_count <= 0)
         THROW(e, "Failed to parse ORDER BY clause");
     for (int i = 0; i < b->order_count; i++) {
+        int ord = 0;
+        if (parse_positive_ordinal(b->order[i].name, &ord)) {
+            if (ord > meta->columns.length)
+                THROW(e, "ORDER BY %d is out of range (%d column(s))", ord, meta->columns.length);
+            b->order[i].col_idx = ord - 1;
+            continue;
+        }
         int idx = flintdb_column_at((struct flintdb_meta *)meta, b->order[i].name);
         if (idx < 0)
             THROW(e, "ORDER BY column not found: %s", b->order[i].name);
@@ -411,7 +478,7 @@ int sql_bound_aggregates(const struct sql_bound *b, const struct flintdb_meta *m
 
     for (int i = 0; i < b->item_count; i++) {
         const struct sql_select_item *it = &b->items[i];
-        if (it->kind == SQL_ITEM_COLUMN && is_group_key(b, it->name))
+        if (it->kind == SQL_ITEM_COLUMN && is_group_key(b, it))
             continue;
         if (it->kind == SQL_ITEM_STAR)
             THROW(e, "SELECT * not supported with GROUP BY or aggregate functions");

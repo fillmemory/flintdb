@@ -111,8 +111,7 @@ void sql_exec_cleanup() {
 static struct flintdb_sql_result * sql_exec_begin_transaction(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
 static struct flintdb_sql_result * sql_exec_commit_transaction(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
 static struct flintdb_sql_result * sql_exec_rollback_transaction(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
-static struct flintdb_sql_result * sql_exec_select(const struct flintdb_sql *q, struct sql_bound *bound, struct flintdb_transaction *t, char **e);
-static struct flintdb_sql_result * sql_exec_gf_select(const struct flintdb_sql *q, struct sql_bound *bound, char **e);
+static struct flintdb_sql_result * sql_exec_select(const struct flintdb_sql *q, struct sql_bound *bound, enum fileformat fmt, struct flintdb_transaction *t, char **e);
 static int sql_exec_insert(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
 static int sql_exec_update(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
 static int sql_exec_delete(const struct flintdb_sql *q, struct flintdb_transaction *t, char **e);
@@ -127,9 +126,8 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
 static struct flintdb_sql_result * sql_exec_fast_count(const struct flintdb_sql *q, struct sql_bound *bound, struct flintdb_table *table, char **e);
 
 static struct flintdb_table * sql_exec_table_borrow(const char *table, char **e);
-static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flintdb_sql *q, struct sql_bound *bound, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e);
-static struct flintdb_sql_result * sql_exec_select_groupby_i64(const struct flintdb_sql *q, struct sql_bound *bound, struct flintdb_table *table, struct flintdb_cursor_i64 *cr, char **e);
-static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, const char *orderby, const char *limit, char **e);
+static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flintdb_sql *q, struct sql_bound *bound, struct flintdb_cursor_row *cr, const struct flintdb_meta *meta, char **e);
+static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, struct sql_bound *bound, char **e);
 
 extern const char * flintdb_variant_type_name(enum flintdb_variant_type  t);
 
@@ -436,10 +434,7 @@ static struct flintdb_sql_result * sql_exec(const struct flintdb_sql *q, const s
     switch (bound->stmt) {
     case SQL_STMT_SELECT:
         if (!bound->has_into) {
-            if (FORMAT_BIN == fmt)
-                result = sql_exec_select(q, bound, (struct flintdb_transaction *)transaction, e);
-            else
-                result = sql_exec_gf_select(q, bound, e);
+            result = sql_exec_select(q, bound, fmt, (struct flintdb_transaction *)transaction, e);
             goto DONE;
         }
         affected = sql_exec_select_into(q, (struct flintdb_transaction *)transaction, e);
@@ -1935,131 +1930,33 @@ static void gf_cursor_close(struct flintdb_cursor_row *c) {
     FREE(c);
 }
 
-#define GF_FAST_PATH 1
-
-static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_sql *q, struct sql_bound *bound, char **e);
-
-static struct flintdb_sql_result * sql_exec_gf_select(const struct flintdb_sql *q, struct sql_bound *bound, char **e) {
-    struct flintdb_sql_result*result = NULL;
-    struct flintdb_genericfile *gf = NULL;
-    struct flintdb_cursor_row *c = NULL;
-    struct flintdb_cursor_row *wrapped_cursor = NULL;
-    struct gf_cursor_priv *priv = NULL;
-
-#ifdef GF_FAST_PATH
-    if (bound->is_fast_count) {
-        struct flintdb_sql_result*fast = sql_exec_gf_fast_count(q, bound, e);
-        if (fast || (e && *e))
-            return fast;
-    }
-#endif
-
-    gf = flintdb_genericfile_open(q->table, FLINTDB_RDONLY, NULL, e);
-    if (e && *e)
-        THROW_S(e);
-
-    char where[SQL_STRING_LIMIT] = {0};
-    sql_exec_indexable_where(NULL, q, where, sizeof(where));
-    c = gf->find(gf, where, e);
-    if (e && *e)
-        THROW_S(e);
-    if (!c)
-        goto SQL_RESULT_EMPTY;
-
-    if (bound->has_groupby || bound->has_aggregate) {
-        result = sql_exec_select_groupby_row(q, bound, NULL, c, gf, e);
-        if (e && *e)
-            THROW_S(e);
-        return result;
-    }
-
-    if (q->distinct) {
-        c = distinct_cursor_wrap(q, c, NOLIMIT, e);
-        if (e && *e) THROW_S(e);
-    }
-
-    if (bound->has_orderby) {
-        result = sql_exec_sort(c, q->orderby, q->limit, e);
-        if (e && *e) THROW_S(e);
-        return result;
-    }
-
-    priv = (struct gf_cursor_priv *)CALLOC(1, sizeof(struct gf_cursor_priv));
+static struct flintdb_cursor_row *sql_gf_scan_wrap(struct flintdb_genericfile *gf, struct flintdb_cursor_row *inner, char **e) {
+    struct gf_cursor_priv *priv = (struct gf_cursor_priv *)CALLOC(1, sizeof(struct gf_cursor_priv));
     if (!priv) THROW(e, "Out of memory");
     priv->gf = gf;
-    priv->inner_cursor = c;
-    if (q->distinct) {
-        priv->limit = NOLIMIT;
-    } else {
-        priv->limit = bound->has_limit ? bound->limit : NOLIMIT;
-    }
+    priv->inner_cursor = inner;
+    priv->limit = NOLIMIT;
     priv->proj_count = 0;
     priv->proj_row = NULL;
     priv->proj_meta = NULL;
 
-    const struct flintdb_meta *m = gf->meta(gf, e);
-    if (e && *e) THROW_S(e);
-    if (!m) THROW(e, "Missing file meta");
-    if (sql_bound_resolve(bound, m, e) != 0)
-        THROW_S(e);
-
-    wrapped_cursor = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!wrapped_cursor) THROW(e, "Out of memory");
-    wrapped_cursor->p = priv;
-    wrapped_cursor->next = gf_cursor_next;
-    wrapped_cursor->close = gf_cursor_close;
-
-    result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
-
-    result->row_cursor = wrapped_cursor;
-    if (bound->is_star) {
-        result->column_count = m->columns.length;
-        result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-        if (!result->column_names) THROW(e, "Out of memory");
-        for (int i = 0; i < result->column_count; i++)
-            result->column_names[i] = STRDUP(m->columns.a[i].name);
-        priv->proj_count = 0;
-    } else {
-        result->column_count = bound->item_count;
-        result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-        if (!result->column_names) THROW(e, "Out of memory");
-        for (int i = 0; i < bound->item_count; i++) {
-            result->column_names[i] = STRDUP(sql_select_item_label(&bound->items[i]));
-            if (bound->items[i].col_idx < 0)
-                THROW(e, "Column not found: %s", bound->items[i].name);
-            priv->proj_indexes[i] = bound->items[i].col_idx;
-        }
-        priv->proj_count = result->column_count;
-    }
-    result->affected = -1;
-    result->close = sql_result_close;
-    return result;
-
-SQL_RESULT_EMPTY:
-    result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
-    result->column_count = bound->item_count;
-    if (result->column_count > 0) {
-        result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-        if (!result->column_names)
-            THROW(e, "Out of memory");
-        for (int i = 0; i < result->column_count; i++)
-            result->column_names[i] = STRDUP(sql_select_item_label(&bound->items[i]));
-    }
-    result->affected = 0;
-    result->close = sql_result_close;
-    if (gf && gf->close)
-        gf->close(gf);
-    return result;
+    struct flintdb_cursor_row *c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
+    if (!c) THROW(e, "Out of memory");
+    c->p = priv;
+    c->next = gf_cursor_next;
+    c->close = gf_cursor_close;
+    return c;
 
 EXCEPTION:
-    if (wrapped_cursor) FREE(wrapped_cursor);
     if (priv) FREE(priv);
-    if (c && c->close) c->close(c);
+    if (inner && inner->close) inner->close(inner);
     if (gf && gf->close) gf->close(gf);
     return NULL;
 }
+
+#define GF_FAST_PATH 1
+
+static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_sql *q, struct sql_bound *bound, char **e);
 
 // Helper: fast COUNT(*) for text/gz files without decoding rows
 static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_sql *q, struct sql_bound *bound, char **e) {
@@ -2356,6 +2253,150 @@ static void sql_table_cursor_close(struct flintdb_cursor_row *c) {
     FREE(c);
 }
 
+static struct flintdb_cursor_row *sql_table_scan_wrap(struct flintdb_table *table, struct flintdb_cursor_i64 *cr, char **e) {
+    struct flintdb_table_cursor_priv *priv = (struct flintdb_table_cursor_priv *)CALLOC(1, sizeof(struct flintdb_table_cursor_priv));
+    if (!priv) THROW(e, "Out of memory");
+    priv->table = table;
+    priv->cr = cr;
+    priv->limit = NOLIMIT;
+    priv->proj_count = 0;
+
+    struct flintdb_cursor_row *c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
+    if (!c) THROW(e, "Out of memory");
+    c->p = priv;
+    c->next = sql_table_cursor_next;
+    c->close = sql_table_cursor_close;
+    return c;
+
+EXCEPTION:
+    if (priv) FREE(priv);
+    if (cr && cr->close) cr->close(cr);
+    if (table && table->close) table->close(table);
+    return NULL;
+}
+
+static int sql_result_fill_columns(struct flintdb_sql_result *result, const struct sql_bound *bound,
+                                   const struct flintdb_meta *m, char **e) {
+    if (bound->is_star) {
+        if (!m) THROW(e, "Missing table meta");
+        result->column_count = m->columns.length;
+        result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
+        if (!result->column_names) THROW(e, "Out of memory");
+        for (int i = 0; i < result->column_count; i++)
+            result->column_names[i] = STRDUP(m->columns.a[i].name);
+    } else {
+        result->column_count = bound->item_count;
+        if (result->column_count <= 0)
+            return 0;
+        result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
+        if (!result->column_names) THROW(e, "Out of memory");
+        for (int i = 0; i < bound->item_count; i++)
+            result->column_names[i] = STRDUP(sql_select_item_label(&bound->items[i]));
+    }
+    return 0;
+EXCEPTION:
+    return -1;
+}
+
+static struct flintdb_sql_result *sql_result_empty(const struct sql_bound *bound, char **e) {
+    struct flintdb_sql_result *result = (struct flintdb_sql_result *)CALLOC(1, sizeof(struct flintdb_sql_result));
+    if (!result) THROW(e, "Out of memory");
+    result->column_count = bound->item_count;
+    if (result->column_count > 0) {
+        result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
+        if (!result->column_names) THROW(e, "Out of memory");
+        for (int i = 0; i < bound->item_count; i++)
+            result->column_names[i] = STRDUP(sql_select_item_label(&bound->items[i]));
+    }
+    result->affected = 0;
+    result->close = sql_result_close;
+    return result;
+EXCEPTION:
+    return NULL;
+}
+
+static int sql_scan_configure(struct flintdb_cursor_row *c, struct sql_bound *bound, char **e) {
+    int *proj_count = NULL;
+    int *proj_indexes = NULL;
+    struct limit *lim = NULL;
+
+    if (c->next == sql_table_cursor_next) {
+        struct flintdb_table_cursor_priv *p = (struct flintdb_table_cursor_priv *)c->p;
+        proj_count = &p->proj_count;
+        proj_indexes = p->proj_indexes;
+        lim = &p->limit;
+    } else if (c->next == gf_cursor_next) {
+        struct gf_cursor_priv *p = (struct gf_cursor_priv *)c->p;
+        proj_count = &p->proj_count;
+        proj_indexes = p->proj_indexes;
+        lim = &p->limit;
+    } else {
+        return 0;
+    }
+
+    if (!bound->is_star) {
+        for (int i = 0; i < bound->item_count; i++) {
+            if (bound->items[i].col_idx < 0)
+                THROW(e, "Column not found: %s", bound->items[i].name);
+            proj_indexes[i] = bound->items[i].col_idx;
+        }
+        *proj_count = bound->item_count;
+    }
+    if (!bound->distinct && bound->has_limit)
+        *lim = bound->limit;
+    return 0;
+EXCEPTION:
+    return -1;
+}
+
+static struct flintdb_sql_result *sql_exec_select_plan(const struct flintdb_sql *q, struct sql_bound *bound,
+                                                      struct flintdb_cursor_row *src, const struct flintdb_meta *meta,
+                                                      char **e) {
+    struct flintdb_sql_result *result = NULL;
+
+    if (sql_bound_resolve(bound, meta, e) != 0)
+        THROW_S(e);
+
+    if (bound->has_groupby || bound->has_aggregate) {
+        result = sql_exec_select_groupby_row(q, bound, src, meta, e);
+        src = NULL;
+        if (e && *e) THROW_S(e);
+        return result;
+    }
+
+    if (!bound->has_orderby) {
+        if (sql_scan_configure(src, bound, e) != 0)
+            THROW_S(e);
+    }
+
+    if (q->distinct) {
+        struct limit dlim = bound->has_orderby ? NOLIMIT : (bound->has_limit ? bound->limit : NOLIMIT);
+        src = distinct_cursor_wrap(q, src, dlim, e);
+        if (e && *e) THROW_S(e);
+    }
+
+    if (bound->has_orderby) {
+        result = sql_exec_sort(src, bound, e);
+        src = NULL;
+        if (e && *e) THROW_S(e);
+        return result;
+    }
+
+    result = (struct flintdb_sql_result *)CALLOC(1, sizeof(struct flintdb_sql_result));
+    if (!result) THROW(e, "Out of memory");
+    if (sql_result_fill_columns(result, bound, meta, e) != 0)
+        THROW_S(e);
+    result->row_cursor = src;
+    result->affected = -1;
+    result->close = sql_result_close;
+    return result;
+
+EXCEPTION:
+    if (src && src->close)
+        src->close(src);
+    return NULL;
+}
+
 // Fast path: handle SELECT COUNT(*) [alias] FROM <table> with no WHERE/GROUP/ORDER/DISTINCT
 static struct flintdb_sql_result * sql_exec_fast_count(const struct flintdb_sql *q, struct sql_bound *bound, struct flintdb_table *table, char **e) {
     if (!q || !bound || !table || !bound->is_fast_count)
@@ -2423,143 +2464,73 @@ EXCEPTION:
     return NULL;
 }
 
-static struct flintdb_sql_result * sql_exec_select(const struct flintdb_sql *q, struct sql_bound *bound, struct flintdb_transaction *t, char **e) {
-    struct flintdb_sql_result*result = NULL;
-    struct flintdb_cursor_i64 *cr = NULL;
-    struct flintdb_cursor_row *c = NULL;
-    struct flintdb_table_cursor_priv *priv = NULL;
+static struct flintdb_sql_result * sql_exec_select(const struct flintdb_sql *q, struct sql_bound *bound, enum fileformat fmt, struct flintdb_transaction *t, char **e) {
+    struct flintdb_cursor_row *src = NULL;
+    const struct flintdb_meta *meta = NULL;
     struct flintdb_table *table = NULL;
+    struct flintdb_genericfile *gf = NULL;
     (void)t;
 
-    table = sql_exec_table_borrow(q->table, e);
-    if (e && *e) THROW_S(e);
-    if (bound->is_fast_count) {
-        struct flintdb_sql_result*fast = sql_exec_fast_count(q, bound, table, e);
-        if (fast) {
+    if (fmt == FORMAT_BIN) {
+        table = sql_exec_table_borrow(q->table, e);
+        if (e && *e) THROW_S(e);
+        if (bound->is_fast_count) {
+            struct flintdb_sql_result *fast = sql_exec_fast_count(q, bound, table, e);
+            if (fast) {
+                if (table) table->close(table);
+                return fast;
+            }
+        }
+        meta = table->meta(table, e);
+        if (e && *e) THROW_S(e);
+
+        char where[SQL_STRING_LIMIT] = {0};
+        sql_exec_indexable_where(meta, q, where, sizeof(where));
+        struct flintdb_cursor_i64 *cr = table->find(table, where, e);
+        if (e && *e) THROW_S(e);
+        if (!cr) {
             if (table) table->close(table);
-            return fast;
-        }
-    }
-
-    const struct flintdb_meta *meta = table->meta(table, e);
-    if (e && *e) THROW_S(e);
-
-    char where[SQL_STRING_LIMIT] = {0};
-    sql_exec_indexable_where(meta, q, where, sizeof(where));
-    cr = table->find(table, where, e);
-    if (e && *e) THROW_S(e);
-    if (!cr)
-        goto SQL_RESULT_EMPTY;
-
-    if (bound->has_groupby || bound->has_aggregate) {
-        result = sql_exec_select_groupby_i64(q, bound, table, cr, e);
-        cr = NULL; /* closed inside groupby */
-        if (table) {
-            table->close(table);
             table = NULL;
+            return sql_result_empty(bound, e);
         }
+        src = sql_table_scan_wrap(table, cr, e);
+        table = NULL; /* wrap owns the table, or already closed it on failure */
         if (e && *e) THROW_S(e);
-        return result;
-    } else if (bound->has_orderby) {
-        priv = (struct flintdb_table_cursor_priv *)CALLOC(1, sizeof(struct flintdb_table_cursor_priv));
-        if (!priv) THROW(e, "Out of memory");
-        priv->table = table;
-        priv->cr = cr;
-        priv->limit = NOLIMIT;
-
-        c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
-        if (!c) THROW(e, "Out of memory");
-        c->p = priv;
-        c->next = sql_table_cursor_next;
-        c->close = sql_table_cursor_close;
-
-        if (q->distinct) {
-            c = distinct_cursor_wrap(q, c, NOLIMIT, e);
-            if (e && *e)
-                THROW_S(e);
-        }
-
-        result = sql_exec_sort(c, q->orderby, q->limit, e);
-        if (e && *e) THROW_S(e);
-        return result;
-    }
-
-    priv = (struct flintdb_table_cursor_priv *)CALLOC(1, sizeof(struct flintdb_table_cursor_priv));
-    if (!priv) THROW(e, "Out of memory");
-    priv->table = table;
-    priv->cr = cr;
-    priv->limit = bound->has_limit ? bound->limit : NOLIMIT;
-    priv->proj_count = 0;
-
-    const struct flintdb_meta *m = table->meta(table, e);
-    if (e && *e) THROW_S(e);
-    if (!m) THROW(e, "Missing table meta");
-    if (sql_bound_resolve(bound, m, e) != 0)
-        THROW_S(e);
-
-    result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
-
-    if (bound->is_star) {
-        result->column_count = m->columns.length;
-        result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-        if (!result->column_names)
-            THROW(e, "Out of memory");
-        for (int i = 0; i < result->column_count; i++) {
-            result->column_names[i] = STRDUP(m->columns.a[i].name);
-        }
-        priv->proj_count = 0;
     } else {
-        result->column_count = bound->item_count;
-        result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-        if (!result->column_names) THROW(e, "Out of memory");
-        for (int i = 0; i < bound->item_count; i++) {
-            result->column_names[i] = STRDUP(sql_select_item_label(&bound->items[i]));
-            if (bound->items[i].col_idx < 0)
-                THROW(e, "Column not found: %s", bound->items[i].name);
-            priv->proj_indexes[i] = bound->items[i].col_idx;
+#ifdef GF_FAST_PATH
+        if (bound->is_fast_count) {
+            struct flintdb_sql_result *fast = sql_exec_gf_fast_count(q, bound, e);
+            if (fast || (e && *e))
+                return fast;
         }
-        priv->proj_count = result->column_count;
-    }
+#endif
+        gf = flintdb_genericfile_open(q->table, FLINTDB_RDONLY, NULL, e);
+        if (e && *e) THROW_S(e);
+        meta = gf->meta(gf, e);
+        if (e && *e) THROW_S(e);
 
-    c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!c) THROW(e, "Out of memory");
-    c->p = priv;
-    c->next = sql_table_cursor_next;
-    c->close = sql_table_cursor_close;
-    if (q->distinct) {
-        struct limit dlim = bound->has_limit ? bound->limit : NOLIMIT;
-        c = distinct_cursor_wrap(q, c, dlim, e);
+        char where[SQL_STRING_LIMIT] = {0};
+        sql_exec_indexable_where(NULL, q, where, sizeof(where));
+        struct flintdb_cursor_row *inner = gf->find(gf, where, e);
+        if (e && *e) THROW_S(e);
+        if (!inner) {
+            if (gf && gf->close) gf->close(gf);
+            gf = NULL;
+            return sql_result_empty(bound, e);
+        }
+        src = sql_gf_scan_wrap(gf, inner, e);
+        gf = NULL; /* wrap owns the file, or already closed it on failure */
         if (e && *e) THROW_S(e);
     }
 
-    result->row_cursor = c;
-    result->affected = -1;
-    result->close = sql_result_close;
-    return result;
+    return sql_exec_select_plan(q, bound, src, meta, e);
 
-SQL_RESULT_EMPTY:
-    result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
-    result->column_count = bound->item_count;
-    if (result->column_count > 0) {
-        result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-        if (!result->column_names)
-            THROW(e, "Out of memory");
-        for (int i = 0; i < result->column_count; i++)
-            result->column_names[i] = STRDUP(sql_select_item_label(&bound->items[i]));
-    }
-    result->affected = 0;
-    result->close = sql_result_close;
-    if (table) table->close(table);
-    return result;
 EXCEPTION:
-    if (c) {
-        c->close(c);
-    } else {
-        if (cr && cr->close) cr->close(cr);
-        if (table) table->close(table);
-        if (priv) FREE(priv);
+    if (src && src->close)
+        src->close(src);
+    else {
+        if (table && table->close) table->close(table);
+        if (gf && gf->close) gf->close(gf);
     }
     return NULL;
 }
@@ -2849,193 +2820,17 @@ static int apply_having_filter(struct flintdb_row **rows, int row_count, const c
 }
 
 // New implementation using aggregate API from aggregate.c
-static struct flintdb_sql_result * sql_exec_select_groupby_i64(const struct flintdb_sql *q, struct sql_bound *bound, struct flintdb_table *table, struct flintdb_cursor_i64 *cr, char **e) {
-    struct flintdb_sql_result*result = NULL;
+// GROUP BY / aggregate over a cursor_row scan (owns cr)
+static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flintdb_sql *q, struct sql_bound *bound, struct flintdb_cursor_row *cr, const struct flintdb_meta *meta, char **e) {
+    struct flintdb_sql_result *result = NULL;
     struct flintdb_aggregate *agg = NULL;
     struct flintdb_aggregate_groupby **groupbys = NULL;
     struct flintdb_aggregate_func **funcs = NULL;
     int groupby_count = 0;
     int aggr_count = 0;
-
-    const struct flintdb_meta *meta = table->meta(table, e);
-    if (e && *e) THROW_S(e);
-    if (sql_bound_aggregates(bound, meta, &groupbys, &groupby_count, &funcs, &aggr_count, e) != 0)
-        THROW_S(e);
-
-    agg = aggregate_new("sql_groupby_i64", groupbys, groupby_count, funcs, aggr_count, e);
-    if (e && *e)
-        THROW_S(e);
-    groupbys = NULL;
-    funcs = NULL;
-
-    // Process rows
-    for (i64 rid; (rid = cr->next(cr, e)) > -1;) {
-        if (e && *e) THROW_S(e);
-        const struct flintdb_row *src_row = table->read(table, rid, e);
-        if (e && *e) THROW_S(e);
-        if (!src_row)
-            continue;
-
-        agg->row(agg, src_row, e);
-        if (e && *e) THROW_S(e);
-    }
-
-    // Compute results
-    struct flintdb_row **out_rows = NULL;
-    int row_count = agg->compute(agg, &out_rows, e);
-    if (e && *e) THROW_S(e);
-    
-    // Apply HAVING clause filter if present
-    if (bound->has_having) {
-        row_count = apply_having_filter(out_rows, row_count, q->having, e);
-        if (e && *e) THROW_S(e);
-    }
-
-    // Build sql_result from computed rows (they already contain groupby cols + aggr values)
-    // Create a sorter for ORDER BY and LIMIT support
-    struct flintdb_meta *result_meta = out_rows && row_count > 0 ? (struct flintdb_meta *)out_rows[0]->meta : NULL;
-    if (result_meta) {
-        for (int i = 0; i < result_meta->columns.length && i < 5; i++) {
-            // Column info logged for debugging
-        }
-    }
-    if (!result_meta && row_count > 0)
-        THROW(e, "Missing result metadata");
-
-    // Fast path: no ORDER BY and no LIMIT -> avoid filesort allocation
-    if (row_count >= 0 && !bound->has_orderby && !bound->has_limit) {
-        struct flintdb_sql_result*fast = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-        if (!fast) THROW(e, "Out of memory");
-        // Build array cursor over out_rows
-        struct list *rows_list = arraylist_new(row_count > 0 ? row_count : 8);
-        for (int i = 0; i < row_count; i++) {
-            // Transfer ownership of each row to list (do NOT free now)
-            rows_list->add(rows_list, (valtype)(uintptr_t)out_rows[i], list_row_dealloc, e);
-            if (e && *e) THROW_S(e);
-        }
-        // free only the pointer array container
-        if (out_rows)
-            FREE(out_rows);
-        out_rows = NULL; // ownership moved
-
-        struct flintdb_cursor_array_priv *apriv = CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
-        if (!apriv) THROW(e, "Out of memory");
-        apriv->rows = rows_list;
-        apriv->index = 0;
-        apriv->meta = NULL; // not required; row meta used directly
-        struct flintdb_cursor_row *ac = CALLOC(1, sizeof(struct flintdb_cursor_row));
-        if (!ac) THROW(e, "Out of memory");
-        ac->p = apriv;
-        ac->next = array_cursor_next;
-        ac->close = array_cursor_close;
-
-        fast->row_cursor = ac;
-        fast->column_count = result_meta ? result_meta->columns.length : 0;
-        fast->column_names = (char **)CALLOC(fast->column_count, sizeof(char *));
-        if (!fast->column_names && fast->column_count > 0)
-            THROW(e, "Out of memory");
-        for (int i = 0; i < fast->column_count; i++)
-            fast->column_names[i] = STRDUP(result_meta->columns.a[i].name);
-        fast->affected = row_count;
-        fast->close = sql_result_close;
-
-        if (agg) agg->free(agg);
-        if (cr) cr->close(cr);
-        return fast;
-    }
-
-    char temp_file[PATH_MAX];
-    snprintf(temp_file, sizeof(temp_file), "%s/flintdb_sort_%ld.tmp", ensure_temp_dir(), (long)time(NULL));
-    struct flintdb_filesort *sorter = flintdb_filesort_new(temp_file, result_meta, e);
-    if (e && *e) THROW_S(e);
-
-    for (int i = 0; i < row_count; i++) {
-        // if (out_rows[i] && out_rows[i]->get) {
-        //     char *err = NULL;
-        //     struct flintdb_variant *v = out_rows[i]->get(out_rows[i], 0, &err);
-        //     if (v && v->type == VARIANT_INT64) {
-        //         i64 val = flintdb_variant_i64_get(v, &err);
-        //     }
-        // } else {
-        // }
-        sorter->add(sorter, out_rows[i], e);
-        if (e && *e) THROW_S(e);
-    }
-
-    if (sorter_apply_bound_order(sorter, bound, result_meta, e) != 0)
-        THROW_S(e);
-
-    // Build result cursor
-    struct flintdb_filesort_cursor_priv *priv = CALLOC(1, sizeof(struct flintdb_filesort_cursor_priv));
-    if (!priv) THROW(e, "Out of memory");
-    priv->sorter = sorter;
-    priv->current_idx = 0;
-    priv->row_count = sorter->rows(sorter);
-    priv->limit = bound->has_limit ? bound->limit : NOLIMIT;
-
-    struct flintdb_cursor_row *wrapped_cursor = CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!wrapped_cursor) THROW(e, "Out of memory");
-    wrapped_cursor->p = priv;
-    wrapped_cursor->next = filesort_cursor_next;
-    wrapped_cursor->close = filesort_cursor_close;
-
-    result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
-    result->row_cursor = wrapped_cursor;
-    result->column_count = result_meta ? result_meta->columns.length : 0;
-    result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-    if (!result->column_names && result->column_count > 0)
-        THROW(e, "Out of memory");
-    for (int i = 0; i < result->column_count; i++)
-        result->column_names[i] = STRDUP(result_meta->columns.a[i].name);
-
-    i64 visible = priv->row_count;
-    int off = priv->limit.priv.offset;
-    int limv = priv->limit.priv.limit;
-    if (off >= visible)
-        visible = 0;
-    else
-        visible -= off;
-    if (limv >= 0 && limv < visible)
-        visible = limv;
-    result->affected = visible;
-    result->close = sql_result_close;
-
-    // Cleanup
-    for (int i = 0; i < row_count; i++) {
-        if (out_rows[i]) {
-            out_rows[i]->free(out_rows[i]);
-        }
-    }
-    if (out_rows) FREE(out_rows);
-    if (agg) agg->free(agg);
-    if (cr) cr->close(cr);
-    return result;
-
-EXCEPTION:
-    if (agg) agg->free(agg);
-    if (cr) cr->close(cr);
-    return NULL;
-}
-
-// GROUP BY for generic cursor_row (generic files)
-static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flintdb_sql *q, struct sql_bound *bound, struct flintdb_table *table, struct flintdb_cursor_row *cr, struct flintdb_genericfile *gf, char **e) {
-    struct flintdb_sql_result*result = NULL;
-    struct flintdb_aggregate *agg = NULL;
-    struct flintdb_aggregate_groupby **groupbys = NULL;
-    struct flintdb_aggregate_func **funcs = NULL;
-    int groupby_count = 0;
-    int aggr_count = 0;
-    const struct flintdb_meta *cached_meta = NULL;
+    const struct flintdb_meta *cached_meta = meta;
     struct flintdb_row *first_row = NULL;
 
-    if (table) {
-        cached_meta = table->meta(table, e);
-        if (e && *e) THROW_S(e);
-    } else if (gf) {
-        cached_meta = gf->meta(gf, e);
-        if (e && *e) THROW_S(e);
-    }
     if (!cached_meta && cr) {
         first_row = cr->next(cr, e);
         if (e && *e) THROW_S(e);
@@ -3046,7 +2841,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
     if (sql_bound_aggregates(bound, cached_meta, &groupbys, &groupby_count, &funcs, &aggr_count, e) != 0)
         THROW_S(e);
 
-    agg = aggregate_new("sql_groupby_row", groupbys, groupby_count, funcs, aggr_count, e);
+    agg = aggregate_new("sql_groupby", groupbys, (u16)groupby_count, funcs, (u16)aggr_count, e);
     if (e && *e)
         THROW_S(e);
     groupbys = NULL;
@@ -3058,14 +2853,15 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
             THROW_S(e);
         first_row = NULL;
     }
-
-    struct flintdb_row *r;
-    while ((r = cr->next(cr, e)) != NULL) {
-        if (e && *e)
-            THROW_S(e);
-        agg->row(agg, r, e);
-        if (e && *e)
-            THROW_S(e);
+    if (cr) {
+        struct flintdb_row *r;
+        while ((r = cr->next(cr, e)) != NULL) {
+            if (e && *e)
+                THROW_S(e);
+            agg->row(agg, r, e);
+            if (e && *e)
+                THROW_S(e);
+        }
     }
 
     struct flintdb_row **out_rows = NULL;
@@ -3082,7 +2878,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
         THROW(e, "Missing result metadata");
 
     if (row_count >= 0 && !bound->has_orderby && !bound->has_limit) {
-        struct flintdb_sql_result*fast = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
+        struct flintdb_sql_result *fast = (struct flintdb_sql_result *)CALLOC(1, sizeof(struct flintdb_sql_result));
         if (!fast) THROW(e, "Out of memory");
         struct list *rows_list = arraylist_new(row_count > 0 ? row_count : 8);
         for (int i = 0; i < row_count; i++) {
@@ -3114,12 +2910,8 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
         fast->affected = row_count;
         fast->close = sql_result_close;
 
-        if (agg)
-            agg->free(agg);
-        if (cr && cr->close)
-            cr->close(cr);
-        if (gf && gf->close)
-            gf->close(gf);
+        if (agg) agg->free(agg);
+        if (cr && cr->close) cr->close(cr);
         return fast;
     }
 
@@ -3151,7 +2943,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
     wrapped_cursor->next = filesort_cursor_next;
     wrapped_cursor->close = filesort_cursor_close;
 
-    result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
+    result = (struct flintdb_sql_result *)CALLOC(1, sizeof(struct flintdb_sql_result));
     if (!result) THROW(e, "Out of memory");
     result->row_cursor = wrapped_cursor;
     result->column_count = result_meta ? result_meta->columns.length : 0;
@@ -3180,20 +2972,18 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
 
     if (agg) agg->free(agg);
     if (cr && cr->close) cr->close(cr);
-    if (gf && gf->close) gf->close(gf);
     return result;
 
 EXCEPTION:
     if (agg) agg->free(agg);
     if (cr && cr->close) cr->close(cr);
-    if (gf && gf->close) gf->close(gf);
     return NULL;
 }
 
-static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, const char *orderby, const char *limit, char **e) {
+static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, struct sql_bound *bound, char **e) {
     struct flintdb_sql_result*result = NULL;
     struct flintdb_filesort *sorter = NULL;
-    if (!cr || strempty(orderby))
+    if (!cr || !bound || !bound->has_orderby)
         THROW(e, "Invalid cursor or ORDER BY clause");
     struct flintdb_row *first = cr->next(cr, e);
     if (e && *e)
@@ -3219,30 +3009,14 @@ static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, 
         sorter->add(sorter, row, e);
         if (e && *e) THROW_S(e);
     }
-    char order_cols[MAX_COLUMNS_LIMIT][MAX_COLUMN_NAME_LIMIT];
-    i8 desc_flags[MAX_COLUMNS_LIMIT];
-    int ocnt = 0;
-    sql_parse_orderby_clause(orderby, order_cols, desc_flags, &ocnt);
-    if (ocnt <= 0)
-        THROW(e, "Failed to parse ORDER BY clause");
-    struct sort_multi_context sc;
-    memset(&sc, 0, sizeof(sc));
-    sc.count = ocnt;
-    for (int i = 0; i < ocnt; i++) {
-        int idx = flintdb_column_at((struct flintdb_meta *)src_meta, order_cols[i]);
-        if (idx < 0)
-            THROW(e, "Sort column not found: %s", order_cols[i]);
-        sc.specs[i].col_idx = idx;
-        sc.specs[i].descending = desc_flags[i];
-    }
-    sorter->sort(sorter, sort_row_multi_comparator, &sc, e);
-    if (e && *e) THROW_S(e);
+    if (sorter_apply_bound_order(sorter, bound, (struct flintdb_meta *)src_meta, e) != 0)
+        THROW_S(e);
     struct flintdb_filesort_cursor_priv *priv = CALLOC(1, sizeof(struct flintdb_filesort_cursor_priv));
     if (!priv) THROW(e, "Out of memory");
     priv->sorter = sorter;
     priv->current_idx = 0;
     priv->row_count = sorter->rows(sorter);
-    priv->limit = !strempty(limit) ? limit_parse(limit) : NOLIMIT;
+    priv->limit = bound->has_limit ? bound->limit : NOLIMIT;
     struct flintdb_cursor_row *wrapped = CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!wrapped) THROW(e, "Out of memory");
     wrapped->p = priv;
