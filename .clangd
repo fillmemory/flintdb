@@ -1,5 +1,19 @@
+# clangd walks up from the file and uses the nearest compilation database.
+# `cd c && bear -- make` writes c/compile_commands.json.
+CompileFlags:
+  CompilationDatabase: c
+
+# Without a DB (or when a header is opened alone) clangd treats .h as C++.
+# Force C for the engine so members like storage.delete are not keywords.
+---
+If:
+  PathMatch: .*/c/src/.*\.(c|h)
+CompileFlags:
+  Add: [-xc]
+
 # testcase.c is a bundle of mutually exclusive -DTESTCASE_* mains.
 # clangd parses it with none of those macros, so includes look unused.
+---
 If:
   PathMatch: .*/testcase\.c
 Diagnostics:

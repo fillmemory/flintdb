@@ -2,6 +2,8 @@ temp
 .DS_Store
 .vscode/
 *.dSYM
+compile_commands.json
+c/compile_commands.json
 c/bin/
 c/lib/
 c/build/
