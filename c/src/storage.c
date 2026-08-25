@@ -1096,10 +1096,12 @@ static inline void storage_dio_read_cache_invalidate(struct storage_dio_priv *pr
         priv->read_page_base = -1;
 }
 
+#if defined(__linux__) && defined(O_DIRECT)
 static inline void storage_dio_read_cache_invalidate_page(struct storage_dio_priv *priv, i64 page_base) {
     if (priv && priv->read_page_base == page_base)
         priv->read_page_base = -1;
 }
+#endif
 
 #ifdef _WIN32
 #define PREAD_FUNC(me, buf, size, offset) pread_win32(((struct storage_dio_priv *)((me)->priv))->hfile, buf, size, offset)
