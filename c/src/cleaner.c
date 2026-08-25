@@ -55,8 +55,8 @@ void flintdb_cleanup(char **e) {
     sql_pool_cleanup();
     variant_strpool_cleanup();
     variant_tempstr_cleanup();
+    sql_exec_cleanup(); /* close pooled tables before draining the row pool */
     row_pool_cleanup();
-    sql_exec_cleanup();
 
     DEBUG("FlintDB cleanup completed");
 

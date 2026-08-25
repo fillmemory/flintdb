@@ -625,13 +625,13 @@ static void pretty_table_add_row(struct pretty_table *table, char **row_data, in
     char **row = CALLOC(table->col_count, sizeof(char *));
     for (int i = 0; i < col_count && i < table->col_count; i++) {
         if (row_data[i]) {
-            row[i] = strdup(row_data[i]);
+            row[i] = STRDUP(row_data[i]);
             int width = string_display_width(row[i]);
             if (width > table->col_widths[i]) {
                 table->col_widths[i] = width;
             }
         } else {
-            row[i] = strdup("\\N");
+            row[i] = STRDUP("\\N");
             if (2 > table->col_widths[i]) {
                 table->col_widths[i] = 2;
             }

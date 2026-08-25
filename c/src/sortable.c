@@ -117,6 +117,8 @@ struct flintdb_row * filesort_read(const struct flintdb_filesort *me, i64 i, cha
     if (priv->formatter.decode(&priv->formatter, buf, r, e) != 0) {
         if (buf)
             buf->free(buf);
+        if (r)
+            r->free(r);
         return NULL;
     }
     if (buf)

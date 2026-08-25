@@ -28,6 +28,10 @@
 #define FLINTDB_TEMP_DIR "./temp"
 #define SQL_EXEC_SHARED_TABLES 1
 
+#ifdef SQL_EXEC_SHARED_TABLES
+static void table_pool_shutdown(void);
+#endif
+
 // TODO: union file formats for table_open and genericfile_open?
 
 // Get environment variable as integer with default value
@@ -72,6 +76,9 @@ static const char * ensure_temp_dir(void) {
  * @brief Clean up temporary files created during SQL execution.
  */
 void sql_exec_cleanup() {
+#ifdef SQL_EXEC_SHARED_TABLES
+    table_pool_shutdown();
+#endif
     const char *temp_dir = ensure_temp_dir();
     DIR *dir = opendir(temp_dir);
     if (!dir) {
@@ -2574,14 +2581,19 @@ static struct flintdb_row *filesort_cursor_next(struct flintdb_cursor_row *c, ch
     }
     if (!p->reuse_row) {
         p->reuse_row = flintdb_row_pool_acquire((struct flintdb_meta *)r->meta, e);
-        if ((e && *e) || !p->reuse_row)
+        if ((e && *e) || !p->reuse_row) {
+            r->free(r);
             return NULL;
+        }
     }
 
     flintdb_row_cast_reuse(r, p->reuse_row, e);
-    if (e && *e)
+    if (e && *e) {
+        r->free(r);
         return NULL;
+    }
     p->reuse_row->rowid = r->rowid;
+    r->free(r);
     return p->reuse_row;
 }
 
@@ -2990,6 +3002,9 @@ static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, 
     if (e && *e)
         THROW_S(e);
     if (!first) {
+        if (cr && cr->close)
+            cr->close(cr);
+        cr = NULL;
         result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
         if (!result) THROW(e, "Out of memory");
         result->affected = 0;

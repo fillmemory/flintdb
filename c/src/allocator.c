@@ -57,7 +57,11 @@ void * d_realloc(void *p, size_t size, const char *f, int l, const char *fn) {
     size_t sz2 = n ? malloc_usable_size(n) : 0;
     fprintf(stderr, "+ REALLOC %p, %zu <= %p, %zu, %s:%d %s\n", n, sz2, o, sz1, f, l, fn);
     if (n) {
-        if (sz2 >= sz1) {
+        if (!o) {
+            /* realloc(NULL, n) is malloc: count a new block */
+            atomic_fetch_add_explicit(&d_allocated_count, 1, memory_order_relaxed);
+            atomic_fetch_add_explicit(&d_allocated_bytes, (uint64_t)sz2, memory_order_relaxed);
+        } else if (sz2 >= sz1) {
             atomic_fetch_add_explicit(&d_allocated_bytes, (uint64_t)(sz2 - sz1), memory_order_relaxed);
         } else {
             atomic_fetch_sub_explicit(&d_allocated_bytes, (uint64_t)(sz1 - sz2), memory_order_relaxed);

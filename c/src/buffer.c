@@ -303,16 +303,19 @@ struct buffer *buffer_slice(struct buffer *in, i32 offset, i32 length, char **e)
     if (!out) {
         THROW(e, "Out of memory");
     }
-    out->owner = BUFFER_OWNER_SLICE_HEAP;
     buffer_slice_to(in, offset, length, out, e);
     if (e && *e) {
-        out->free(out);
+        FREE(out);
         return NULL;
     }
+    /* buffer_slice_to() clears owner for stack slices; restore heap ownership. */
+    out->owner = BUFFER_OWNER_SLICE_HEAP;
+    out->free = &buffer_slice_free;
     return out;
 
 EXCEPTION:
-    if (out) out->free(out);
+    if (out)
+        FREE(out);
     return NULL;
 }
 
