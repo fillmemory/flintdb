@@ -2,6 +2,12 @@
 // Byte buffer abstraction with read/write methods
 // Byte order: little-endian
 //
+/**
+ * Byte Buffer implementation
+ *
+ * Inspired by Java NIO ByteBuffer design patterns (position/limit/capacity model),
+ * implemented from scratch in pure C with SIMD and custom pooling optimizations.
+ */
 #ifndef FLINTDB_BUFFER_H
 #define FLINTDB_BUFFER_H
 
