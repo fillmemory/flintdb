@@ -18,7 +18,8 @@ endif
 
 CXX = g++
 CC = gcc
-CXXFLAGS = -std=c++17 -fPIC -O2 -Wall
+# Arrow 21+ headers use C++20 (std::span, std::popcount).
+CXXFLAGS = -std=c++20 -fPIC -O2 -Wall
 CFLAGS = -fPIC -O2 -Wall -DNDEBUG -Wno-format-truncation
 LDFLAGS = -shared
 

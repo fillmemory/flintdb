@@ -17,6 +17,7 @@
 #include <conio.h>
 #include <fcntl.h>
 #include <io.h>
+#include <winsock2.h>
 #include <windows.h>
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004

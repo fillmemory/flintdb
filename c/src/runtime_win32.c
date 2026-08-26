@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <winsock2.h>
 #include <windows.h>
 
 #include <fcntl.h>

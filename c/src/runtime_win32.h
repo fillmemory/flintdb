@@ -2,8 +2,9 @@
 #ifndef FLINTDB_OS_RUNTIME_WIN32_FUNCTIONS_H
 #define FLINTDB_OS_RUNTIME_WIN32_FUNCTIONS_H
 
-// #include <winsock2.h>
-// #include <ws2tcpip.h>
+// winsock2.h must come before windows.h (otherwise MinGW emits #warning).
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <io.h> // get_osfhandle
 #include <time.h>
