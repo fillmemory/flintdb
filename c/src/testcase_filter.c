@@ -204,9 +204,9 @@ int main(int argc, char *argv[]) {
     
     struct {
         const char *where;
-        const char *index_name;       // index to use (NULL for PRIMARY KEY)
-        const char *expected_first;   // indexable part (NULL if none)
-        const char *expected_second;  // non-indexable part (NULL if none)
+        const char *index_name;         // index to use (NULL for PRIMARY KEY)
+        const char *expected_access;    // indexable part (NULL if none)
+        const char *expected_residual;  // non-indexable part (NULL if none)
     } split_tests[] = {
         // PRIMARY KEY (l_orderkey, l_quantity)
         {"l_orderkey = 1001", NULL, "indexable", NULL},
@@ -264,56 +264,54 @@ int main(int argc, char *argv[]) {
             continue;
         }
         
-        struct filter_layers *layers = filter_split(f, &meta, target_index, &e);
+        struct filter_plan *plan = filter_split(f, &meta, target_index, &e);
         if (e) THROW_S(e);
         
-        if (!layers) {
+        if (!plan) {
             WARN("  FAILED: filter_split returned NULL");
             filter_free(f);
             continue;
         }
         
-        // Check first layer (indexable)
-        int first_ok = 1;
-        if (split_tests[i].expected_first) {
-            if (!layers->first) {
-                WARN("  FAILED: expected indexable first layer, got NULL");
-                first_ok = 0;
+        int access_ok = 1;
+        if (split_tests[i].expected_access) {
+            if (!plan->access) {
+                WARN("  FAILED: expected access predicate, got NULL");
+                access_ok = 0;
             } else {
-                DEBUG("  first layer: exists (indexable)");
+                DEBUG("  access: exists (indexable)");
             }
         } else {
-            if (layers->first) {
-                WARN("  FAILED: expected NULL first layer, got filter");
-                first_ok = 0;
+            if (plan->access) {
+                WARN("  FAILED: expected NULL access, got filter");
+                access_ok = 0;
             } else {
-                DEBUG("  first layer: NULL (as expected)");
+                DEBUG("  access: NULL (as expected)");
             }
         }
         
-        // Check second layer (non-indexable)
-        int second_ok = 1;
-        if (split_tests[i].expected_second) {
-            if (!layers->second) {
-                WARN("  FAILED: expected non-indexable second layer, got NULL");
-                second_ok = 0;
+        int residual_ok = 1;
+        if (split_tests[i].expected_residual) {
+            if (!plan->residual) {
+                WARN("  FAILED: expected residual predicate, got NULL");
+                residual_ok = 0;
             } else {
-                DEBUG("  second layer: exists (non-indexable)");
+                DEBUG("  residual: exists (non-indexable)");
             }
         } else {
-            if (layers->second) {
-                WARN("  FAILED: expected NULL second layer, got filter");
-                second_ok = 0;
+            if (plan->residual) {
+                WARN("  FAILED: expected NULL residual, got filter");
+                residual_ok = 0;
             } else {
-                DEBUG("  second layer: NULL (as expected)");
+                DEBUG("  residual: NULL (as expected)");
             }
         }
         
-        if (first_ok && second_ok) {
+        if (access_ok && residual_ok) {
             DEBUG("  PASSED");
         }
         
-        filter_layers_free(layers);
+        filter_plan_free(plan);
         filter_free(f);
     }
 

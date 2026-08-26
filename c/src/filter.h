@@ -80,15 +80,15 @@ struct filter {
     } data;
 };
 
-struct filter_layers {
-    struct filter *first; // indexable filter for B+Tree search
-    struct filter *second; // remaining filter for post-filtering
+struct filter_plan {
+    struct filter *access;    // B+Tree seek/range (NULL if none)
+    struct filter *residual;  // post-filter after fetch (NULL if index covers WHERE)
 };
 
 struct filter * filter_compile(const char *s, struct flintdb_meta *meta, char **e);
 void filter_free(struct filter *filter);
-struct filter_layers *filter_split(struct filter *f, struct flintdb_meta *meta, struct flintdb_index *target_index, char **e);
-void filter_layers_free(struct filter_layers *layers);
+struct filter_plan *filter_split(struct filter *f, struct flintdb_meta *meta, struct flintdb_index *target_index, char **e);
+void filter_plan_free(struct filter_plan *plan);
 
 int filter_compare(struct filter *filter, struct flintdb_row *r, char **e);
 int filter_best_index_get(const char *where, const char *orderby, struct flintdb_meta *meta, char **e);

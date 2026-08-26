@@ -283,7 +283,7 @@ static void tx_close(struct flintdb_transaction *me) {
 struct find_context {
     struct flintdb_table *table;
     struct limit limit;
-    struct filter_layers *filters;
+    struct filter_plan *plan;
     enum order order;
     i8 index;
     struct flintdb_cursor_i64 *base_cursor; // B+Tree cursor
@@ -644,9 +644,9 @@ static void find_close(struct flintdb_cursor_i64 *c) {
             ctx->base_cursor->close(ctx->base_cursor);
             ctx->base_cursor = NULL;
         }
-        if (ctx->filters) {
-            filter_layers_free(ctx->filters);
-            ctx->filters = NULL;
+        if (ctx->plan) {
+            filter_plan_free(ctx->plan);
+            ctx->plan = NULL;
         }
         FREE(ctx);
     }
@@ -669,28 +669,26 @@ static i64 find_next(struct flintdb_cursor_i64 *c, char **e) {
         if (rowid == NOT_FOUND) return NOT_FOUND;
         if (e && *e) return NOT_FOUND;
         
-        // Apply both indexable and non-indexable filters
+        // Apply access (index) then residual (post-fetch) predicates
         const struct flintdb_row *r = table->read(table, rowid, e);
         if (e && *e) return NOT_FOUND;
         if (!r) continue;
         
         int match = 1; // assume no match
-        if (ctx->filters) {
-            // Apply indexable filter (first layer)
-            if (ctx->filters->first) {
-                match = filter_compare(ctx->filters->first, (struct flintdb_row *)r, e);
+        if (ctx->plan) {
+            if (ctx->plan->access) {
+                match = filter_compare(ctx->plan->access, (struct flintdb_row *)r, e);
                 if (e && *e) return NOT_FOUND;
                 if (match != 0) continue; // not matched, skip this row
             }
-            
-            // Apply non-indexable filter (second layer)
-            if (ctx->filters->second) {
-                match = filter_compare(ctx->filters->second, (struct flintdb_row *)r, e);
+
+            if (ctx->plan->residual) {
+                match = filter_compare(ctx->plan->residual, (struct flintdb_row *)r, e);
                 if (e && *e) return NOT_FOUND;
                 if (match != 0) continue; // not matched, skip this row
             }
         }
-        
+
         ctx->limit.priv.o--;
     }
     
@@ -701,23 +699,21 @@ static i64 find_next(struct flintdb_cursor_i64 *c, char **e) {
         if (rowid == NOT_FOUND) return NOT_FOUND;
         if (e && *e) return NOT_FOUND;
         
-        // Apply both indexable and non-indexable filters
+        // Apply access (index) then residual (post-fetch) predicates
         const struct flintdb_row *r = table->read(table, rowid, e);
         if (e && *e) return NOT_FOUND;
         if (!r) continue;
         
         int match = 1; // assume no match
-        if (ctx->filters) {
-            // Apply indexable filter (first layer) 
-            if (ctx->filters->first) {
-                match = filter_compare(ctx->filters->first, (struct flintdb_row *)r, e);
+        if (ctx->plan) {
+            if (ctx->plan->access) {
+                match = filter_compare(ctx->plan->access, (struct flintdb_row *)r, e);
                 if (e && *e) return NOT_FOUND;
                 if (match != 0) continue; // not matched, skip this row
             }
-            
-            // Apply non-indexable filter (second layer)
-            if (ctx->filters->second) {
-                match = filter_compare(ctx->filters->second, (struct flintdb_row *)r, e);
+
+            if (ctx->plan->residual) {
+                match = filter_compare(ctx->plan->residual, (struct flintdb_row *)r, e);
                 if (e && *e) return NOT_FOUND;
                 if (match != 0) continue; // not matched, skip this row
             }
@@ -739,15 +735,15 @@ static int find_row_compare(void *obj, i64 key) {
     // So we need to invert the logic: return 0 when filter matches, non-zero otherwise
     struct find_context *ctx = (struct find_context *)obj;
     assert(ctx);
-    // If there is no indexable filter, treat all rows as in-range
-    if (!ctx->filters || !ctx->filters->first) return 0;
+    // If there is no access predicate, treat all rows as in-range
+    if (!ctx->plan || !ctx->plan->access) return 0;
     const struct flintdb_row *r = ctx->table->read(ctx->table, key, NULL);
     // flintdb_print_row((struct flintdb_row *)r);
     assert(r);
     
     // filter_compare returns 0 on match, so we return it as-is
     // B+Tree will continue scanning while this returns 0 (match)
-    return filter_compare(ctx->filters->first, (struct flintdb_row *)r, NULL);
+    return filter_compare(ctx->plan->access, (struct flintdb_row *)r, NULL);
 }
 
 static struct flintdb_cursor_i64 * table_find(const struct flintdb_table *me, 
@@ -769,19 +765,19 @@ static struct flintdb_cursor_i64 * table_find(const struct flintdb_table *me,
 
     // TRACE("table_find: filter=%p, index=%d", (void*)filter, index);
 
-    struct filter_layers *filters = filter_split(filter, &priv->meta, &meta->indexes.a[index], e);
+    struct filter_plan *plan = filter_split(filter, &priv->meta, &meta->indexes.a[index], e);
     if (e && *e) {
         WARN("table_find: filter_split failed: %s", *e);
         FREE(impl); FREE(c); return NULL;
     }
     
-    // TRACE("table_find: filters=%p, first=%p, second=%p", 
-    //       (void*)filters, 
-    //       filters ? (void*)filters->first : NULL, 
-    //       filters ? (void*)filters->second : NULL);
+    // TRACE("table_find: plan=%p, access=%p, residual=%p", 
+    //       (void*)plan, 
+    //       plan ? (void*)plan->access : NULL, 
+    //       plan ? (void*)plan->residual : NULL);
 
     impl->table = (struct flintdb_table *)me;  // cast away const
-    impl->filters = filters;
+    impl->plan = plan;
     impl->limit = limit;
     impl->order = order;
     impl->index = index;
@@ -792,14 +788,14 @@ static struct flintdb_cursor_i64 * table_find(const struct flintdb_table *me,
     struct flintdb_cursor_i64 *base = sorter->tree.find(&sorter->tree, order, impl, find_row_compare, e);
     if (e && *e) { 
         WARN("table_find: B+Tree find failed: %s", *e);
-        if (filters) filter_layers_free(filters);
+        if (plan) filter_plan_free(plan);
         FREE(impl); 
         FREE(c); 
         return NULL; 
     }
     if (!base) { 
         // WARN("table_find: B+Tree find returned NULL (no error, but empty result)");
-        if (filters) filter_layers_free(filters);
+        if (plan) filter_plan_free(plan);
         FREE(impl); 
         FREE(c); 
         return NULL; 

@@ -510,42 +510,44 @@ static struct filter *filter_clone(struct filter *f, char **e) {
 }
 
 /**
- * @brief Split filter into indexable and non-indexable parts
- * Optimizes B+Tree searches by separating conditions that can use a specific index
- * 
+ * @brief Split a WHERE filter into a filter_plan for one index
+ *
+ * access:    sargable conditions that drive the B+Tree cursor (may be NULL)
+ * residual:  remaining conditions evaluated after fetch (may be NULL)
+ *
  * For example with PRIMARY KEY (l_orderkey, l_quantity):
- * - "l_orderkey = 1001 AND l_comment = 'test'" 
- *   → first: "l_orderkey = 1001", second: "l_comment = 'test'"
- * 
+ * - "l_orderkey = 1001 AND l_comment = 'test'"
+ *   → access: "l_orderkey = 1001", residual: "l_comment = 'test'"
+ *
  * - "l_orderkey = 1001 AND l_quantity < 5"
- *   → first: "l_orderkey = 1001 AND l_quantity < 5", second: NULL
- * 
+ *   → access: "l_orderkey = 1001 AND l_quantity < 5", residual: NULL
+ *
  * - "l_comment = 'test'"
- *   → first: NULL, second: "l_comment = 'test'"
- * 
+ *   → access: NULL, residual: "l_comment = 'test'"
+ *
  * @param f Original filter
  * @param meta Table metadata
  * @param target_index Index to use for splitting
  * @param e Error message output
- * @return struct filter_layers* Split filter layers, or NULL if failed
+ * @return struct filter_plan* or NULL if failed
  */
-struct filter_layers *filter_split(struct filter *f, struct flintdb_meta *meta, struct flintdb_index *target_index, char **e) {
+struct filter_plan *filter_split(struct filter *f, struct flintdb_meta *meta, struct flintdb_index *target_index, char **e) {
     if (!f || !meta || !target_index) return NULL;
     
-    struct filter_layers *layers = CALLOC(1, sizeof(struct filter_layers));
+    struct filter_plan *plan = CALLOC(1, sizeof(struct filter_plan));
     
     // Simple case: entire filter is indexable
     if (is_indexable(f, meta, target_index)) {
-        layers->first = filter_clone(f, e);
-        layers->second = NULL;
-        return layers;
+        plan->access = filter_clone(f, e);
+        plan->residual = NULL;
+        return plan;
     }
     
     // Simple case: entire filter is not indexable
     if (f->type == FILTER_CONDITION) {
-        layers->first = NULL;
-        layers->second = filter_clone(f, e);
-        return layers;
+        plan->access = NULL;
+        plan->residual = filter_clone(f, e);
+        return plan;
     }
     
     // Complex case: logical filter with mixed indexable/non-indexable conditions
@@ -565,19 +567,14 @@ struct filter_layers *filter_split(struct filter *f, struct flintdb_meta *meta, 
             }
         }
         
-        // Build first layer (indexable)
+        // Build access (indexable)
         if (indexable_list->count(indexable_list) == 0) {
-            // No indexable conditions
             indexable_list->free(indexable_list);
         } else if (indexable_list->count(indexable_list) == 1) {
-            // Single condition - transfer ownership directly
-            layers->first = (struct filter *)indexable_list->get(indexable_list, 0, NULL);
+            plan->access = (struct filter *)indexable_list->get(indexable_list, 0, NULL);
             indexable_list->free(indexable_list);
         } else {
-            // Multiple indexable conditions - need to register dealloc for list management
-            // Re-register with dealloc for proper cleanup when list is freed
             for (int i = 0; i < indexable_list->count(indexable_list); i++) {
-                // Update entry's dealloc function
                 struct entry {
                     valtype item;
                     void (*dealloc)(valtype);
@@ -585,26 +582,20 @@ struct filter_layers *filter_split(struct filter *f, struct flintdb_meta *meta, 
                 ent->dealloc = filter_dealloc;
             }
             
-            layers->first = CALLOC(1, sizeof(struct filter));
-            layers->first->type = FILTER_LOGICAL;
-            layers->first->data.logical.op = AND;
-            layers->first->data.logical.filters = indexable_list;
-            // indexable_list ownership transferred to layers->first
+            plan->access = CALLOC(1, sizeof(struct filter));
+            plan->access->type = FILTER_LOGICAL;
+            plan->access->data.logical.op = AND;
+            plan->access->data.logical.filters = indexable_list;
         }
         
-        // Build second layer (non-indexable)
+        // Build residual (non-indexable)
         if (nonindexable_list->count(nonindexable_list) == 0) {
-            // No non-indexable conditions
             nonindexable_list->free(nonindexable_list);
         } else if (nonindexable_list->count(nonindexable_list) == 1) {
-            // Single condition - transfer ownership directly
-            layers->second = (struct filter *)nonindexable_list->get(nonindexable_list, 0, NULL);
+            plan->residual = (struct filter *)nonindexable_list->get(nonindexable_list, 0, NULL);
             nonindexable_list->free(nonindexable_list);
         } else {
-            // Multiple non-indexable conditions - need to register dealloc for list management
-            // Re-register with dealloc for proper cleanup when list is freed
             for (int i = 0; i < nonindexable_list->count(nonindexable_list); i++) {
-                // Update entry's dealloc function
                 struct entry {
                     valtype item;
                     void (*dealloc)(valtype);
@@ -612,33 +603,30 @@ struct filter_layers *filter_split(struct filter *f, struct flintdb_meta *meta, 
                 ent->dealloc = filter_dealloc;
             }
             
-            layers->second = CALLOC(1, sizeof(struct filter));
-            layers->second->type = FILTER_LOGICAL;
-            layers->second->data.logical.op = AND;
-            layers->second->data.logical.filters = nonindexable_list;
-            // nonindexable_list ownership transferred to layers->second
+            plan->residual = CALLOC(1, sizeof(struct filter));
+            plan->residual->type = FILTER_LOGICAL;
+            plan->residual->data.logical.op = AND;
+            plan->residual->data.logical.filters = nonindexable_list;
         }
         
-        return layers;
+        return plan;
     }
     
     // OR filters or other complex cases: cannot split efficiently
-    layers->first = NULL;
-    layers->second = filter_clone(f, e);
-    return layers;
+    plan->access = NULL;
+    plan->residual = filter_clone(f, e);
+    return plan;
 }
 
 /**
- * @brief Free filter_layers structure
- * 
- * @param layers Filter layers to free
+ * @brief Free a filter_plan and both of its filter trees
  */
-void filter_layers_free(struct filter_layers *layers) {
-    if (!layers) return;
+void filter_plan_free(struct filter_plan *plan) {
+    if (!plan) return;
     
-    if (layers->first) filter_dealloc((valtype)layers->first);
-    if (layers->second) filter_dealloc((valtype)layers->second);
-    FREE(layers);
+    if (plan->access) filter_dealloc((valtype)plan->access);
+    if (plan->residual) filter_dealloc((valtype)plan->residual);
+    FREE(plan);
 }
 
 
@@ -831,7 +819,7 @@ static struct filter *parse_expression(const char **s, struct flintdb_meta *meta
  * @param meta Table metadata for column lookup and type information
  * @param e Error message output
  * @return struct filter* Compiled filter tree, or NULL if failed
- * @note filter_split() to separate indexable and non-indexable parts
+ * @note filter_split() builds a filter_plan (access vs residual) for one index
  */
 struct filter * filter_compile(const char *where, struct flintdb_meta *meta, char **e) {
     if (!where || where[0] == '\0') return NULL; 
