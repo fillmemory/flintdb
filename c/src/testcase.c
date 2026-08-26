@@ -3029,6 +3029,51 @@ int main(int argc, char **argv) {
     }
 
     sorter->close(sorter);
+    sorter = NULL;
+
+    // Stability: equal keys keep insertion order
+    const char *file2 = "temp/test-sortable-stable.sort";
+    sorter = flintdb_filesort_new(file2, &m, &e);
+    if (e)
+        THROW_S(e);
+
+    if (tc_sortable_add_row(sorter, &m, 2, "Bob", 22, &e) != 0)
+        THROW_S(e);
+    if (tc_sortable_add_row(sorter, &m, 1, "Alice", 30, &e) != 0)
+        THROW_S(e);
+    if (tc_sortable_add_row(sorter, &m, 1, "Carol", 28, &e) != 0)
+        THROW_S(e);
+    if (tc_sortable_add_row(sorter, &m, 3, "Dave", 33, &e) != 0)
+        THROW_S(e);
+    if (tc_sortable_add_row(sorter, &m, 1, "Zoe", 19, &e) != 0)
+        THROW_S(e);
+
+    if (sorter->sort(sorter, tc_sortable_cmp_id_asc, NULL, &e) < 0 || e)
+        THROW_S(e);
+
+    n = sorter->rows(sorter);
+    if (e)
+        THROW_S(e);
+    assert(n == 5);
+
+    static const char *expect_names[] = {"Alice", "Carol", "Zoe", "Bob", "Dave"};
+    static const i64 expect_ids[] = {1, 1, 1, 2, 3};
+    for (i64 i = 0; i < n; i++) {
+        struct flintdb_row *r = sorter->read(sorter, i, &e);
+        if (e || !r)
+            THROW_S(e);
+        i64 id = r->i64_get(r, 0, &e);
+        const char *name = r->string_get(r, 1, &e);
+        if (e) {
+            r->free(r);
+            THROW_S(e);
+        }
+        assert(id == expect_ids[i]);
+        assert(name && strcmp(name, expect_names[i]) == 0);
+        r->free(r);
+    }
+
+    sorter->close(sorter);
     flintdb_meta_close(&m);
 
     printf("TESTCASE_SORTABLE: OK\n");
