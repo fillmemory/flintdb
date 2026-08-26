@@ -47,9 +47,9 @@ static int plugin_add_dir(char dirs[][PATH_MAX], int *n, int maxn, const char *d
     if (!dir || !*dir || !n || *n >= maxn)
         return 0;
 
-    char resolved[PATH_MAX];
     const char *p = dir;
 #ifndef _WIN32
+    char resolved[PATH_MAX];
     if (realpath(dir, resolved))
         p = resolved;
 #endif
