@@ -1275,15 +1275,12 @@ static i64 cursor_next_desc(struct flintdb_cursor_i64 *c, char **e) {
 
         i64 key = impl->leaf->data.l.keys[impl->offset--];
         int d = impl->cmpr(impl->obj, key);
-        if (d > 0) {
-            // For DESC, d>0 means key is before start; since we're moving left, keep scanning
-            continue;
-        } else if (d == 0) {
+        if (d == 0)
             return key;
-        } else { // d < 0 means after end -> stop
-            impl->leaf = NULL;
-            return NOT_FOUND;
-        }
+        // Out of range. DESC starts at the last match; anything else ends the scan
+        // (same as Java CursorImpl: compareTo != 0 => stop).
+        impl->leaf = NULL;
+        return NOT_FOUND;
     }
 }
 
@@ -1339,20 +1336,35 @@ static struct node* node_leaf_min_comparable(struct bplustree *me, struct node *
 }
 
 // for range scans using comparator w/ descending order
+// Mirrors Java BPlusTree.max(Node, Comparable): binary-search KeyRefs by
+// -cmpr(min), then descend left if cmpr(min) < 0 else right.
+// The previous linear scan picked the rightmost in-range KeyRef and always
+// followed .right, which skips the max leaf when that KeyRef's separator
+// min is out of range (USE INDEX(... DESC) + WHERE).
 static struct node* node_leaf_max_comparable(struct bplustree *me, struct node *start, void *obj, int (*cmpr)(void *obj, i64 o), char **e) {
     struct node *n = start;
-    while(n && !is_leaf(n)) {
-        int i = n->length - 1;
-        for(; i >= 0; i--) {
-            i64 min_key = keyref_min(me, &n->data.i.keys[i], e);
-            if (cmpr(obj, min_key) <= 0) {
-                break;
-            }
+    while (n && !is_leaf(n)) {
+        int low = 0;
+        int high = n->length - 1;
+        int match = 0;
+        int last_neg_d = 0;
+        while (low <= high) {
+            int mid = low + ((high - low) >> 1);
+            i64 min_key = keyref_min(me, &n->data.i.keys[mid], e);
+            int d = -cmpr(obj, min_key);
+            match = mid;
+            last_neg_d = d;
+            if (d <= 0)
+                low = mid + 1;
+            else
+                high = mid - 1;
         }
-        if (i < 0) i = 0;
-
-        i64 child_offset = n->data.i.keys[i].right;
-        n = bplustree_node_read(me, child_offset, e);
+        struct keyref *k = &n->data.i.keys[match];
+        int d = -last_neg_d;
+        i64 child = (d < 0) ? k->left : k->right;
+        if (child == OFFSET_NULL)
+            return NULL;
+        n = bplustree_node_read(me, child, e);
     }
     return n;
 }
@@ -1382,25 +1394,22 @@ static int first_key_pos(i64 *keys, int len, void *obj, int (*cmpr)(void *obj, i
 }
 
 static int last_key_pos(i64 *keys, int len, void *obj, int (*cmpr)(void *obj, i64 o)) {
-    // Find the last key where cmpr returns 0 (match)
-    // cmpr returns compare(target, key):
-    //   < 0 => target < key (search left)
-    //   = 0 => target == key (found, but continue searching right for last match)
-    //   > 0 => target > key (search right)
+    // Last matching key in a leaf. Same as Java BPlusTree.last(): default to
+    // the last slot so DESC scans still have a start point when the leaf has
+    // no cmpr==0 hit (range predicates).
+    if (len <= 0)
+        return -1;
     int low = 0, high = len - 1;
-    int result = -1;
+    int result = high;
     while (low <= high) {
         int mid = low + (high - low) / 2;
         int d = cmpr(obj, keys[mid]);
-        if (d >= 0) { 
-            // target >= key: could be a match or after it
-            if (d == 0) result = mid;
-            low = mid + 1; // continue searching right for later matches
-        }
-        else { 
-            // target < key: search left
-            high = mid - 1; 
-        }
+        if (d == 0)
+            result = mid;
+        if (d >= 0)
+            low = mid + 1;
+        else
+            high = mid - 1;
     }
     return result;
 }
