@@ -70,7 +70,9 @@ int storage_open(struct storage * s, struct storage_opts opts, char **e);
 int storage_transfer(struct storage *src, const char *file, char **e); 
 
 // FlintDB on-disk file header size. Keep this stable for compatibility.
-// NOTE: This is NOT necessarily the OS VM page size (which can be 4KB or 16KB depending on platform).
+// 16384 = max common OS page (Apple Silicon 16KB vs Intel/Linux 4KB) so O_DIRECT and mmap
+// offsets are aligned on every platform. File growth (increment / mmap_bytes) is a multiple
+// of this. NOTE: runtime VM page size can still be 4KB or 16KB; this is the on-disk unit.
 #define FLINTDB_FILE_HEADER_BYTES 16384
 // Legacy name kept for compatibility within the codebase; represents file header granularity.
 #define OS_PAGE_SIZE FLINTDB_FILE_HEADER_BYTES

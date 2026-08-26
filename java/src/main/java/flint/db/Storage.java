@@ -17,6 +17,9 @@ import java.nio.file.Paths;
  * 
  * <pre>
 FileFormat
+16384B header (and data-region growth is a multiple of 16384)
+   Why 16384: O_DIRECT / mmap need OS-page alignment. Pick the larger of 4096 (Intel macOS / Linux)
+   and 16384 (Apple Silicon) so both work; 16384 is a multiple of 4096.
 16384B Custom Header (16384 - 64)
    8B Reserved (Block Count currently not used)
    8B The front of deleted blocks
@@ -129,6 +132,8 @@ public interface Storage extends Closeable {
 	static final String TYPE_DEFAULT = TYPE_MMAP;
 
 	// FlintDB on-disk file header size. Keep this stable for compatibility across platforms.
+	// 16384 = max common OS page (Apple Silicon 16KB vs Intel/Linux 4KB) so O_DIRECT and mmap
+	// offsets are aligned on every platform. File growth (increment) is a multiple of this.
 	static final int FILE_HEADER_BYTES = 16384;
 	static final int HEADER_BYTES = FILE_HEADER_BYTES;
 	static final int COMMON_HEADER_BYTES = (8 + 8 + 8 + 2 + 4 + 24 + 2 + 8);

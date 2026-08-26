@@ -14,30 +14,47 @@ import java.util.Comparator;
  * <pre>
  * * ROOT POINTER OFFSET : 0
  * 
- * * INTERNAL : 240B (MARK + LINK x15 + KEY POINTER x14)
+ * * NODE_BYTE_ALIGN : 1024 (on-disk storage block, including 16B block header)
+ * Storage writes [16B header + NODE_BYTES payload]. NODE_BYTES = NODE_BYTE_ALIGN - 16.
+ * Must divide OS page (4KB) and file header (16KB) so mmap / O_DIRECT chunks stay aligned.
+ * Fanout is derived from it: LEAF_KEYS_MAX = (NODE_BYTES - 16) / 8, INTERNAL_KEYS_MAX = LEAF_KEYS_MAX / 2.
+ * Larger => fewer I/Os (shallower tree); smaller => less slack in half-full nodes.
+ * Tuned default is 1024 (older note: 256 ≥ 512 > 128). Changing it is an on-disk format break.
+ *
+ * * INTERNAL : NODE_BYTES (MARK + LINK x (INTERNAL_KEYS_MAX+1) + KEY POINTER x INTERNAL_KEYS_MAX)
  * +--------------------------------------------------------------------------------------------------------------------------+
  * | MARK : 8B (ALWAYS : -2L)  | LINK : 8B | KEY PTR : 8B | LINK | KEY PTR | LINK |                                      .... | 
  * +--------------------------------------------------------------------------------------------------------------------------+
  * - Duplication keys not allowed in All Internals
  * 
- * * LEAF :  240B (MAX : 28)
+ * * LEAF : NODE_BYTES (MAX : LEAF_KEYS_MAX)
  * +--------------------------------------------------------------------------------------------------------------------------+
- * |LEFT LEAF : 8B | RIGHT LEAF : 8B | KEY : 8B | KEY |                                                          ... MAX : 28 |
+ * |LEFT LEAF : 8B | RIGHT LEAF : 8B | KEY : 8B | KEY |                                               ... MAX : LEAF_KEYS_MAX |
  * +--------------------------------------------------------------------------------------------------------------------------+
- * 
+ *
+ * * Why MARK / keys / offsets are 8B signed (long), not a 1B type flag
+ * Decode reads the first long: -2 => INTERNAL, otherwise that value IS the leaf LEFT pointer.
+ * So MARK must occupy the same 8B slot as a pointer. Value domain:
+ *   0          : root pointer block (ROOT_SEEK_OFFSET)
+ *   1 .. 2^63-1: valid node/record byte offsets (keys are always positive)
+ *   -1         : OFFSET_NULL / KEY_NULL  (0 cannot be null; it is root)
+ *   -2         : INTERNAL_MARK
+ * 1) 8B alignment: node is a uniform long stream (storage header is 16B, payload stays aligned).
+ * 2) Hex dump (little-endian): MARK -2 = fe ff ff ff ff ff ff ff, NULL -1 = ff ff ff ff ff ff ff ff.
+ * 3) 63-bit address space: positive long holds offsets/count up to 2^63-1 without stealing 0 or the sign bit.
  * 
  * * How to Delete a Key
- * 상위 Internal의 맨 오른쪽 Leaf에서만 삭제가 일어 나도록 할것
- * 상위 Internal의 keys가 한개인 경우, Internal 노드를 삭제하고 왼쪽 Internal측으로 우선으로 병합할것
- * 병합 실패시에는 양옆에 Internal중의 가용한 하나의 키를 빌려 올것
- * Internal 정렬과 함께 부모키 업데이트 할것
+ * Delete only from the rightmost Leaf of the parent Internal.
+ * If that Internal has a single key, remove the Internal and merge into the left Internal first.
+ * If merge fails, borrow one available key from an adjacent Internal.
+ * Re-sort the Internal and update the parent key.
  * </pre>
  *
  */
 final class BPlusTree implements Tree {
-	static final long OFFSET_NULL = -1L;  // for node offset
+	static final long OFFSET_NULL = -1L;  // for node offset; 0 is root, so null is -1
 	static final long KEY_NULL = -1L;     // for record offset
-	static final long INTERNAL_MARK = -2L;
+	static final long INTERNAL_MARK = -2L; // first long of an internal node; must not collide with 0 / -1 / positive offsets
 	static final long ROOT_SEEK_OFFSET = 0L;
 
 	private final Storage storage;
@@ -52,7 +69,7 @@ final class BPlusTree implements Tree {
 	private static final byte[] META_ROOT = new byte[] { 'R', 'O', 'O', 'T' };
 	private static final byte[] META_CNT = new byte[] { 'C', 'N', 'T', '!' };
 
-	static final int NODE_BYTE_ALIGN = Integer.parseInt(System.getProperty("BPTREE.NODE_BYTE_ALIGN", String.format("%d", (1024)))); // (128 * 2); // Performance 256 ≥ 512 > 128
+	static final int NODE_BYTE_ALIGN = Integer.parseInt(System.getProperty("BPTREE.NODE_BYTE_ALIGN", String.format("%d", (1024)))); // on-disk block size (header + payload); must divide 4KB page / 16KB file header. Tuned: 1024, older 256 ≥ 512 > 128
 	static final int STORAGE_HEAD_BYTES = 16; // Storage.java block header ==> TODO : V2 changed to 11 bytes
 	static final int HEAD_BYTES = (4 + Long.BYTES);
 	static final int NODE_BYTES = (NODE_BYTE_ALIGN - STORAGE_HEAD_BYTES);

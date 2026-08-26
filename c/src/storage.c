@@ -1,3 +1,55 @@
+/**
+ * Storage file format
+ *
+ * FileFormat (HEADER_BYTES = 16384)
+ *   Why 16384: O_DIRECT / mmap require file offsets and I/O sizes to be OS-page aligned.
+ *   Typical pages: 4096 (Intel macOS / Linux) vs 16384 (Apple Silicon). We pick the larger
+ *   so both work; 16384 is a multiple of 4096, so 4KB platforms stay aligned too.
+ *   Data blocks start at HEADER_BYTES, and file growth (increment / mmap_bytes) is a
+ *   multiple of 16384 for the same reason.
+ *   CUSTOM_HEADER_BYTES (16384 - 64)
+ *    8B Reserved (block count; currently unused)
+ *    8B The front of deleted blocks (free-list head)
+ *    8B Reserved (tail of deleted blocks; unused in mmap)
+ *    2B FileFormat Version (0 : Default, 1 : MMAP)
+ *    4B Increment chunk size
+ *   24B Reserved
+ *    2B Block Data Max Size (exclude Block Header)
+ *    8B Data count
+ *       Blocks...
+ *
+ * BlockFormat (BLOCK_HEADER_BYTES = 16)
+ *    1B Status ('+' : data exists, '-' : empty)
+ *    1B Mark 'D' : 1st block data, 'N' : overflow continuation, 'X' : unused
+ *    2B Data Length   (payload length in this block)
+ *    4B Total Length  (full record length; overflow spans multiple blocks)
+ *    8B Next ( -1 : no more, >= 0 : next block index)
+ *       Data
+ *
+ * - Index : the first block starts at 0
+ *
+ * - Deletion
+ * 1. Move to the indexed block
+ * 2. Set block header status to empty ('-')
+ * 3. Set data length and total length to 0
+ * 4. If Next != -1, continue to the next indexed block
+ * 5. Zero the data bytes
+ * 6. Link the deleted index onto the free list: set Last-free.Next to this index,
+ *    and update Last-free to this block (singly linked free list)
+ *
+ * - Insertion
+ * 1. Start from the first free block (free-list head)
+ * 2. Set block header status to occupied ('+')
+ * 3. Set Data Length and Total Length
+ * 4. Next: overflow continuation block index, or -1 if this is the last block
+ * 5. Copy data
+ * 6. Advance the first free block
+ *
+ * - Modification
+ * 1. If the new data is smaller than or equal to the existing data => keep the same blocks
+ * 2. If the new data is larger => update the existing blocks, then follow the insertion path
+ */
+
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -25,7 +77,7 @@ static inline i32 flintdb_page_bytes(void) {
 
 #define COMMON_HEADER_BYTES (8 + 8 + 8 + 2 + 4 + 24 + 2 + 8)
 #define CUSTOM_HEADER_BYTES (HEADER_BYTES - COMMON_HEADER_BYTES)
-#define DEFAULT_INCREMENT_BYTES (16 * 1024 * 1024)
+#define DEFAULT_INCREMENT_BYTES (16 * 1024 * 1024) // multiple of HEADER_BYTES (16384) for O_DIRECT / mmap
 
 #define MAPPED_BYTEBUFFER_POOL_SIZE 2048 // 20
 #define STORAGE_COMMIT_FORCE 1

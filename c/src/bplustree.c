@@ -1,3 +1,44 @@
+/**
+ * B+TreeFile
+ *
+ * * ROOT POINTER OFFSET : 0
+ *
+ * * NODE_BYTE_ALIGN : 1024 (on-disk storage block, including 16B block header)
+ * Storage writes [16B header + NODE_BYTES payload]. NODE_BYTES = NODE_BYTE_ALIGN - 16.
+ * Must divide OS page (4KB) and file header (16KB) so mmap / O_DIRECT chunks stay aligned.
+ * Fanout is derived from it: LEAF_KEYS_MAX = (NODE_BYTES - 16) / 8, INTERNAL_KEYS_MAX = LEAF_KEYS_MAX / 2.
+ * Larger => fewer I/Os (shallower tree); smaller => less slack in half-full nodes.
+ * Tuned default is 1024 (older note: 256 ≥ 512 > 128). Changing it is an on-disk format break.
+ *
+ * * INTERNAL : NODE_BYTES (MARK + LINK x (INTERNAL_KEYS_MAX+1) + KEY POINTER x INTERNAL_KEYS_MAX)
+ * +--------------------------------------------------------------------------------------------------------------------------+
+ * | MARK : 8B (ALWAYS : -2L)  | LINK : 8B | KEY PTR : 8B | LINK | KEY PTR | LINK |                                      .... |
+ * +--------------------------------------------------------------------------------------------------------------------------+
+ * - Duplication keys not allowed in All Internals
+ *
+ * * LEAF : NODE_BYTES (MAX : LEAF_KEYS_MAX)
+ * +--------------------------------------------------------------------------------------------------------------------------+
+ * |LEFT LEAF : 8B | RIGHT LEAF : 8B | KEY : 8B | KEY |                                               ... MAX : LEAF_KEYS_MAX |
+ * +--------------------------------------------------------------------------------------------------------------------------+
+ *
+ * * Why MARK / keys / offsets are 8B signed (i64), not a 1B type flag
+ * Decode reads the first long: -2 => INTERNAL, otherwise that value IS the leaf LEFT pointer.
+ * So MARK must occupy the same 8B slot as a pointer. Value domain:
+ *   0          : root pointer block (ROOT_SEEK_OFFSET)
+ *   1 .. 2^63-1: valid node/record byte offsets (keys are always positive)
+ *   -1         : OFFSET_NULL / KEY_NULL / NOT_FOUND  (0 cannot be null; it is root)
+ *   -2         : INTERNAL_MARK
+ * 1) 8B alignment: node is a uniform i64 stream (storage header is 16B, payload stays aligned).
+ * 2) Hex dump (little-endian): MARK -2 = fe ff ff ff ff ff ff ff, NULL -1 = ff ff ff ff ff ff ff ff.
+ * 3) 63-bit address space: positive i64 holds offsets/count up to 2^63-1 without stealing 0 or the sign bit.
+ *
+ * * How to Delete a Key
+ * Delete only from the rightmost Leaf of the parent Internal.
+ * If that Internal has a single key, remove the Internal and merge into the left Internal first.
+ * If merge fails, borrow one available key from an adjacent Internal.
+ * Re-sort the Internal and update the parent key.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,15 +50,15 @@
 
 
 
-#define OFFSET_NULL -1L  // for node offset
+#define OFFSET_NULL -1L  // for node offset; 0 is root, so null is -1
 #define KEY_NULL -1L     // for record offset
 
-#define INTERNAL_MARK -2L
+#define INTERNAL_MARK -2L // first i64 of an internal node; must not collide with 0 / -1 / positive offsets
 #define ROOT_SEEK_OFFSET 0L
 #define COUNT_MARK "CNT!"
 
-#define NODE_BYTE_ALIGN 1024
-#define STORAGE_HEAD_BYTES 16 // storage.h
+#define NODE_BYTE_ALIGN 1024 // on-disk block size (header + payload); must divide 4KB page / 16KB file header
+#define STORAGE_HEAD_BYTES 16 // storage.h BLOCK_HEADER_BYTES
 
 #define LONG_BYTES 8
 #define HEAD_BYTES (4 + LONG_BYTES) // bplustree head bytes
