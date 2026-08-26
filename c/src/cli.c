@@ -998,8 +998,20 @@ static int execute_one_statement(struct bufio *bufout, const char *stmt, int stm
         }
 
         if (pretty) {
-            table = pretty_table_new(result->column_count);
-            pretty_table_add_row(table, result->column_names, result->column_count);
+            int pretty_col_count = result->column_count + (rownum ? 1 : 0);
+            table = pretty_table_new(pretty_col_count);
+            if (rownum) {
+                char **header = (char **)CALLOC(pretty_col_count, sizeof(char *));
+                if (!header)
+                    THROW(e, "Out of memory");
+                header[0] = "#";
+                for (int i = 0; i < result->column_count; i++)
+                    header[i + 1] = result->column_names[i];
+                pretty_table_add_row(table, header, pretty_col_count);
+                FREE(header);
+            } else {
+                pretty_table_add_row(table, result->column_names, result->column_count);
+            }
         } else if (head) {
             for (int i = 0; i < result->column_count; i++) {
                 if (i > 0)
@@ -1017,26 +1029,33 @@ static int execute_one_statement(struct bufio *bufout, const char *stmt, int stm
                 row_count++;
 
                 if (pretty) {
-                    char **row_data = (char **)CALLOC(result->column_count, sizeof(char *));
+                    int pretty_col_count = table->col_count;
+                    int col_off = rownum ? 1 : 0;
+                    char **row_data = (char **)CALLOC(pretty_col_count, sizeof(char *));
                     if (!row_data)
                         THROW(e, "Out of memory");
+                    if (rownum) {
+                        char rownum_buf[32];
+                        snprintf(rownum_buf, sizeof(rownum_buf), "%lld", (long long)row_count);
+                        row_data[0] = STRDUP(rownum_buf);
+                    }
                     for (int i = 0; i < result->column_count; i++) {
                         struct flintdb_variant *v = r->get(r, i, e);
                         if (e && *e) {
-                            for (int j = 0; j < i; j++)
+                            for (int j = 0; j < i + col_off; j++)
                                 FREE(row_data[j]);
                             FREE(row_data);
                             THROW_S(e);
                         }
                         if (v) {
                             flintdb_variant_to_string(v, buf, buf_len);
-                            row_data[i] = STRDUP(buf);
+                            row_data[i + col_off] = STRDUP(buf);
                         } else {
-                            row_data[i] = STRDUP("\\N");
+                            row_data[i + col_off] = STRDUP("\\N");
                         }
                     }
-                    pretty_table_add_row(table, row_data, result->column_count);
-                    for (int i = 0; i < result->column_count; i++)
+                    pretty_table_add_row(table, row_data, pretty_col_count);
+                    for (int i = 0; i < pretty_col_count; i++)
                         FREE(row_data[i]);
                     FREE(row_data);
                 } else {
