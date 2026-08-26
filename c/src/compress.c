@@ -15,7 +15,7 @@
 // #define FORMAT_SNAPPY  4
 
 
-i32 compress_z(const char *in, const i32 len, char *out, i32 out_len, char **e) {
+static i32 compress_deflate(const char *in, const i32 len, char *out, i32 out_len, char **e) {
     z_stream deflator;
     deflator.zalloc = Z_NULL;
     deflator.zfree = Z_NULL;
@@ -38,7 +38,7 @@ i32 compress_z(const char *in, const i32 len, char *out, i32 out_len, char **e) 
     return deflator.total_out;
 }
 
-i32 decompress_z(const char *in, const i32 len, char *out, i32 out_len, char **e) {
+static i32 decompress_inflate(const char *in, const i32 len, char *out, i32 out_len, char **e) {
     z_stream inflator;
     inflator.zalloc = Z_NULL;
     inflator.zfree = Z_NULL;
@@ -106,7 +106,7 @@ i32 stream_compress(u8 format, const char *in, const i32 len, char *out, i32 out
 	// case FORMAT_ZSTD:
 	// 	return compress_zstd(in, len, out, out_len, e);
 	case FORMAT_Z:
-		return compress_z(in, len, out, out_len, e);
+		return compress_deflate(in, len, out, out_len, e);
 	}
 	memcpy(out, in, len);
     return len;
@@ -122,7 +122,7 @@ i32 stream_decompress(u8 format, const char *in, const i32 len, char *out, i32 o
 	// case FORMAT_ZSTD:
 	// 	return decompress_zstd(in, len, out, out_len, e);
 	case FORMAT_Z:
-		return decompress_z(in, len, out, out_len, e);
+		return decompress_inflate(in, len, out, out_len, e);
 	}
 	memcpy(out, in, len);
     return len;
