@@ -746,7 +746,7 @@ struct flintdb_genericfile *flintdb_genericfile_open(const char *file, enum flin
             THROW(e, "JSONL format requires plugin. Place libflintdb_jsonl in lib/ next to the binary (or set FLINTDB_PLUGIN_PATH): %s", file);
             break;
         default:
-            THROW(e, "Unsupported file format for file: %s", file);
+            THROW(e, ERR_UNKNOWN_FILE_FORMAT " for file: %s", file);
     }
     
 EXCEPTION:
