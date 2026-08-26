@@ -3223,7 +3223,7 @@ int formatter_init(enum fileformat format, struct flintdb_meta *meta, struct for
 
         struct text_formatter_priv *priv = formatter->priv = CALLOC(1, sizeof(struct text_formatter_priv));
         if (!priv)
-            THROW(e, "formatter_init: memory allocation failed");
+            THROW(e, ERR_OUT_OF_MEMORY);
         // Set default values
         strncpy(priv->nil_str, "NULL", sizeof(priv->nil_str));
         priv->delimiter = ',';
@@ -3255,14 +3255,14 @@ int formatter_init(enum fileformat format, struct flintdb_meta *meta, struct for
         priv->temp_fields = (char **)CALLOC(priv->temp_fields_cap, sizeof(char *));
         if (!priv->temp_fields) {
             FREE(priv);
-            THROW(e, "formatter_init: memory allocation failed");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
         // flags parallel array
         priv->temp_is_pool = (unsigned char *)CALLOC(priv->temp_fields_cap, sizeof(unsigned char));
         if (!priv->temp_is_pool) {
             FREE(priv->temp_fields);
             FREE(priv);
-            THROW(e, "formatter_init: memory allocation failed");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
 
         // Create a string pool for scratch/field buffers
@@ -3275,7 +3275,7 @@ int formatter_init(enum fileformat format, struct flintdb_meta *meta, struct for
             FREE(priv->temp_is_pool);
             FREE(priv->temp_fields);
             FREE(priv);
-            THROW(e, "formatter_init: cannot create string pool");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
 
         break;
@@ -3287,7 +3287,7 @@ int formatter_init(enum fileformat format, struct flintdb_meta *meta, struct for
 
         struct text_formatter_priv *priv2 = formatter->priv = CALLOC(1, sizeof(struct text_formatter_priv));
         if (!priv2)
-            THROW(e, "formatter_init: memory allocation failed");
+            THROW(e, ERR_OUT_OF_MEMORY);
         // Set default values
         strncpy(priv2->nil_str, "\\N", sizeof(priv2->nil_str));
         priv2->delimiter = '\t';
@@ -3318,14 +3318,14 @@ int formatter_init(enum fileformat format, struct flintdb_meta *meta, struct for
         priv2->temp_fields = (char **)CALLOC(priv2->temp_fields_cap, sizeof(char *));
         if (!priv2->temp_fields) {
             FREE(priv2);
-            THROW(e, "formatter_init: memory allocation failed");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
 
         priv2->temp_is_pool = (unsigned char *)CALLOC(priv2->temp_fields_cap, sizeof(unsigned char));
         if (!priv2->temp_is_pool) {
             FREE(priv2->temp_fields);
             FREE(priv2);
-            THROW(e, "formatter_init: memory allocation failed");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
 
         u32 pool_cap2 = want2 + 16;
@@ -3336,7 +3336,7 @@ int formatter_init(enum fileformat format, struct flintdb_meta *meta, struct for
             FREE(priv2->temp_is_pool);
             FREE(priv2->temp_fields);
             FREE(priv2);
-            THROW(e, "formatter_init: cannot create string pool");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
 
         break;
