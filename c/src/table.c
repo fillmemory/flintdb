@@ -969,7 +969,7 @@ static const struct flintdb_row * table_read_unlocked(struct flintdb_table *me, 
 
     struct buffer *buf = priv->storage->read(priv->storage, rowid, e);
     if (e && *e) THROW_S(e);
-    if (!buf) THROW(e, "table_read_unlocked: storage read returned NULL buffer");
+    if (!buf) THROW(e, "storage read returned NULL buffer");
 
     struct flintdb_row *out = NULL;
     if (table_row_from_buffer(me, buf, &out, e) != 0) {
@@ -1367,10 +1367,10 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
     if (!strempty(m.compressor) && strncmp(TYPE_MMAP, m.compressor, sizeof(TYPE_MMAP)-1) != 0) THROW(e, "Compressor not supported yet: %s", m.compressor);
     
     table = CALLOC(1, sizeof(struct flintdb_table));
-    if (!table) THROW(e, "Failed to allocate memory for table_priv");
+    if (!table) THROW(e, ERR_OUT_OF_MEMORY);
    
     priv = CALLOC(1, sizeof(struct flintdb_table_priv));
-    if (!priv) THROW(e, "Failed to allocate memory for table_priv");
+    if (!priv) THROW(e, ERR_OUT_OF_MEMORY);
     table->priv = priv;
     TABLE_LOCK_INIT(&priv->lock);
     snprintf(priv->file, sizeof(priv->file), "%s", file);
@@ -1408,7 +1408,7 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
     priv->wal = wal;
     priv->storage = wal_wrap(wal, &opts, table_wal_refresh, table, e);
     if (e && *e) THROW_S(e);
-    if (!priv->storage) THROW(e, "Failed to allocate memory for storage");
+    if (!priv->storage) THROW(e, ERR_OUT_OF_MEMORY);
 
     // LRU cache
     i32 cache_limit = priv->meta.cache; 
@@ -1417,7 +1417,7 @@ struct flintdb_table * flintdb_table_open(const char *file, enum flintdb_open_mo
     if (cache_limit < DEFAULT_TABLE_CACHE_MIN) cache_limit = DEFAULT_TABLE_CACHE_MIN;
     priv->cache = lruhashmap_new(cache_limit * 2, cache_limit, &hashmap_int_hash, &hashmap_int_cmpr);
 
-    if (!priv->cache) THROW(e, "Failed to create row cache");
+    if (!priv->cache) THROW(e, ERR_OUT_OF_MEMORY);
 
     // priv->header = priv->storage->mmap(priv->storage, 0, HEAD_SZ, NULL);
     priv->header = priv->storage->head(priv->storage, 0, HEAD_SZ, NULL);

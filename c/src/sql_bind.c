@@ -447,7 +447,7 @@ int sql_bound_aggregates(const struct sql_bound *b, const struct flintdb_meta *m
     int aggr_count = 0;
 
     if (!b || !groupbys_out || !groupby_n || !funcs_out || !func_n)
-        THROW(e, "sql_bound_aggregates: invalid arguments");
+        THROW(e, "invalid arguments");
     if (b->is_star)
         THROW(e, "SELECT * not supported with GROUP BY or aggregate functions");
 

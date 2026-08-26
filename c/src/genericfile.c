@@ -403,10 +403,10 @@ static struct flintdb_cursor_row *genericfile_find(const struct flintdb_genericf
 
     cursor = CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!cursor)
-        THROW(e, "Failed to allocate memory for cursor");
+        THROW(e, ERR_OUT_OF_MEMORY);
     cursor->p = CALLOC(1, sizeof(struct flintdb_genericfile_cursor_priv));
     if (!cursor->p)
-        THROW(e, "Failed to allocate memory for cursor private data");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     struct flintdb_genericfile_cursor_priv *cp = (struct flintdb_genericfile_cursor_priv *)cursor->p;
     cp->bio = bio;
@@ -604,7 +604,7 @@ static struct flintdb_genericfile *textfile_open(const char *file, enum flintdb_
     struct flintdb_genericfile *f = CALLOC(1, sizeof(struct flintdb_genericfile));
     struct flintdb_genericfile_priv *priv = NULL;
     if (!f)
-        THROW(e, "Failed to allocate memory for file");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     enum fileformat fmt = detect_file_format(file);
     if (fmt == FORMAT_UNKNOWN)
@@ -629,7 +629,7 @@ static struct flintdb_genericfile *textfile_open(const char *file, enum flintdb_
 
     priv = f->priv = CALLOC(1, sizeof(struct flintdb_genericfile_priv));
     if (!priv)
-        THROW(e, "Failed to allocate memory for file private data");
+        THROW(e, ERR_OUT_OF_MEMORY);
     strncpy(priv->file, file, PATH_MAX - 1);
     priv->mode = mode;
     priv->rows = -1; // cached row count for optimization

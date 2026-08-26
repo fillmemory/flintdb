@@ -1666,7 +1666,7 @@ int bplustree_init(
 
     me->storage = wal_wrap(wal, &opts, bplustree_wal_refresh, me, e);
     if (e && *e) THROW(e, "wal_wrap failed: %s", ERR_OR_UNKNOWN(*e));
-    if (me->storage == NULL) THROW(e, "CALLOC failed");
+    if (me->storage == NULL) THROW(e, ERR_OUT_OF_MEMORY);
 
     cache_limit = (cache_limit <= 0) ? DEFAULT_BPLUSTREE_CACHE_LIMIT : cache_limit;
     if (cache_limit < DEFAULT_BPLUSTREE_CACHE_MIN)

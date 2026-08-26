@@ -704,7 +704,7 @@ static i64 parquetfile_write(struct flintdb_genericfile *me, struct flintdb_row 
         priv->buffer_capacity = 1024; // Buffer up to 1024 rows
         priv->row_buffer = CALLOC(priv->buffer_capacity, sizeof(struct flintdb_row *));
         if (!priv->row_buffer) {
-            THROW(e, "Failed to allocate row buffer");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
         priv->buffer_size = 0;
 
@@ -1194,10 +1194,10 @@ static struct flintdb_cursor_row *parquetfile_find(const struct flintdb_genericf
 
     cursor = CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!cursor)
-        THROW(e, "Failed to allocate memory for cursor");
+        THROW(e, ERR_OUT_OF_MEMORY);
     cursor->p = CALLOC(1, sizeof(struct parquetfile_cursor_priv));
     if (!cursor->p)
-        THROW(e, "Failed to allocate memory for cursor private data");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     struct parquetfile_cursor_priv *cp = (struct parquetfile_cursor_priv *)cursor->p;
 
@@ -1205,7 +1205,7 @@ static struct flintdb_cursor_row *parquetfile_find(const struct flintdb_genericf
     cp->arrow_reader = arrow_reader;
     cp->stream_storage = CALLOC(1, sizeof(struct ArrowArrayStream));
     if (!cp->stream_storage)
-        THROW(e, "Failed to allocate Arrow stream");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     // Get Arrow stream from reader
     if (g_arrow.reader_get_stream && g_arrow.reader_get_stream(cp->arrow_reader, cp->stream_storage) != 0) {
@@ -1480,7 +1480,7 @@ struct flintdb_genericfile *parquetfile_open(const char *file, enum flintdb_open
     struct flintdb_genericfile *f = CALLOC(1, sizeof(struct flintdb_genericfile));
     struct parquetfile_priv *priv = NULL;
     if (!f)
-        THROW(e, "Failed to allocate memory for file");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     // If opening for FLINTDB_RDONLY, ensure the data file actually exists
     if (mode == FLINTDB_RDONLY) {
@@ -1498,7 +1498,7 @@ struct flintdb_genericfile *parquetfile_open(const char *file, enum flintdb_open
 
     priv = f->priv = CALLOC(1, sizeof(struct parquetfile_priv));
     if (!priv)
-        THROW(e, "Failed to allocate memory for file private data");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     strncpy(priv->file, file, PATH_MAX - 1);
     priv->mode = mode;

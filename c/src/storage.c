@@ -127,7 +127,7 @@ static struct buffer *storage_head(struct storage *me, i64 offset, i32 length, c
     assert(me != NULL);
     struct buffer *h = me->h;
     if (!h) {
-        THROW(e, "storage_head: header mapping is NULL (file=%s)", me->opts.file);
+        THROW(e, "header mapping is NULL (file=%s)", me->opts.file);
     }
     struct buffer *out = buffer_slice(h, offset, length, e);
     return out;
@@ -672,7 +672,7 @@ static int storage_mmap_open(struct storage *me, struct storage_opts opts, char 
     me->cache = hashmap_new(MAPPED_BYTEBUFFER_POOL_SIZE, hashmap_int_hash, hashmap_int_cmpr);
 
     if (!me->cache)
-        THROW(e, "Cannot create cache");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     me->close = storage_mmap_close;
     me->count_get = storage_count_get;
@@ -1018,11 +1018,11 @@ static int storage_mem_open(struct storage *me, struct storage_opts opts, char *
     // Allocate header buffer
     me->h = buffer_alloc(HEADER_BYTES);
     if (!me->h)
-        THROW(e, "Cannot allocate header buffer");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     me->cache = hashmap_new(MAPPED_BYTEBUFFER_POOL_SIZE, hashmap_int_hash, hashmap_int_cmpr);
     if (!me->cache)
-        THROW(e, "Cannot create cache");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     me->close = storage_mem_close;
     me->count_get = storage_count_get;
@@ -1955,7 +1955,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
             new_size += (i64)me->mmap_bytes;
         }
         if (_ftruncate(me->fd, (off_t)new_size) < 0) {
-            THROW(e, "storage_dio_file_inflate: ftruncate failed to %lld bytes: %s", (long long)new_size, strerror(errno));
+            THROW(e, "ftruncate failed to %lld bytes: %s", (long long)new_size, strerror(errno));
         }
         priv->inflated_size = new_size;
         me->file_size = new_size;
@@ -1980,7 +1980,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
 
         struct buffer *chunk = buffer_alloc_aligned((u32)length, alignment);
         if (!chunk)
-            THROW(e, "storage_dio_file_inflate: OOM allocating chunk (%d bytes)", length);
+            THROW(e, ERR_OUT_OF_MEMORY);
 
         const i16 z16 = 0;
         const i32 z32 = 0;
@@ -2002,7 +2002,7 @@ static inline i8 storage_dio_file_inflate(struct storage *me, i64 offset, char *
             ssize_t wn = pwrite_all(me, chunk->array, (size_t)length, abs_first);
             if (wn < 0) {
                 chunk->free(chunk);
-                THROW(e, "storage_dio_file_inflate: pwrite failed at abs=%lld (%d bytes)", abs_first, length);
+                THROW(e, "pwrite failed at abs=%lld (%d bytes)", abs_first, length);
             }
 
 #if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
@@ -2032,7 +2032,7 @@ static struct buffer *storage_dio_read(struct storage *me, i64 offset, char **e)
     struct buffer *blk = NULL;
     storage_dio_buffer_get(me, offset, &blk);
     if (!blk)
-        THROW(e, "storage_dio_read: pread failed at offset=%lld", offset);
+        THROW(e, "pread failed at offset=%lld", offset);
     u8 status = blk->i8_get(blk, e);
     if (status != STATUS_SET)
         THROW(e, "Block at offset %lld is not set", offset);
@@ -2055,7 +2055,7 @@ static struct buffer *storage_dio_read(struct storage *me, i64 offset, char **e)
             struct buffer *n = NULL;
             storage_dio_buffer_get(me, next, &n);
             if (!n)
-                THROW(e, "storage_dio_read: pread failed at offset=%lld", next);
+                THROW(e, "pread failed at offset=%lld", next);
             if (STATUS_SET != n->i8_get(n, NULL)) {
                 n->free(n);
                 break;
@@ -2099,7 +2099,7 @@ static u8 storage_dio_delete(struct storage *me, i64 offset, char **e) {
         u8 mark = MARK_AS_UNUSED;
         i64 next = NEXT_END;
         if (storage_dio_block_header_get(me, curr, &status, &mark, &next) < 0) {
-            THROW(e, "storage_dio_delete: header pread failed at offset=%lld", curr);
+            THROW(e, "header pread failed at offset=%lld", curr);
         }
         if (STATUS_SET != status) {
             // Already free or never allocated.
@@ -2110,12 +2110,12 @@ static u8 storage_dio_delete(struct storage *me, i64 offset, char **e) {
             break;
         }
         if (next == curr) {
-            THROW(e, "storage_dio_delete: corrupt next pointer (self-loop) at offset=%lld", curr);
+            THROW(e, "corrupt next pointer (self-loop) at offset=%lld", curr);
         }
 
         struct buffer *p = BUFFER_POOL_BORROW(me->block_bytes);
         if (!p)
-            THROW(e, "storage_dio_delete: OOM allocating block buffer");
+            THROW(e, ERR_OUT_OF_MEMORY);
         p->clear(p);
         p->i8_put(p, STATUS_EMPTY, NULL);
         p->i8_put(p, MARK_AS_UNUSED, NULL);
@@ -2166,7 +2166,7 @@ static u8 storage_dio_flush(struct storage *me, char **e) {
         return 0;
 
     if (storage_dio_pflush(me) < 0) {
-        THROW(e, "storage_dio_flush: pflush failed");
+        THROW(e, "pflush failed");
     }
 
     storage_dio_commit(me, STORAGE_COMMIT_FORCE, e);
@@ -2217,7 +2217,7 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
                 int cached = 0;
                 struct buffer *page = storage_dio_odirect_page_get(me, priv, page_base, &cached);
                 if (!page)
-                    THROW(e, "storage_dio_write_priv: O_DIRECT page pread failed at abs=%lld", abs);
+                    THROW(e, "O_DIRECT page pread failed at abs=%lld", abs);
 
                 char *blk = page->array + page_off;
                 status = (u8)blk[0];
@@ -2262,12 +2262,12 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
                     page->free(page);
                     storage_dio_read_cache_invalidate_page(priv, page_base);
                     if (wn < 0)
-                        THROW(e, "storage_dio_write_priv: O_DIRECT page pwrite failed at abs=%lld", page_base);
+                        THROW(e, "O_DIRECT page pwrite failed at abs=%lld", page_base);
                 } else {
                     u32 limit = priv->page_cache_limit ? priv->page_cache_limit : 8192u;
                     if (me->cache && (u32)me->cache->count_get(me->cache) >= limit) {
                         if (storage_dio_pflush(me) < 0) {
-                            THROW(e, "storage_dio_write_priv: O_DIRECT pflush failed");
+                            THROW(e, "O_DIRECT pflush failed");
                         }
                     }
                 }
@@ -2287,7 +2287,7 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
                 curr = (remaining > BLOCK_DATA_BYTES) ? ((next > NEXT_END) ? next : me->free) : NEXT_END;
                 if (curr == NEXT_END) {
                     // Should not happen because remaining > 0 implies we need a next block.
-                    THROW(e, "storage_dio_write_priv: invalid next in O_DIRECT fast path");
+                    THROW(e, "invalid next in O_DIRECT fast path");
                 }
                 curr_mark = MARK_AS_NEXT;
                 continue;
@@ -2296,7 +2296,7 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
 #endif
 
         if (storage_dio_block_meta_get(me, curr, &status, &next) < 0) {
-            THROW(e, "storage_dio_write_priv: header pread failed at offset=%lld", curr);
+            THROW(e, "header pread failed at offset=%lld", curr);
         }
 
         const int old_set = (STATUS_SET == status);
@@ -2317,7 +2317,7 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
 
         p = BUFFER_POOL_BORROW(me->block_bytes);
         if (!p)
-            THROW(e, "storage_dio_write_priv: OOM allocating block buffer");
+            THROW(e, ERR_OUT_OF_MEMORY);
         p->clear(p);
         p->i8_put(p, STATUS_SET, NULL);
         p->i8_put(p, curr_mark, NULL);
@@ -2332,7 +2332,7 @@ static inline void storage_dio_write_priv(struct storage *me, i64 offset, u8 mar
         int pad = BLOCK_DATA_BYTES - chunk;
         if (pad > 0) {
             if ((p->position + pad) > p->capacity) {
-                THROW(e, "storage_dio_write_priv: pad overflow (pos=%d, pad=%d, cap=%d)", p->position, pad, p->capacity);
+                THROW(e, "pad overflow (pos=%d, pad=%d, cap=%d)", p->position, pad, p->capacity);
             }
             memset(p->array + p->position, 0, (size_t)pad);
             p->position += pad;
@@ -2516,7 +2516,7 @@ static int storage_dio_open(struct storage *me, struct storage_opts opts, char *
 
     me->priv = CALLOC(1, sizeof(struct storage_dio_priv));
     if (!me->priv)
-        THROW(e, "Cannot allocate DIO private data");
+        THROW(e, ERR_OUT_OF_MEMORY);
     struct storage_dio_priv *priv = (struct storage_dio_priv *)me->priv;
 
 #ifdef _WIN32
@@ -2703,7 +2703,7 @@ int storage_open(struct storage *me, struct storage_opts opts, char **e) {
 int storage_transfer(struct storage *src, const char *file, char **e) {
     assert(src);
     assert(file);
-    THROW(e, "storage_transfer: Not implemented yet");
+    THROW(e, "Not implemented yet");
     return 0;
 EXCEPTION:
     return 0;

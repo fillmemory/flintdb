@@ -269,10 +269,10 @@ static struct flintdb_cursor_row *jsonlfile_find(const struct flintdb_genericfil
 
     cursor = CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!cursor)
-        THROW(e, "Failed to allocate memory for cursor");
+        THROW(e, ERR_OUT_OF_MEMORY);
     cursor->p = CALLOC(1, sizeof(struct jsonl_cursor_priv));
     if (!cursor->p)
-        THROW(e, "Failed to allocate memory for cursor private data");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     struct jsonl_cursor_priv *cp = (struct jsonl_cursor_priv*)cursor->p;
     cp->bio = bio;

@@ -71,7 +71,7 @@ struct flintdb_row *flintdb_row_pool_acquire(struct flintdb_meta *meta, char **e
     if (e) *e = NULL;
     struct flintdb_row *r = (struct flintdb_row *)keyed_object_pool_borrow(&g_row_pool, meta);
     if (!r) {
-        if (e) *e = "row_pool_acquire: out of memory";
+        if (e) *e = ERR_OUT_OF_MEMORY;
         return NULL;
     }
     return r;
@@ -1291,7 +1291,7 @@ struct flintdb_row *row_copy(const struct flintdb_row *r, char **e) {
     struct flintdb_row *nr = (struct flintdb_row *)MALLOC(sizeof(struct flintdb_row));
     if (!nr) {
         if (e)
-            *e = "row_copy: out of memory";
+            *e = ERR_OUT_OF_MEMORY;
         return NULL;
     }
     // initialize using row_init semantics
@@ -1375,7 +1375,7 @@ static inline void row_init(struct flintdb_meta *meta, struct flintdb_row *r, ch
         r->array = (struct flintdb_variant *)CALLOC((size_t)r->length, sizeof(struct flintdb_variant));
         if (!r->array) {
             if (e)
-                *e = row_error_set(r, "row_init: out of memory");
+                *e = row_error_set(r, ERR_OUT_OF_MEMORY);
             r->length = 0;
             return;
         }
@@ -1458,14 +1458,14 @@ struct flintdb_row *flintdb_row_new(struct flintdb_meta *meta, char **e) {
 struct flintdb_row *flintdb_row_from_argv(struct flintdb_meta *meta, u16 argc, const char **argv, char **e) {
     struct flintdb_row *r = NULL;
     if (!meta)
-        THROW(e, "row_from_argv: meta is NULL");
+        THROW(e, "meta is NULL");
 
     if ((argc & 1) == 1)
         THROW(e, "argc must be an even number: %d", argc);
 
     r = (struct flintdb_row *)CALLOC(1, sizeof(struct flintdb_row));
     if (!r)
-        THROW(e, "row_from_argv: OOM");
+        THROW(e, ERR_OUT_OF_MEMORY);
     row_init(meta, r, e);
 
     for (int i = 0; i < argc; i += 2) {
@@ -2098,7 +2098,7 @@ static inline u32 get_u24(struct buffer *b, char **e) {
 HOT_PATH
 static int bin_encode(struct formatter *me, struct flintdb_row *r, struct buffer *out, char **e) {
     if (!r || !r->meta || !out)
-        THROW(e, "bin_encode: invalid args");
+        THROW(e, "invalid args");
 
     const struct flintdb_meta *m = me->meta;
     // Rough capacity estimate
@@ -2306,7 +2306,7 @@ EXCEPTION:
 HOT_PATH
 static int bin_decode(struct formatter *me, struct buffer *in, struct flintdb_row *r, char **e) {
     if (!in || !r || !r->meta)
-        THROW(e, "bin_decode: invalid args, buffer:%p, row:%p, meta:%p", in, r, r ? r->meta : NULL);
+        THROW(e, "invalid args, buffer:%p, row:%p, meta:%p", in, r, r ? r->meta : NULL);
 
     const struct flintdb_meta *m = me->meta;
     // Peek optional column-count header (fast-path marker for exact BIN with no var-len padding)
@@ -2550,7 +2550,7 @@ struct text_formatter_priv {
 
 static int text_escape(struct text_formatter_priv *priv, const char *field, u32 fieldlen, struct buffer *out, char **e) { // equivalent to TSVFile.java TEXTROWFORMATTER.appendEscaped()
     if (!priv || !out)
-        THROW(e, "text_escape: invalid args");
+        THROW(e, "invalid args");
 
     // NULL sentinel already handled by caller; just write field with proper escaping/quoting
     const char DELIM = priv->delimiter ? priv->delimiter : '\t';
@@ -2697,7 +2697,7 @@ EXCEPTION:
 
 static int text_split(struct text_formatter_priv *priv, const char *line, u32 linelen, char ***fields, u32 *fieldcount, char **e) { // equivalent to TSVFile.java TEXTROWFORMATTER.split()
     if (!priv || !line || !fields || !fieldcount)
-        THROW(e, "text_split: invalid args");
+        THROW(e, "invalid args");
 
     const char DELIM = priv->delimiter ? priv->delimiter : '\t';
     const char QUOTE = priv->quote;
@@ -2891,7 +2891,7 @@ static int text_encode(struct formatter *me, struct flintdb_row *r, struct buffe
     if (!priv)
         THROW(e, "formatter not initialized");
     if (!r || !r->meta || !out)
-        THROW(e, "text_encode: invalid args");
+        THROW(e, "invalid args");
     const struct flintdb_meta *m = me->meta;
     out->clear(out);
 
@@ -3031,7 +3031,7 @@ static int text_decode(struct formatter *me, struct buffer *in, struct flintdb_r
     if (!priv)
         THROW(e, "formatter not initialized");
     if (!in || !r || !r->meta)
-        THROW(e, "text_decode: invalid args");
+        THROW(e, "invalid args");
 
     // Parse from current position up to end-of-record (newline outside quotes) or buffer end
     const char *data = in->array + in->position;
@@ -3043,7 +3043,7 @@ static int text_decode(struct formatter *me, struct buffer *in, struct flintdb_r
     u32 nfields = 0;
     int consumed = text_split(priv, data, len, &fields, &nfields, e);
     if (consumed < 0)
-        THROW(e, "text_decode: split failed");
+        THROW(e, "split failed");
 
     // (debug removed)
 
@@ -3342,7 +3342,7 @@ int formatter_init(enum fileformat format, struct flintdb_meta *meta, struct for
         break;
     }
     default:
-        THROW(e, "formatter_init: unsupported format %d", format);
+        THROW(e, "unsupported format %d", format);
     }
     return 0;
 

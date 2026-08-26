@@ -71,7 +71,7 @@ i64 filesort_rows(const struct flintdb_filesort *me) {
 i64 filesort_add(struct flintdb_filesort *me, struct flintdb_row *r, char **e) {
 	struct flintdb_filesort_priv *priv = (struct flintdb_filesort_priv *)me->priv;
     if (!priv || !r) {
-        THROW(e, "filesorter_add: bad args");
+        THROW(e, "bad args");
     }
     if (ensure_capacity(me, priv->rows + 1, e) != 0)
         THROW_S(e);

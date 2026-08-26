@@ -1479,13 +1479,13 @@ static struct storage* wal_wrap_storage(struct storage* origin, struct wal* wal,
     
     // Initialize tracking maps for immediate-write architecture
     ws->new_pages = hashmap_new(256, hashmap_int_hash, hashmap_int_cmpr);
-    if (!ws->new_pages) THROW(e, "Failed to create new pages map");
+    if (!ws->new_pages) THROW(e, ERR_OUT_OF_MEMORY);
     
     ws->old_pages = hashmap_new(256, hashmap_int_hash, hashmap_int_cmpr);
-    if (!ws->old_pages) THROW(e, "Failed to create old pages map");
+    if (!ws->old_pages) THROW(e, ERR_OUT_OF_MEMORY);
     
     ws->deleted_page_backups = hashmap_new(256, hashmap_int_hash, hashmap_int_cmpr);
-    if (!ws->deleted_page_backups) THROW(e, "Failed to create deleted page backups map");
+    if (!ws->deleted_page_backups) THROW(e, ERR_OUT_OF_MEMORY);
 
     // Setup storage function pointers in base
     ws->base.close = wal_storage_close;
@@ -1647,11 +1647,11 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
 
     // Initialize storages map (match Java: Map<File, WALStorage> storages = new HashMap<>())
     impl->storages = hashmap_new(16, hashmap_string_hash, hashmap_string_cmpr);
-    if (!impl->storages) THROW(e, "Failed to create storages map");
+    if (!impl->storages) THROW(e, ERR_OUT_OF_MEMORY);
 
     // Allocate batch buffer
     impl->batch_buffer = CALLOC(1, impl->batch_capacity);
-    if (!impl->batch_buffer) THROW(e, "Failed to allocate batch buffer");
+    if (!impl->batch_buffer) THROW(e, ERR_OUT_OF_MEMORY);
     impl->batch_size = 0;
     impl->batch_count = 0;
 

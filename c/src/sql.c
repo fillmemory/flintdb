@@ -296,12 +296,12 @@ static int tokens_push(struct tokens *t, struct arena *ar, const char *s, size_t
     if (len == 0)
         return 0;
     if (!ar)
-        THROW(e, "tokens_push: arena is NULL");
+        THROW(e, "arena is NULL");
     if (t->n >= t->cap) {
         int ncap = t->cap ? t->cap * 2 : 32;
         char **na = (char **)arena_alloc(ar, sizeof(char *) * (size_t)ncap);
         if (!na)
-            THROW(e, "failed to allocate tokens array (count: %d)", ncap);
+            THROW(e, ERR_OUT_OF_MEMORY);
         if (t->a)
             memcpy(na, t->a, sizeof(char *) * (size_t)t->n);
         t->a = na;
@@ -309,7 +309,7 @@ static int tokens_push(struct tokens *t, struct arena *ar, const char *s, size_t
     }
     char *dup = arena_strndup(ar, s, len);
     if (!dup)
-        THROW(e, "failed to allocate memory for token (size: %zu)", len + 1);
+        THROW(e, ERR_OUT_OF_MEMORY);
     t->a[t->n++] = dup;
     return 0;
 
@@ -325,7 +325,7 @@ static int tokenize(struct arena *ar, const char *input, struct tokens *out, cha
     // allow one extra space sentinel
     char *buf = (char *)arena_alloc(ar, L + 2);
     if (!buf)
-        THROW(e, "failed to allocate tokenize buffer (size: %zu)", L + 2);
+        THROW(e, ERR_OUT_OF_MEMORY);
     memcpy(buf, input, L);
     buf[L] = ' ';
     buf[L + 1] = '\0';
@@ -413,12 +413,12 @@ static void strlist_free(struct strlist *l) {
 
 static int strlist_push(struct strlist *l, struct arena *ar, const char *s, size_t len, char **e) {
     if (!ar)
-        THROW(e, "strlist_push: arena is NULL");
+        THROW(e, "arena is NULL");
     if (l->n >= l->cap) {
         int ncap = l->cap ? l->cap * 2 : 16;
         char **na = (char **)arena_alloc(ar, sizeof(char *) * (size_t)ncap);
         if (!na)
-            THROW(e, "failed to allocate string list array (count: %d)", ncap);
+            THROW(e, ERR_OUT_OF_MEMORY);
         if (l->a)
             memcpy(na, l->a, sizeof(char *) * (size_t)l->n);
         l->a = na;
@@ -426,7 +426,7 @@ static int strlist_push(struct strlist *l, struct arena *ar, const char *s, size
     }
     char *dup = arena_strndup(ar, s, len);
     if (!dup)
-        THROW(e, "failed to allocate memory for string (size: %zu)", len + 1);
+        THROW(e, ERR_OUT_OF_MEMORY);
     l->a[l->n++] = trim(dup);
     return 0;
 
@@ -441,7 +441,7 @@ static int split_top(struct arena *ar, const char *s, char delim, struct strlist
     size_t L = strlen(s);
     char *buf = (char *)arena_alloc(ar, L + 2);
     if (!buf)
-        THROW(e, "failed to allocate split buffer (size: %zu)", L + 2);
+        THROW(e, ERR_OUT_OF_MEMORY);
     memcpy(buf, s, L);
     buf[L] = delim;
     buf[L + 1] = '\0';
@@ -1267,7 +1267,7 @@ struct flintdb_sql *flintdb_sql_parse(const char *sql, char **e) {
     else
         out = (struct flintdb_sql *)CALLOC(1, sizeof(struct flintdb_sql));
     if (!out)
-        THROW(e, "failed to allocate memory for sql_context");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
 #ifndef NDEBUG
     s_copy(out->origin, sizeof(out->origin), sql);
@@ -1309,7 +1309,7 @@ struct flintdb_sql *flintdb_sql_from_file(const char *file, char **e) {
 
     char *buf = (char *)CALLOC(1, SQL_STRING_LIMIT);
     if (!buf)
-        THROW(e, "malloc failed for file buffer (size: %d)", SQL_STRING_LIMIT);
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     size_t n = fread(buf, 1, SQL_STRING_LIMIT - 1, fp);
     (void)n;

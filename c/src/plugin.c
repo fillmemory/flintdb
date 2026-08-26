@@ -244,7 +244,7 @@ struct plugin_handle *plugin_load(const char *plugin_path, char **e) {
     
     struct plugin_handle *handle = CALLOC(1, sizeof(struct plugin_handle));
     if (!handle)
-        THROW(e, "Failed to allocate plugin handle");
+        THROW(e, ERR_OUT_OF_MEMORY);
     
     // Load dynamic library
     handle->dl_handle = dlopen(plugin_path, RTLD_LAZY | RTLD_LOCAL);

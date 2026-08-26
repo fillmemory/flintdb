@@ -67,7 +67,7 @@ static i32 buffer_skip(struct buffer *p, i32 n) {
 static void buffer_array_put(struct buffer *p, const char *bytes, u32 len, char **e) {
     e = NULL;
     if (UNLIKELY((p->position + len) > p->capacity)) {
-        THROW(e, "buffer_array_put pos : %d, len : %d, capacity : %d", p->position, len, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, len, p->capacity);
     }
     simd_memcpy(&p->array[p->position], bytes, len);
     p->position += len;
@@ -84,7 +84,7 @@ static char *buffer_array_get(struct buffer *p, u32 len, char **e) {
 
 static void buffer_i8_put(struct buffer *p, char v, char **e) {
     if (UNLIKELY((p->position + 1) > p->capacity)) {
-        THROW(e, "buffer_i8_put pos : %d, len : %d, capacity : %d", p->position, 1, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, 1, p->capacity);
     }
 
     p->array[p->position] = v;
@@ -96,7 +96,7 @@ EXCEPTION:
 
 static void buffer_i16_put(struct buffer *p, i16 v, char **e) {
     if (UNLIKELY((p->position + 2) > p->capacity)) {
-        THROW(e, "buffer_i16_put pos : %d, len : %d, capacity : %d", p->position, 2, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, 2, p->capacity);
     }
 
     // Little endian native - direct memory copy for performance
@@ -109,7 +109,7 @@ EXCEPTION:
 
 static void buffer_i32_put(struct buffer *p, i32 v, char **e) {
     if (UNLIKELY((p->position + 4) > p->capacity)) {
-        THROW(e, "buffer_i32_put pos : %d, len : %d, capacity : %d", p->position, 4, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, 4, p->capacity);
     }
 
     // Little endian native - direct memory copy for performance
@@ -122,7 +122,7 @@ EXCEPTION:
 
 static void buffer_i64_put(struct buffer *p, i64 v, char **e) {
     if (UNLIKELY((p->position + 8) > p->capacity)) {
-        THROW(e, "buffer_i64_put pos : %d, len : %d, capacity : %d", p->position, 8, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, 8, p->capacity);
     }
 
     // Little endian native - direct memory copy for performance
@@ -135,7 +135,7 @@ EXCEPTION:
 
 static void buffer_f64_put(struct buffer *p, f64 v, char **e) {
     if (UNLIKELY((p->position + 8) > p->capacity)) {
-        THROW(e, "buffer_f64_put pos : %d, len : %d, capacity : %d", p->position, 8, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, 8, p->capacity);
     }
 
     // Little endian native - direct memory copy for performance
@@ -148,7 +148,7 @@ EXCEPTION:
 
 static char buffer_i8_get(struct buffer *p, char **e) {
     if (UNLIKELY((p->position + 1) > p->capacity)) {
-        THROW(e, "buffer_i8_get pos : %d, len : %d, capacity : %d", p->position, 1, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, 1, p->capacity);
     }
 
     char v = p->array[p->position];
@@ -161,7 +161,7 @@ EXCEPTION:
 
 static i16 buffer_i16_get(struct buffer *p, char **e) {
     if (UNLIKELY((p->position + 2) > p->capacity)) {
-        THROW(e, "buffer_i16_get pos : %d, len : %d, capacity : %d", p->position, 2, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, 2, p->capacity);
     }
 
     // Little endian native - direct memory copy for performance
@@ -176,7 +176,7 @@ EXCEPTION:
 
 static i32 buffer_i32_get(struct buffer *p, char **e) {
     if (UNLIKELY((p->position + 4) > p->capacity)) {
-        THROW(e, "buffer_i32_get pos : %d, len : %d, capacity : %d", p->position, 4, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, 4, p->capacity);
     }
 
     // Little endian native - direct memory copy for performance
@@ -191,7 +191,7 @@ EXCEPTION:
 
 static i64 buffer_i64_get(struct buffer *p, char **e) {
     if (UNLIKELY((p->position + 8) > p->capacity)) {
-        THROW(e, "buffer_i64_get pos : %d, len : %d, capacity : %d", p->position, 8, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, 8, p->capacity);
     }
 
     // Little endian native - direct memory copy for performance
@@ -206,7 +206,7 @@ EXCEPTION:
 
 static f64 buffer_f64_get(struct buffer *p, char **e) {
     if (UNLIKELY((p->position + 8) > p->capacity)) {
-        THROW(e, "buffer_f64_get pos : %d, len : %d, capacity : %d", p->position, 8, p->capacity);
+        THROW(e, "pos : %d, len : %d, capacity : %d", p->position, 8, p->capacity);
     }
 
     // Little endian native - direct memory copy for performance
@@ -291,10 +291,10 @@ static void mmap_free(struct buffer *me) {
 
 static void buffer_slice_to(struct buffer *me, i32 offset, i32 length, struct buffer *out, char **e) {
     if (UNLIKELY(me == NULL || out == NULL)) {
-        THROW(e, "buffer_slice: input buffer is NULL");
+        THROW(e, "input buffer is NULL");
     }
     if (UNLIKELY(offset < 0 || length < 0 || (me->position + offset + length) > me->limit))
-        THROW(e, "buffer_slice offset : %d, length : %d, limit : %d", offset, length, me->limit);
+        THROW(e, "offset : %d, length : %d, limit : %d", offset, length, me->limit);
 
     out->array = me->array + me->position + offset;
     out->position = 0;
@@ -329,7 +329,7 @@ EXCEPTION:
 struct buffer *buffer_slice(struct buffer *in, i32 offset, i32 length, char **e) {
     struct buffer *out = NULL;
     if (UNLIKELY(in == NULL)) {
-        THROW(e, "buffer_slice: input buffer is NULL");
+        THROW(e, "input buffer is NULL");
     }
     out = slice_struct_acquire();
     if (!out) {
