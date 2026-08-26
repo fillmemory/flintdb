@@ -155,7 +155,6 @@ void flintdb_variant_init(struct flintdb_variant *v) {
 	v->value.i = 0;
 }
 
-HOT_PATH
 void flintdb_variant_free(struct flintdb_variant *v) {
 	if (!v) return;
 	variant_release_if_owned(v);

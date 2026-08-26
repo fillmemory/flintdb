@@ -244,7 +244,6 @@ static inline void bplustree_node_free(keytype k, valtype v) {
     if (n) FREE(n);
 }
 
-HOT_PATH
 struct node * bplustree_node_decode(struct bplustree *me, i64 offset, char **e) {
     assert(me);
     assert(OFFSET_NULL != offset);
@@ -321,7 +320,6 @@ static struct node * bplustree_node_read(struct bplustree *me, i64 offset, char 
     return n;
 }
 
-HOT_PATH
 static struct node * bplustree_root_get(struct bplustree *me, char **e) {
     assert(me);
     if (me->root) return me->root;
@@ -880,6 +878,7 @@ static void bplustree_put(struct bplustree *me, i64 key, char **e) { // public
     bplustree_node_put(me, NULL, root,  key, e);
 }
 
+HOT_PATH
 static i64 bplustree_get(struct bplustree *me, i64 key, char **e) {
     assert(me);
     assert(key > 0); // keys are always positive
@@ -1227,6 +1226,7 @@ struct bptree_cursor_impl {
     int (*cmpr)(void *obj, i64 o);
 };
 
+HOT_PATH
 static i64 cursor_next_asc(struct flintdb_cursor_i64 *c, char **e) {
     struct bptree_cursor_impl *impl = (struct bptree_cursor_impl*)c->p;
     if (impl->leaf == NULL) return NOT_FOUND;
@@ -1258,6 +1258,7 @@ static i64 cursor_next_asc(struct flintdb_cursor_i64 *c, char **e) {
     }
 }
 
+HOT_PATH
 static i64 cursor_next_desc(struct flintdb_cursor_i64 *c, char **e) {
     struct bptree_cursor_impl *impl = (struct bptree_cursor_impl*)c->p;
     if (impl->leaf == NULL) return NOT_FOUND;
@@ -1356,7 +1357,6 @@ static struct node* node_leaf_max_comparable(struct bplustree *me, struct node *
     return n;
 }
 
-// HOT_PATH
 static int first_key_pos(i64 *keys, int len, void *obj, int (*cmpr)(void *obj, i64 o)) {
     // Find the first key where cmpr returns 0 (match)
     // cmpr returns compare(target, key):
@@ -1381,7 +1381,6 @@ static int first_key_pos(i64 *keys, int len, void *obj, int (*cmpr)(void *obj, i
     return result;
 }
 
-// HOT_PATH
 static int last_key_pos(i64 *keys, int len, void *obj, int (*cmpr)(void *obj, i64 o)) {
     // Find the last key where cmpr returns 0 (match)
     // cmpr returns compare(target, key):

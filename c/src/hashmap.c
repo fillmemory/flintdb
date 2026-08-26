@@ -308,7 +308,6 @@ static void * hashmap_put(struct hashmap *map, keytype key, valtype val, void (*
     return e;
 }
 
-HOT_PATH
 static int hashmap_remove(struct hashmap *map, keytype key) {
     
     u32 idx;

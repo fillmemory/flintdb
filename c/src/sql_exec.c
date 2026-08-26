@@ -2138,6 +2138,7 @@ struct flintdb_table_cursor_priv {
     struct flintdb_row *stream_row; // reused decode buffer for SELECT * streaming (bypass cache)
 };
 
+HOT_PATH
 static struct flintdb_row *sql_table_cursor_next(struct flintdb_cursor_row *c, char **e) {
     struct flintdb_table_cursor_priv *priv = (struct flintdb_table_cursor_priv *)c->p;
 

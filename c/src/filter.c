@@ -70,6 +70,7 @@ struct limit limit_parse(const char *s) {
  * @param right value to compare against (RV in Java code)
  * @return int -1 if RV < LV, 0 if match, 1 if RV > LV (for B+Tree binary search)
  */
+HOT_PATH
 int filter_row_compare(enum arithmetic_operator op, int key, struct flintdb_row *left, struct flintdb_variant *right) {
     struct flintdb_variant *l = left->get(left, key, NULL);  // LV (left value from row)
     struct flintdb_variant *r = right;                        // RV (right value from filter)
@@ -170,6 +171,7 @@ int filter_row_compare(enum arithmetic_operator op, int key, struct flintdb_row 
     return 1;
 }
 
+HOT_PATH
 int filter_compare(struct filter *filter, struct flintdb_row *r, char **e) {
     if (!filter) return 1;
     if (!r) THROW(e, "row is NULL");

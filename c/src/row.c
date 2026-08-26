@@ -2095,7 +2095,6 @@ static inline u32 get_u24(struct buffer *b, char **e) {
     return (b1 << 16) | (b2 << 8) | b3;
 }
 
-HOT_PATH
 static int bin_encode(struct formatter *me, struct flintdb_row *r, struct buffer *out, char **e) {
     if (!r || !r->meta || !out)
         THROW(e, ERR_INVALID_ARGS);
@@ -2885,7 +2884,6 @@ EXCEPTION:
     return -1;
 }
 
-HOT_PATH
 static int text_encode(struct formatter *me, struct flintdb_row *r, struct buffer *out, char **e) { // equivalent to TSVFile.java TEXTROWFORMATTER.format()
     struct text_formatter_priv *priv = (struct text_formatter_priv *)me->priv;
     if (!priv)
@@ -3025,7 +3023,6 @@ EXCEPTION:
     return -1;
 }
 
-HOT_PATH
 static int text_decode(struct formatter *me, struct buffer *in, struct flintdb_row *r, char **e) { // equivalent to TSVFile.java TEXTROWFORMATTER.parse()
     struct text_formatter_priv *priv = (struct text_formatter_priv *)me->priv;
     if (!priv)

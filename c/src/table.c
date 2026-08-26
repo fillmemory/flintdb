@@ -653,6 +653,7 @@ static void find_close(struct flintdb_cursor_i64 *c) {
     FREE(c);
 }
 
+HOT_PATH
 static i64 find_next(struct flintdb_cursor_i64 *c, char **e) {
     if (!c) return NOT_FOUND;
     struct find_context *ctx = (struct find_context *)c->p;
@@ -730,7 +731,7 @@ static i64 find_next(struct flintdb_cursor_i64 *c, char **e) {
     return NOT_FOUND;
 }
 
-// HOT_PATH
+HOT_PATH
 static int find_row_compare(void *obj, i64 key) {
     // Tri-state comparator for B+Tree range scans.
     // B+Tree expects: 0 = in range (continue scan), non-zero = out of range (stop)
@@ -955,6 +956,7 @@ static int table_read_stream(struct flintdb_table *me, i64 rowid, struct flintdb
 }
 
 // Internal read without lock (caller must hold lock)
+HOT_PATH
 static const struct flintdb_row * table_read_unlocked(struct flintdb_table *me, i64 rowid, char **e) {
     if (!me) return NULL;
     if (!me->priv) return NULL;
@@ -986,7 +988,6 @@ EXCEPTION:
     return NULL;
 }
 
-HOT_PATH
 static const struct flintdb_row * table_read(struct flintdb_table *me, i64 rowid, char **e) {
     if (!me) return NULL;
     if (!me->priv) return NULL;
@@ -1197,7 +1198,6 @@ int row_bytes(const struct flintdb_meta *m) {
 }
 
 HOT_PATH
-HOT_PATH
 static int sorter_primary_cmpr(void *o, i64 a, i64 b) {
     if (a == b) return 0;
 
@@ -1226,6 +1226,7 @@ static int sorter_primary_cmpr(void *o, i64 a, i64 b) {
     return cmp;
 }
 
+HOT_PATH
 static int sorter_index_cmpr(void *o, i64 a, i64 b) {
     if (a == b) return 0;
 
@@ -1257,7 +1258,6 @@ static int sorter_index_cmpr(void *o, i64 a, i64 b) {
     return cmp;
 }
 
-HOT_PATH
 HOT_PATH
 static int row_compare_get(void *o, const void *a, i64 b) {
     // DEBUG("o=%p a=%p b=%lld", o, a, b);
