@@ -118,7 +118,7 @@ static i64 table_delete_in_tx(struct flintdb_table *me, i64 rowid, char **e);
 
 static i64 tx_apply(struct flintdb_transaction *me, struct flintdb_row *r, i8 upsert, char **e) {
     if (!me || !me->priv) {
-        if (e) *e = "transaction is null";
+        if (e) *e = "transaction is NULL";
         return NOT_FOUND;
     }
     struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
@@ -131,7 +131,7 @@ static i64 tx_apply(struct flintdb_transaction *me, struct flintdb_row *r, i8 up
 
 static i64 tx_apply_at(struct flintdb_transaction *me, i64 rowid, struct flintdb_row *r, char **e) {
     if (!me || !me->priv) {
-        if (e) *e = "transaction is null";
+        if (e) *e = "transaction is NULL";
         return NOT_FOUND;
     }
     struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
@@ -144,7 +144,7 @@ static i64 tx_apply_at(struct flintdb_transaction *me, i64 rowid, struct flintdb
 
 static i64 tx_delete_at(struct flintdb_transaction *me, i64 rowid, char **e) {
     if (!me || !me->priv) {
-        if (e) *e = "transaction is null";
+        if (e) *e = "transaction is NULL";
         return NOT_FOUND;
     }
     struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
@@ -157,7 +157,7 @@ static i64 tx_delete_at(struct flintdb_transaction *me, i64 rowid, char **e) {
 
 static void tx_commit(struct flintdb_transaction *me, char **e) {
     if (!me || !me->priv) {
-        if (e) *e = "transaction is null";
+        if (e) *e = "transaction is NULL";
         return;
     }
     struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
@@ -255,7 +255,7 @@ static void tx_rollback(struct flintdb_transaction *me, char **e) {
 }
 
 static i8 tx_validate(struct flintdb_transaction *me, struct flintdb_table *t, char **e) {
-    if (!me || !me->priv) THROW(e, "transaction is null");
+    if (!me || !me->priv) THROW(e, "transaction is NULL");
 
     struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)me->priv;
     if (p->done) THROW(e, "transaction already finished");
@@ -1074,7 +1074,7 @@ static void table_close(struct flintdb_table *me) {
 
 
 struct flintdb_transaction * flintdb_transaction_begin(struct flintdb_table *table, char **e) {
-    if (!table || !table->priv) THROW(e, "table is null"); 
+    if (!table || !table->priv) THROW(e, "table is NULL"); 
 
     struct flintdb_table_priv *tpriv = (struct flintdb_table_priv*)table->priv;
     if (!tpriv->wal) THROW(e, "WAL is not initialized");

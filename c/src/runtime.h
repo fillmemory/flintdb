@@ -50,6 +50,7 @@ extern __thread char TL_ERROR[ERROR_BUFSZ]; // thread-local error buffer
 #define ERR_UNKNOWN_COLUMN "unknown column"
 #define ERR_UNKNOWN_FILE_FORMAT "Unknown file format"
 #define ERR_UNKNOWN_AGGREGATE_FUNCTION "Unknown aggregate function"
+#define ERR_INVALID_ARGS "invalid args"
 #define ERR_OR_UNKNOWN(s) ((s) ? (s) : ERR_UNKNOWN)
 #define ERR_OR_UNKNOWN_ERROR(s) ((s) ? (s) : ERR_UNKNOWN_ERROR)
 // Usage: char *e = NULL; ... THROW(&e, "Error"); ... EXCEPTION: fprintf(stderr, "Error: %s\n", e);

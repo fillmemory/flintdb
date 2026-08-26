@@ -370,7 +370,7 @@ int sql_bound_resolve(struct sql_bound *b, const struct flintdb_meta *meta, char
             continue;
         int idx = flintdb_column_at((struct flintdb_meta *)meta, it->name);
         if (idx < 0)
-            THROW(e, "Column not found: %s", it->name);
+            THROW(e, ERR_UNKNOWN_COLUMN ": %s", it->name);
         it->col_idx = idx;
     }
 
@@ -402,7 +402,7 @@ int sql_bound_resolve_order(struct sql_bound *b, const struct flintdb_meta *meta
         }
         int idx = flintdb_column_at((struct flintdb_meta *)meta, b->order[i].name);
         if (idx < 0)
-            THROW(e, "ORDER BY column not found: %s", b->order[i].name);
+            THROW(e, "ORDER BY " ERR_UNKNOWN_COLUMN ": %s", b->order[i].name);
         b->order[i].col_idx = idx;
     }
     return 0;
@@ -447,7 +447,7 @@ int sql_bound_aggregates(const struct sql_bound *b, const struct flintdb_meta *m
     int aggr_count = 0;
 
     if (!b || !groupbys_out || !groupby_n || !funcs_out || !func_n)
-        THROW(e, "invalid arguments");
+        THROW(e, ERR_INVALID_ARGS);
     if (b->is_star)
         THROW(e, "SELECT * not supported with GROUP BY or aggregate functions");
 

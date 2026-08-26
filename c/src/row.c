@@ -2098,7 +2098,7 @@ static inline u32 get_u24(struct buffer *b, char **e) {
 HOT_PATH
 static int bin_encode(struct formatter *me, struct flintdb_row *r, struct buffer *out, char **e) {
     if (!r || !r->meta || !out)
-        THROW(e, "invalid args");
+        THROW(e, ERR_INVALID_ARGS);
 
     const struct flintdb_meta *m = me->meta;
     // Rough capacity estimate
@@ -2306,7 +2306,7 @@ EXCEPTION:
 HOT_PATH
 static int bin_decode(struct formatter *me, struct buffer *in, struct flintdb_row *r, char **e) {
     if (!in || !r || !r->meta)
-        THROW(e, "invalid args, buffer:%p, row:%p, meta:%p", in, r, r ? r->meta : NULL);
+        THROW(e, ERR_INVALID_ARGS ", buffer:%p, row:%p, meta:%p", in, r, r ? r->meta : NULL);
 
     const struct flintdb_meta *m = me->meta;
     // Peek optional column-count header (fast-path marker for exact BIN with no var-len padding)
@@ -2550,7 +2550,7 @@ struct text_formatter_priv {
 
 static int text_escape(struct text_formatter_priv *priv, const char *field, u32 fieldlen, struct buffer *out, char **e) { // equivalent to TSVFile.java TEXTROWFORMATTER.appendEscaped()
     if (!priv || !out)
-        THROW(e, "invalid args");
+        THROW(e, ERR_INVALID_ARGS);
 
     // NULL sentinel already handled by caller; just write field with proper escaping/quoting
     const char DELIM = priv->delimiter ? priv->delimiter : '\t';
@@ -2697,7 +2697,7 @@ EXCEPTION:
 
 static int text_split(struct text_formatter_priv *priv, const char *line, u32 linelen, char ***fields, u32 *fieldcount, char **e) { // equivalent to TSVFile.java TEXTROWFORMATTER.split()
     if (!priv || !line || !fields || !fieldcount)
-        THROW(e, "invalid args");
+        THROW(e, ERR_INVALID_ARGS);
 
     const char DELIM = priv->delimiter ? priv->delimiter : '\t';
     const char QUOTE = priv->quote;
@@ -2891,7 +2891,7 @@ static int text_encode(struct formatter *me, struct flintdb_row *r, struct buffe
     if (!priv)
         THROW(e, "formatter not initialized");
     if (!r || !r->meta || !out)
-        THROW(e, "invalid args");
+        THROW(e, ERR_INVALID_ARGS);
     const struct flintdb_meta *m = me->meta;
     out->clear(out);
 
@@ -3031,7 +3031,7 @@ static int text_decode(struct formatter *me, struct buffer *in, struct flintdb_r
     if (!priv)
         THROW(e, "formatter not initialized");
     if (!in || !r || !r->meta)
-        THROW(e, "invalid args");
+        THROW(e, ERR_INVALID_ARGS);
 
     // Parse from current position up to end-of-record (newline outside quotes) or buffer end
     const char *data = in->array + in->position;

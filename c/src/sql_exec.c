@@ -573,7 +573,7 @@ static int sql_exec_insert(const struct flintdb_sql *q, struct flintdb_transacti
             const char *col_name = q->columns.name[i];
             const char *col_value = q->values.value[i];
             int col_index = flintdb_column_at((struct flintdb_meta *)m, col_name);
-            if (col_index == -1) THROW(e, "Column not found: %s", col_name);
+            if (col_index == -1) THROW(e, ERR_UNKNOWN_COLUMN ": %s", col_name);
 
             struct flintdb_variant v;
             flintdb_variant_init(&v);
@@ -648,7 +648,7 @@ static int sql_exec_update(const struct flintdb_sql *q, struct flintdb_transacti
             const char *col_value = q->values.value[j];
             int col_index = flintdb_column_at((struct flintdb_meta *)m, col_name);
             if (col_index == -1)
-                THROW(e, "Column not found: %s", col_name);
+                THROW(e, ERR_UNKNOWN_COLUMN ": %s", col_name);
 
             struct flintdb_variant v;
             flintdb_variant_init(&v);
@@ -774,7 +774,7 @@ static int sql_exec_insert_from(const struct flintdb_sql *q, struct flintdb_tran
         for (int i = 0; i < q->columns.length; i++) {
             int target_idx = flintdb_column_at((struct flintdb_meta *)&meta, q->columns.name[i]);
             if (target_idx < 0) 
-                THROW(e, "Column not found in target table: %s", q->columns.name[i]);
+                THROW(e, ERR_UNKNOWN_COLUMN " in target table: %s", q->columns.name[i]);
             col_mapping[i] = target_idx;
         }
         
@@ -2345,7 +2345,7 @@ static int sql_scan_configure(struct flintdb_cursor_row *c, struct sql_bound *bo
     if (!bound->is_star) {
         for (int i = 0; i < bound->item_count; i++) {
             if (bound->items[i].col_idx < 0)
-                THROW(e, "Column not found: %s", bound->items[i].name);
+                THROW(e, ERR_UNKNOWN_COLUMN ": %s", bound->items[i].name);
             proj_indexes[i] = bound->items[i].col_idx;
         }
         *proj_count = bound->item_count;
