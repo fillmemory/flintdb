@@ -219,7 +219,7 @@ static i64 genericfile_write(struct flintdb_genericfile *me, struct flintdb_row 
     // Encode row using formatter (CSV/TSV encoders append newline)
     struct buffer *bout = buffer_alloc(1024);
     if (!bout)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     int enc = priv->formatter.encode(&priv->formatter, r, bout, e);
     if (enc != 0) {
         if (bout)

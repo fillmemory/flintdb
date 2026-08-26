@@ -118,7 +118,7 @@ struct flintdb_meta* flintdb_meta_new_ptr(const char *name, char **e) {
     // Allocate and zero-initialize on heap first
     struct flintdb_meta *ptr = CALLOC(1, sizeof(struct flintdb_meta));
     if (!ptr) {
-        if (e) *e = "Out of memory";
+        if (e) *e = ERR_OUT_OF_MEMORY;
         return NULL;
     }
     
@@ -136,7 +136,7 @@ struct flintdb_meta* flintdb_meta_open_ptr(const char *filename, char **e) {
     // Allocate and zero-initialize on heap first
     struct flintdb_meta *ptr = CALLOC(1, sizeof(struct flintdb_meta));
     if (!ptr) {
-        if (e) *e = "Out of memory";
+        if (e) *e = ERR_OUT_OF_MEMORY;
         return NULL;
     }
     

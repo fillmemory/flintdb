@@ -285,7 +285,7 @@ struct sql_bound *sql_bound_new(const struct flintdb_sql *q, char **e) {
 
     b = (struct sql_bound *)CALLOC(1, sizeof(struct sql_bound));
     if (!b)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     b->stmt = stmt_kind_of(q->statement);
     b->distinct = q->distinct;
@@ -302,7 +302,7 @@ struct sql_bound *sql_bound_new(const struct flintdb_sql *q, char **e) {
     if (q->columns.length > 0) {
         b->items = (struct sql_select_item *)CALLOC((size_t)q->columns.length, sizeof(struct sql_select_item));
         if (!b->items)
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         b->item_count = q->columns.length;
         for (int i = 0; i < q->columns.length; i++) {
             if (parse_select_item(q->columns.name[i], &b->items[i], e) != 0)
@@ -460,7 +460,7 @@ int sql_bound_aggregates(const struct sql_bound *b, const struct flintdb_meta *m
         groupbys = (struct flintdb_aggregate_groupby **)CALLOC((size_t)b->groupby_count,
                                                               sizeof(struct flintdb_aggregate_groupby *));
         if (!groupbys)
-            THROW(e, "Out of memory allocating groupbys");
+            THROW(e, ERR_OUT_OF_MEMORY " allocating groupbys");
         for (int i = 0; i < b->groupby_count; i++) {
             enum flintdb_variant_type col_type = column_type(meta, b->groupby_name[i]);
             if (col_type == VARIANT_NULL && meta == NULL)
@@ -474,7 +474,7 @@ int sql_bound_aggregates(const struct sql_bound *b, const struct flintdb_meta *m
     funcs = (struct flintdb_aggregate_func **)CALLOC(b->item_count > 0 ? (size_t)b->item_count : 1,
                                                     sizeof(struct flintdb_aggregate_func *));
     if (!funcs)
-        THROW(e, "Out of memory allocating funcs");
+        THROW(e, ERR_OUT_OF_MEMORY " allocating funcs");
 
     for (int i = 0; i < b->item_count; i++) {
         const struct sql_select_item *it = &b->items[i];

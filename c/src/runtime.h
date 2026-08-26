@@ -44,6 +44,7 @@
 
 #define ERROR_BUFSZ 2048
 extern __thread char TL_ERROR[ERROR_BUFSZ]; // thread-local error buffer
+#define ERR_OUT_OF_MEMORY "Out of memory"
 // Usage: char *e = NULL; ... THROW(&e, "Error"); ... EXCEPTION: fprintf(stderr, "Error: %s\n", e);
 #define THROW(e, format, ...) { snprintf(TL_ERROR, ERROR_BUFSZ-1, "%s:%d %s " format, __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__); if (e) *e = TL_ERROR; else fprintf(stdout, "UNCAUGHTED: %s\n", TL_ERROR); goto EXCEPTION; }
 #define THROW_S(s) { goto EXCEPTION; } // use existing string s

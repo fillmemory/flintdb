@@ -362,7 +362,7 @@ static i64 table_apply_in_tx(struct flintdb_table *me, struct flintdb_row *r, i8
 
     struct buffer *raw = NULL;
     raw = table_borrow_raw_buffer(priv);
-    if (!raw) THROW(e, "Out of memory");
+    if (!raw) THROW(e, ERR_OUT_OF_MEMORY);
     if (m->columns.length != r->meta->columns.length) 
         THROW(e, "DB_ERR[%d] column count mismatch: %d != %d", DB_ERR_COLUMN_MISMATCH, m->columns.length, r->meta->columns.length);
     int enc = fmt->encode(fmt, r, raw, e);
@@ -497,7 +497,7 @@ static i64 table_apply_at_in_tx(struct flintdb_table *me, i64 rowid, struct flin
     assert(storage);
 
     raw = table_borrow_raw_buffer(priv);
-    if (!raw) THROW(e, "Out of memory");
+    if (!raw) THROW(e, ERR_OUT_OF_MEMORY);
     if (m->columns.length != r->meta->columns.length)
         THROW(e, "DB_ERR[%d] column count mismatch: %d != %d", DB_ERR_COLUMN_MISMATCH, m->columns.length, r->meta->columns.length);
 
@@ -1080,11 +1080,11 @@ struct flintdb_transaction * flintdb_transaction_begin(struct flintdb_table *tab
     if (!tpriv->wal) THROW(e, "WAL is not initialized");
 
     struct flintdb_transaction *tx = (struct flintdb_transaction*)CALLOC(1, sizeof(struct flintdb_transaction));
-    if (!tx) THROW(e, "Out of memory");
+    if (!tx) THROW(e, ERR_OUT_OF_MEMORY);
     struct flintdb_transaction_priv *p = (struct flintdb_transaction_priv*)CALLOC(1, sizeof(struct flintdb_transaction_priv));
     if (!p) {
         FREE(tx);
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
 
     // Acquire the table lock first, then start WAL tx (match Java TransactionImpl semantics)

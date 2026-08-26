@@ -327,7 +327,7 @@ static struct flintdb_table * sql_exec_table_borrow(const char *file, char **e) 
         struct pooled_table *entry = (struct pooled_table *)CALLOC(1, sizeof(struct pooled_table));
         if (!entry) {
             t->close(t);
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
         entry->key = STRDUP(file);
         entry->table = t;
@@ -768,7 +768,7 @@ static int sql_exec_insert_from(const struct flintdb_sql *q, struct flintdb_tran
     if (q->columns.length > 0) {
         col_mapping = (int *)CALLOC(q->columns.length, sizeof(int));
         if (!col_mapping) 
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         
         // Map each specified target column to its index in the target meta
         for (int i = 0; i < q->columns.length; i++) {
@@ -1140,7 +1140,7 @@ static struct flintdb_sql_result * sql_exec_describe(const struct flintdb_sql *q
 
     // Prepare synthetic meta for describe output: Column, Type, Key, Default
     struct flintdb_meta *dm = CALLOC(1, sizeof(struct flintdb_meta));
-    if (!dm) THROW(e, "Out of memory");
+    if (!dm) THROW(e, ERR_OUT_OF_MEMORY);
     *dm = flintdb_meta_new("describe", e);
     if (e && *e) THROW_S(e);
     flintdb_meta_columns_add(dm, "Column", VARIANT_STRING, 256, 0, SPEC_NULLABLE, NULL, NULL, e);
@@ -1154,9 +1154,9 @@ static struct flintdb_sql_result * sql_exec_describe(const struct flintdb_sql *q
 
     // Build rows into an array-backed cursor
     priv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
-    if (!priv) THROW(e, "Out of memory");
+    if (!priv) THROW(e, ERR_OUT_OF_MEMORY);
     priv->rows = arraylist_new(m->columns.length);
-    if (!priv->rows) THROW(e, "Out of memory");
+    if (!priv->rows) THROW(e, ERR_OUT_OF_MEMORY);
     priv->index = 0;
     priv->meta = dm;
 
@@ -1197,18 +1197,18 @@ static struct flintdb_sql_result * sql_exec_describe(const struct flintdb_sql *q
 
     // Build cursor
     c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!c) THROW(e, "Out of memory");
+    if (!c) THROW(e, ERR_OUT_OF_MEMORY);
     c->p = priv;
     c->next = array_cursor_next;
     c->close = array_cursor_close;
 
     // Build result
     result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
+    if (!result) THROW(e, ERR_OUT_OF_MEMORY);
     result->row_cursor = c;
     result->column_count = 4;
     result->column_names = (char **)CALLOC(4, sizeof(char *));
-    if (!result->column_names) THROW(e, "Out of memory");
+    if (!result->column_names) THROW(e, ERR_OUT_OF_MEMORY);
     result->column_names[0] = STRDUP("Column");
     result->column_names[1] = STRDUP("Type");
     result->column_names[2] = STRDUP("Key");
@@ -1260,7 +1260,7 @@ static struct flintdb_sql_result * sql_exec_meta(const struct flintdb_sql *q, ch
 
     // Prepare synthetic meta for META output: single column "SQL"
     struct flintdb_meta *dm = (struct flintdb_meta *)CALLOC(1, sizeof(struct flintdb_meta));
-    if (!dm) THROW(e, "Out of memory");
+    if (!dm) THROW(e, ERR_OUT_OF_MEMORY);
     *dm = flintdb_meta_new("meta", e);
     if (e && *e) THROW_S(e);
     flintdb_meta_columns_add(dm, "SQL", VARIANT_STRING, SQL_STRING_LIMIT, 0, 0, NULL, NULL, e);
@@ -1268,9 +1268,9 @@ static struct flintdb_sql_result * sql_exec_meta(const struct flintdb_sql *q, ch
 
     // Build one-row result with the SQL stringified meta
     priv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
-    if (!priv) THROW(e, "Out of memory");
+    if (!priv) THROW(e, ERR_OUT_OF_MEMORY);
     priv->rows = arraylist_new(1);
-    if (!priv->rows) THROW(e, "Out of memory");
+    if (!priv->rows) THROW(e, ERR_OUT_OF_MEMORY);
     priv->index = 0;
     priv->meta = dm;
 
@@ -1287,18 +1287,18 @@ static struct flintdb_sql_result * sql_exec_meta(const struct flintdb_sql *q, ch
 
     // Build cursor
     c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!c) THROW(e, "Out of memory");
+    if (!c) THROW(e, ERR_OUT_OF_MEMORY);
     c->p = priv;
     c->next = array_cursor_next;
     c->close = array_cursor_close;
 
     // Build result
     result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
+    if (!result) THROW(e, ERR_OUT_OF_MEMORY);
     result->row_cursor = c;
     result->column_count = 1;
     result->column_names = (char **)CALLOC(1, sizeof(char *));
-    if (!result->column_names) THROW(e, "Out of memory");
+    if (!result->column_names) THROW(e, ERR_OUT_OF_MEMORY);
     result->column_names[0] = STRDUP("SQL");
     result->affected = -1;
     result->close = sql_result_close;
@@ -1375,7 +1375,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
 
     // Prepare synthetic meta: Table, Format, Rows, Bytes, Modified, Path
     struct flintdb_meta *dm = (struct flintdb_meta *)CALLOC(1, sizeof(struct flintdb_meta));
-    if (!dm) THROW(e, "Out of memory");
+    if (!dm) THROW(e, ERR_OUT_OF_MEMORY);
     *dm = flintdb_meta_new("show_tables", e);
     if (e && *e) THROW_S(e);
     flintdb_meta_columns_add(dm, "Table", VARIANT_STRING, 256, 0, SPEC_NULLABLE, NULL, NULL, e);
@@ -1392,9 +1392,9 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
     if (e && *e) THROW_S(e);
 
     priv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
-    if (!priv) THROW(e, "Out of memory");
+    if (!priv) THROW(e, ERR_OUT_OF_MEMORY);
     priv->rows = arraylist_new(128);
-    if (!priv->rows) THROW(e, "Out of memory");
+    if (!priv->rows) THROW(e, ERR_OUT_OF_MEMORY);
     priv->index = 0;
     priv->meta = dm;
 
@@ -1405,7 +1405,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
     int stack_cap = 32;
     int stack_len = 0;
     stack = (struct dir_stack_entry *)CALLOC(stack_cap, sizeof(struct dir_stack_entry));
-    if (!stack) THROW(e, "Out of memory");
+    if (!stack) THROW(e, ERR_OUT_OF_MEMORY);
     strncpy_safe(stack[stack_len++].path, base_dir, PATH_MAX);
 
     int founds = 0;
@@ -1438,7 +1438,7 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
                         struct dir_stack_entry *tmp = (struct dir_stack_entry *)REALLOC(stack, new_cap * sizeof(struct dir_stack_entry));
                         if (!tmp) {
                             closedir(d);
-                            THROW(e, "Out of memory");
+                            THROW(e, ERR_OUT_OF_MEMORY);
                         }
                         stack = tmp;
                         stack_cap = new_cap;
@@ -1638,18 +1638,18 @@ static struct flintdb_sql_result * sql_exec_show_tables(const struct flintdb_sql
 
     // Build cursor
     c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!c) THROW(e, "Out of memory");
+    if (!c) THROW(e, ERR_OUT_OF_MEMORY);
     c->p = priv;
     c->next = array_cursor_next;
     c->close = array_cursor_close;
 
     // Build result
     result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
+    if (!result) THROW(e, ERR_OUT_OF_MEMORY);
     result->row_cursor = c;
     result->column_count = 6;
     result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-    if (!result->column_names) THROW(e, "Out of memory");
+    if (!result->column_names) THROW(e, ERR_OUT_OF_MEMORY);
     result->column_names[0] = STRDUP("Table");
     result->column_names[1] = STRDUP("Format");
     result->column_names[2] = STRDUP("Rows");
@@ -1800,7 +1800,7 @@ static struct flintdb_cursor_row *distinct_cursor_wrap(const struct flintdb_sql 
     if (!q) THROW(e, "Invalid SQL context for DISTINCT");
 
     struct distinct_cursor_priv *priv = (struct distinct_cursor_priv *)CALLOC(1, sizeof(struct distinct_cursor_priv));
-    if (!priv) THROW(e, "Out of memory");
+    if (!priv) THROW(e, ERR_OUT_OF_MEMORY);
     priv->inner_cursor = inner;
     priv->seen_hashes = rbitmap_new();
     priv->limit = limit;
@@ -1820,7 +1820,7 @@ static struct flintdb_cursor_row *distinct_cursor_wrap(const struct flintdb_sql 
 
     struct flintdb_cursor_row *wrap = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!wrap)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     wrap->p = priv;
     wrap->next = distinct_cursor_next;
     wrap->close = distinct_cursor_close;
@@ -1940,7 +1940,7 @@ static void gf_cursor_close(struct flintdb_cursor_row *c) {
 
 static struct flintdb_cursor_row *sql_gf_scan_wrap(struct flintdb_genericfile *gf, struct flintdb_cursor_row *inner, char **e) {
     struct gf_cursor_priv *priv = (struct gf_cursor_priv *)CALLOC(1, sizeof(struct gf_cursor_priv));
-    if (!priv) THROW(e, "Out of memory");
+    if (!priv) THROW(e, ERR_OUT_OF_MEMORY);
     priv->gf = gf;
     priv->inner_cursor = inner;
     priv->limit = NOLIMIT;
@@ -1949,7 +1949,7 @@ static struct flintdb_cursor_row *sql_gf_scan_wrap(struct flintdb_genericfile *g
     priv->proj_meta = NULL;
 
     struct flintdb_cursor_row *c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!c) THROW(e, "Out of memory");
+    if (!c) THROW(e, ERR_OUT_OF_MEMORY);
     c->p = priv;
     c->next = gf_cursor_next;
     c->close = gf_cursor_close;
@@ -2012,7 +2012,7 @@ static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_s
         char *buf = (char *)MALLOC(CHUNK);
         if (!buf) {
             b->close(b);
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
         for (;;) {
             ssize_t n = b->read(b, buf, CHUNK, &gerr);
@@ -2048,7 +2048,7 @@ static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_s
     struct flintdb_meta *dm = (struct flintdb_meta *)CALLOC(1, sizeof(struct flintdb_meta));
     if (!dm) {
         gf->close(gf);
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
     *dm = flintdb_meta_new("count", e);
     if (e && *e) {
@@ -2064,7 +2064,7 @@ static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_s
     struct flintdb_cursor_array_priv *apriv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
     if (!apriv) {
         gf->close(gf);
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
     apriv->rows = arraylist_new(1);
     apriv->index = 0;
@@ -2094,7 +2094,7 @@ static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_s
     struct flintdb_cursor_row *ac = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
     if (!ac) {
         gf->close(gf);
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
     ac->p = apriv;
     ac->next = array_cursor_next;
@@ -2103,14 +2103,14 @@ static struct flintdb_sql_result * sql_exec_gf_fast_count(const struct flintdb_s
     struct flintdb_sql_result*result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
     if (!result) {
         gf->close(gf);
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
     result->row_cursor = ac;
     result->column_count = 1;
     result->column_names = (char **)CALLOC(1, sizeof(char *));
     if (!result->column_names) {
         gf->close(gf);
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
     result->column_names[0] = STRDUP(alias);
     result->affected = 1;
@@ -2263,14 +2263,14 @@ static void sql_table_cursor_close(struct flintdb_cursor_row *c) {
 
 static struct flintdb_cursor_row *sql_table_scan_wrap(struct flintdb_table *table, struct flintdb_cursor_i64 *cr, char **e) {
     struct flintdb_table_cursor_priv *priv = (struct flintdb_table_cursor_priv *)CALLOC(1, sizeof(struct flintdb_table_cursor_priv));
-    if (!priv) THROW(e, "Out of memory");
+    if (!priv) THROW(e, ERR_OUT_OF_MEMORY);
     priv->table = table;
     priv->cr = cr;
     priv->limit = NOLIMIT;
     priv->proj_count = 0;
 
     struct flintdb_cursor_row *c = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!c) THROW(e, "Out of memory");
+    if (!c) THROW(e, ERR_OUT_OF_MEMORY);
     c->p = priv;
     c->next = sql_table_cursor_next;
     c->close = sql_table_cursor_close;
@@ -2289,7 +2289,7 @@ static int sql_result_fill_columns(struct flintdb_sql_result *result, const stru
         if (!m) THROW(e, "Missing table meta");
         result->column_count = m->columns.length;
         result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-        if (!result->column_names) THROW(e, "Out of memory");
+        if (!result->column_names) THROW(e, ERR_OUT_OF_MEMORY);
         for (int i = 0; i < result->column_count; i++)
             result->column_names[i] = STRDUP(m->columns.a[i].name);
     } else {
@@ -2297,7 +2297,7 @@ static int sql_result_fill_columns(struct flintdb_sql_result *result, const stru
         if (result->column_count <= 0)
             return 0;
         result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-        if (!result->column_names) THROW(e, "Out of memory");
+        if (!result->column_names) THROW(e, ERR_OUT_OF_MEMORY);
         for (int i = 0; i < bound->item_count; i++)
             result->column_names[i] = STRDUP(sql_select_item_label(&bound->items[i]));
     }
@@ -2308,11 +2308,11 @@ EXCEPTION:
 
 static struct flintdb_sql_result *sql_result_empty(const struct sql_bound *bound, char **e) {
     struct flintdb_sql_result *result = (struct flintdb_sql_result *)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
+    if (!result) THROW(e, ERR_OUT_OF_MEMORY);
     result->column_count = bound->item_count;
     if (result->column_count > 0) {
         result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
-        if (!result->column_names) THROW(e, "Out of memory");
+        if (!result->column_names) THROW(e, ERR_OUT_OF_MEMORY);
         for (int i = 0; i < bound->item_count; i++)
             result->column_names[i] = STRDUP(sql_select_item_label(&bound->items[i]));
     }
@@ -2391,7 +2391,7 @@ static struct flintdb_sql_result *sql_exec_select_plan(const struct flintdb_sql 
     }
 
     result = (struct flintdb_sql_result *)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
+    if (!result) THROW(e, ERR_OUT_OF_MEMORY);
     if (sql_result_fill_columns(result, bound, meta, e) != 0)
         THROW_S(e);
     result->row_cursor = src;
@@ -2426,16 +2426,16 @@ static struct flintdb_sql_result * sql_exec_fast_count(const struct flintdb_sql 
             visible = 0;
     }
     struct flintdb_meta *dm = (struct flintdb_meta *)CALLOC(1, sizeof(struct flintdb_meta));
-    if (!dm) THROW(e, "Out of memory");
+    if (!dm) THROW(e, ERR_OUT_OF_MEMORY);
     *dm = flintdb_meta_new("count", e);
     if (e && *e) THROW_S(e);
     flintdb_meta_columns_add(dm, alias, VARIANT_INT64, 8, 0, SPEC_NULLABLE, NULL, NULL, e);
     if (e && *e) THROW_S(e);
 
     struct flintdb_cursor_array_priv *apriv = (struct flintdb_cursor_array_priv *)CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
-    if (!apriv) THROW(e, "Out of memory");
+    if (!apriv) THROW(e, ERR_OUT_OF_MEMORY);
     apriv->rows = arraylist_new(visible > 0 ? 1 : 0);
-    if (!apriv->rows) THROW(e, "Out of memory");
+    if (!apriv->rows) THROW(e, ERR_OUT_OF_MEMORY);
     apriv->index = 0;
     apriv->meta = dm;
     if (visible > 0) {
@@ -2452,17 +2452,17 @@ static struct flintdb_sql_result * sql_exec_fast_count(const struct flintdb_sql 
     }
 
     struct flintdb_cursor_row *ac = (struct flintdb_cursor_row *)CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!ac) THROW(e, "Out of memory");
+    if (!ac) THROW(e, ERR_OUT_OF_MEMORY);
     ac->p = apriv;
     ac->next = array_cursor_next;
     ac->close = array_cursor_close;
 
     struct flintdb_sql_result*result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
+    if (!result) THROW(e, ERR_OUT_OF_MEMORY);
     result->row_cursor = ac;
     result->column_count = 1;
     result->column_names = (char **)CALLOC(1, sizeof(char *));
-    if (!result->column_names) THROW(e, "Out of memory");
+    if (!result->column_names) THROW(e, ERR_OUT_OF_MEMORY);
     result->column_names[0] = STRDUP(alias);
     result->affected = visible;
     result->close = sql_result_close;
@@ -2892,7 +2892,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
 
     if (row_count >= 0 && !bound->has_orderby && !bound->has_limit) {
         struct flintdb_sql_result *fast = (struct flintdb_sql_result *)CALLOC(1, sizeof(struct flintdb_sql_result));
-        if (!fast) THROW(e, "Out of memory");
+        if (!fast) THROW(e, ERR_OUT_OF_MEMORY);
         struct list *rows_list = arraylist_new(row_count > 0 ? row_count : 8);
         for (int i = 0; i < row_count; i++) {
             rows_list->add(rows_list, (valtype)(uintptr_t)out_rows[i], list_row_dealloc, e);
@@ -2903,12 +2903,12 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
         out_rows = NULL;
 
         struct flintdb_cursor_array_priv *apriv = CALLOC(1, sizeof(struct flintdb_cursor_array_priv));
-        if (!apriv) THROW(e, "Out of memory");
+        if (!apriv) THROW(e, ERR_OUT_OF_MEMORY);
         apriv->rows = rows_list;
         apriv->index = 0;
         apriv->meta = NULL;
         struct flintdb_cursor_row *ac = CALLOC(1, sizeof(struct flintdb_cursor_row));
-        if (!ac) THROW(e, "Out of memory");
+        if (!ac) THROW(e, ERR_OUT_OF_MEMORY);
         ac->p = apriv;
         ac->next = array_cursor_next;
         ac->close = array_cursor_close;
@@ -2917,7 +2917,7 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
         fast->column_count = result_meta ? result_meta->columns.length : 0;
         fast->column_names = (char **)CALLOC(fast->column_count, sizeof(char *));
         if (!fast->column_names && fast->column_count > 0)
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         for (int i = 0; i < fast->column_count; i++)
             fast->column_names[i] = STRDUP(result_meta->columns.a[i].name);
         fast->affected = row_count;
@@ -2944,25 +2944,25 @@ static struct flintdb_sql_result * sql_exec_select_groupby_row(const struct flin
         THROW_S(e);
 
     struct flintdb_filesort_cursor_priv *priv = CALLOC(1, sizeof(struct flintdb_filesort_cursor_priv));
-    if (!priv) THROW(e, "Out of memory");
+    if (!priv) THROW(e, ERR_OUT_OF_MEMORY);
     priv->sorter = sorter;
     priv->current_idx = 0;
     priv->row_count = sorter->rows(sorter);
     priv->limit = bound->has_limit ? bound->limit : NOLIMIT;
 
     struct flintdb_cursor_row *wrapped_cursor = CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!wrapped_cursor) THROW(e, "Out of memory");
+    if (!wrapped_cursor) THROW(e, ERR_OUT_OF_MEMORY);
     wrapped_cursor->p = priv;
     wrapped_cursor->next = filesort_cursor_next;
     wrapped_cursor->close = filesort_cursor_close;
 
     result = (struct flintdb_sql_result *)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
+    if (!result) THROW(e, ERR_OUT_OF_MEMORY);
     result->row_cursor = wrapped_cursor;
     result->column_count = result_meta ? result_meta->columns.length : 0;
     result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
     if (!result->column_names && result->column_count > 0)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     for (int i = 0; i < result->column_count; i++)
         result->column_names[i] = STRDUP(result_meta->columns.a[i].name);
 
@@ -3006,7 +3006,7 @@ static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, 
             cr->close(cr);
         cr = NULL;
         result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-        if (!result) THROW(e, "Out of memory");
+        if (!result) THROW(e, ERR_OUT_OF_MEMORY);
         result->affected = 0;
         result->close = sql_result_close;
         return result;
@@ -3028,23 +3028,23 @@ static struct flintdb_sql_result * sql_exec_sort(struct flintdb_cursor_row *cr, 
     if (sorter_apply_bound_order(sorter, bound, (struct flintdb_meta *)src_meta, e) != 0)
         THROW_S(e);
     struct flintdb_filesort_cursor_priv *priv = CALLOC(1, sizeof(struct flintdb_filesort_cursor_priv));
-    if (!priv) THROW(e, "Out of memory");
+    if (!priv) THROW(e, ERR_OUT_OF_MEMORY);
     priv->sorter = sorter;
     priv->current_idx = 0;
     priv->row_count = sorter->rows(sorter);
     priv->limit = bound->has_limit ? bound->limit : NOLIMIT;
     struct flintdb_cursor_row *wrapped = CALLOC(1, sizeof(struct flintdb_cursor_row));
-    if (!wrapped) THROW(e, "Out of memory");
+    if (!wrapped) THROW(e, ERR_OUT_OF_MEMORY);
     wrapped->p = priv;
     wrapped->next = filesort_cursor_next;
     wrapped->close = filesort_cursor_close;
     result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
+    if (!result) THROW(e, ERR_OUT_OF_MEMORY);
     result->row_cursor = wrapped;
     result->column_count = src_meta->columns.length;
     result->column_names = (char **)CALLOC(result->column_count, sizeof(char *));
     if (!result->column_names)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     for (int i = 0; i < result->column_count; i++)
         result->column_names[i] = STRDUP(src_meta->columns.a[i].name);
     i64 visible = priv->row_count;
@@ -3081,7 +3081,7 @@ static struct flintdb_sql_result * sql_exec_begin_transaction(const struct flint
     if (!table) THROW_S(e);
 
     result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
+    if (!result) THROW(e, ERR_OUT_OF_MEMORY);
 
     result->affected = 1; // indicate success
     result->close = sql_result_close;
@@ -3103,7 +3103,7 @@ static struct flintdb_sql_result * sql_exec_commit_transaction(const struct flin
     if (!t) THROW(e, "No active transaction to commit");
 
     result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result)  THROW(e, "Out of memory");
+    if (!result)  THROW(e, ERR_OUT_OF_MEMORY);
 
     t->commit(t, e);
     t->close(t);
@@ -3122,7 +3122,7 @@ static struct flintdb_sql_result * sql_exec_rollback_transaction(const struct fl
     if (!t) THROW(e, "No active transaction to rollback");
 
     result = (struct flintdb_sql_result*)CALLOC(1, sizeof(struct flintdb_sql_result));
-    if (!result) THROW(e, "Out of memory");
+    if (!result) THROW(e, ERR_OUT_OF_MEMORY);
 
     t->rollback(t, e);
     t->close(t);

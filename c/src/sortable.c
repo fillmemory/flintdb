@@ -34,7 +34,7 @@ static int ensure_capacity(struct flintdb_filesort *me, i64 need, char **e) {
         ncap <<= 1;
     i64 *n = (i64 *)REALLOC(priv->offsets, sizeof(i64) * (size_t)ncap);
     if (!n) {
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
     priv->offsets = n;
     priv->cap = ncap;
@@ -80,7 +80,7 @@ i64 filesort_add(struct flintdb_filesort *me, struct flintdb_row *r, char **e) {
     int bytes = priv->row_bytes;
     struct buffer *raw = buffer_alloc(bytes); // TODO: reuse
     if (!raw)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     if (priv->formatter.encode(&priv->formatter, r, raw, e) != 0) {
         if (raw)
             raw->free(raw);
@@ -207,7 +207,7 @@ i64 filesort_sort(struct flintdb_filesort *me, int (*cmpr)(const void *obj, cons
 
     aux = (i64 *)MALLOC(sizeof(i64) * (size_t)n);
     if (!aux)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     // Bottom-up iterative merge sort for better locality / bounded stack
     for (i64 width = 1; width < n; width <<= 1) {
@@ -262,9 +262,9 @@ i16 compact_safe(int bytes) {
 struct flintdb_filesort *flintdb_filesort_new(const char *file, const struct flintdb_meta *m, char **e) {
 	struct flintdb_filesort *sorter = (struct flintdb_filesort *)CALLOC(1, sizeof(struct flintdb_filesort));
 	struct flintdb_filesort_priv *priv = NULL;
-	if (!sorter) THROW(e, "Out of memory");
+	if (!sorter) THROW(e, ERR_OUT_OF_MEMORY);
 	sorter->priv = priv = (struct flintdb_filesort_priv *)CALLOC(1, sizeof(struct flintdb_filesort_priv));
-	if (!priv) THROW(e, "Out of memory");
+	if (!priv) THROW(e, ERR_OUT_OF_MEMORY);
 
 	sorter->close = filesort_close;
 	sorter->rows = filesort_rows;

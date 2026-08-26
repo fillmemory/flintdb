@@ -331,7 +331,7 @@ static struct stream *stream_open_from_file(const char *filename, enum flintdb_o
         if (p)
             FREE(p);
         if (e) {
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
         return NULL;
     }
@@ -392,7 +392,7 @@ struct stream *stream_open_from_gzfile(const char *filename, enum flintdb_open_m
         if (p)
             FREE(p);
         if (e) {
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
         return NULL;
     }
@@ -421,7 +421,7 @@ struct bufio *bufio_wrap_stream(struct stream *s, size_t buffer_size, char **e) 
         if (p)
             FREE(p);
         if (e)
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         return NULL;
     }
     p->underlying = s;
@@ -431,7 +431,7 @@ struct bufio *bufio_wrap_stream(struct stream *s, size_t buffer_size, char **e) 
         FREE(p);
         FREE(b);
         if (e) {
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         }
         return NULL;
     }
@@ -489,10 +489,10 @@ struct bufio *bufio_wrap_fd(int fd, enum flintdb_open_mode mode, size_t buffer_s
     struct bufio *b = NULL;
 
     s = (struct stream *)CALLOC(1, sizeof(struct stream));
-    if (!s) THROW(e, "Out of memory");
+    if (!s) THROW(e, ERR_OUT_OF_MEMORY);
 
     p = (struct stream_priv *)CALLOC(1, sizeof(struct stream_priv));
-    if (!p) THROW(e, "Out of memory");
+    if (!p) THROW(e, ERR_OUT_OF_MEMORY);
 
     p->fd = fd;  // Don't dup, caller manages fd lifetime
     p->mode = mode;

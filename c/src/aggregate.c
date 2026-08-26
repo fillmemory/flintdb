@@ -559,7 +559,7 @@ static struct group_func_data *get_or_create_group_data(struct flintdb_aggregate
         p->group_data = groupkey_map_new();
         if (!p->group_data) {
             if (e)
-                *e = "Out of memory creating group hashmap";
+                *e = ERR_OUT_OF_MEMORY " creating group hashmap";
             return NULL;
         }
     }
@@ -574,7 +574,7 @@ static struct group_func_data *get_or_create_group_data(struct flintdb_aggregate
     struct group_func_data *gfd = (struct group_func_data *)CALLOC(1, sizeof(struct group_func_data));
     if (!gfd) {
         if (e)
-            *e = "Out of memory creating group data";
+            *e = ERR_OUT_OF_MEMORY " creating group data";
         return NULL;
     }
 

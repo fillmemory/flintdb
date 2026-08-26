@@ -164,7 +164,7 @@ static struct buffer *storage_mmap(struct storage *me, i64 offset, i32 length, c
 
     mbb = buffer_mmap(p, page_offset, map_size);
     if (!mbb)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     /* Prefetch for reads. Skip MADV_SEQUENTIAL on the write path: it lets the
      * kernel reclaim dirty pages while we (and the flusher) still need them. */
@@ -760,7 +760,7 @@ static void storage_mem_buffer_get(struct storage *me, i64 index, struct buffer 
     // Allocate new memory buffer
     struct buffer *mbb = buffer_alloc(me->mmap_bytes);
     if (!mbb) {
-        e = "Out of memory";
+        e = ERR_OUT_OF_MEMORY;
         THROW_S(e);
     }
 

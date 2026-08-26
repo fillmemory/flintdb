@@ -398,7 +398,7 @@ static int sql_buffer_append(char **buf, size_t *len, size_t *cap, const char *l
             ncap *= 2;
         p = REALLOC(*buf, ncap);
         if (!p)
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         *buf = p;
         *cap = ncap;
     }
@@ -424,7 +424,7 @@ static char *sql_buffer_take_stmt(char **buf, size_t *len, size_t *cap, char **e
         return NULL;
     stmt = MALLOC(stmt_len + 1);
     if (!stmt)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     memcpy(stmt, *buf, stmt_len);
     stmt[stmt_len] = '\0';
     rest_off = stmt_len + 1; /* skip ';' */
@@ -544,7 +544,7 @@ static int repl_line_reserve(char **buf, size_t *cap, size_t need, char **e) {
         ncap *= 2;
     p = REALLOC(*buf, ncap);
     if (!p)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     *buf = p;
     *cap = ncap;
     return 0;
@@ -714,13 +714,13 @@ static int repl_history_add(struct repl_history *h, const char *line, char **e) 
             ncap = REPL_HIST_MAX;
         p = REALLOC(h->items, (size_t)ncap * sizeof(char *));
         if (!p)
-            THROW(e, "Out of memory");
+            THROW(e, ERR_OUT_OF_MEMORY);
         h->items = p;
         h->cap = ncap;
     }
     copy = STRDUP(line);
     if (!copy)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     h->items[h->count++] = copy;
     return 0;
 EXCEPTION:
@@ -774,7 +774,7 @@ static char *repl_read_line_fgets(char **e) {
             p = REALLOC(line, ncap);
             if (!p) {
                 FREE(line);
-                THROW(e, "Out of memory");
+                THROW(e, ERR_OUT_OF_MEMORY);
             }
             line = p;
             cap = ncap;
@@ -833,7 +833,7 @@ static char *repl_read_line_edit(const char *prompt, struct repl_history *hist, 
                 FREE(draft);
                 draft = STRDUP(buf);
                 if (!draft)
-                    THROW(e, "Out of memory");
+                    THROW(e, ERR_OUT_OF_MEMORY);
             }
             if (hist_pos > 0) {
                 hist_pos--;
@@ -1003,7 +1003,7 @@ static int execute_one_statement(struct bufio *bufout, const char *stmt, int stm
             if (rownum) {
                 char **header = (char **)CALLOC(pretty_col_count, sizeof(char *));
                 if (!header)
-                    THROW(e, "Out of memory");
+                    THROW(e, ERR_OUT_OF_MEMORY);
                 header[0] = "#";
                 for (int i = 0; i < result->column_count; i++)
                     header[i + 1] = result->column_names[i];
@@ -1033,7 +1033,7 @@ static int execute_one_statement(struct bufio *bufout, const char *stmt, int stm
                     int col_off = rownum ? 1 : 0;
                     char **row_data = (char **)CALLOC(pretty_col_count, sizeof(char *));
                     if (!row_data)
-                        THROW(e, "Out of memory");
+                        THROW(e, ERR_OUT_OF_MEMORY);
                     if (rownum) {
                         char rownum_buf[32];
                         snprintf(rownum_buf, sizeof(rownum_buf), "%lld", (long long)row_count);
@@ -1652,7 +1652,7 @@ static struct flintdb_sql_iterator *sql_iterator_new(const char *sql, char **e) 
 
     struct flintdb_sql_iterator *iter = CALLOC(1, sizeof(struct flintdb_sql_iterator));
     if (!iter)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     iter->sql = sql;
     iter->pos = 0;
@@ -1663,7 +1663,7 @@ static struct flintdb_sql_iterator *sql_iterator_new(const char *sql, char **e) 
 
     if (!iter->current_stmt) {
         FREE(iter);
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
 
     return iter;
@@ -1700,7 +1700,7 @@ static struct flintdb_sql_iterator *sql_iterator_new_from_file(const char *filep
     struct flintdb_sql_iterator *iter = CALLOC(1, sizeof(struct flintdb_sql_iterator));
     if (!iter) {
         fclose(f);
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
 
     iter->file = f;
@@ -1724,7 +1724,7 @@ static struct flintdb_sql_iterator *sql_iterator_new_from_file(const char *filep
             FREE(iter->file_buffer);
         FREE(iter);
         fclose(f);
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
 
     return iter;
@@ -1799,7 +1799,7 @@ static char *sql_iterator_next(struct flintdb_sql_iterator *iter, char **e) {
                         iter->stmt_capacity *= 2;
                         char *new_buf = REALLOC(iter->current_stmt, iter->stmt_capacity);
                         if (!new_buf)
-                            THROW(e, "Out of memory");
+                            THROW(e, ERR_OUT_OF_MEMORY);
                         iter->current_stmt = new_buf;
                     }
                     iter->current_stmt[cur_len++] = ' '; // preserve whitespace
@@ -1814,7 +1814,7 @@ static char *sql_iterator_next(struct flintdb_sql_iterator *iter, char **e) {
                         iter->stmt_capacity *= 2;
                         char *new_buf = REALLOC(iter->current_stmt, iter->stmt_capacity);
                         if (!new_buf)
-                            THROW(e, "Out of memory");
+                            THROW(e, ERR_OUT_OF_MEMORY);
                         iter->current_stmt = new_buf;
                     }
                     iter->current_stmt[cur_len++] = ' '; // preserve whitespace
@@ -1838,7 +1838,7 @@ static char *sql_iterator_next(struct flintdb_sql_iterator *iter, char **e) {
                 iter->stmt_capacity *= 2;
                 char *new_buf = REALLOC(iter->current_stmt, iter->stmt_capacity);
                 if (!new_buf)
-                    THROW(e, "Out of memory");
+                    THROW(e, ERR_OUT_OF_MEMORY);
                 iter->current_stmt = new_buf;
             }
             iter->current_stmt[cur_len++] = ch;
@@ -1850,7 +1850,7 @@ static char *sql_iterator_next(struct flintdb_sql_iterator *iter, char **e) {
                 iter->stmt_capacity *= 2;
                 char *new_buf = REALLOC(iter->current_stmt, iter->stmt_capacity);
                 if (!new_buf)
-                    THROW(e, "Out of memory");
+                    THROW(e, ERR_OUT_OF_MEMORY);
                 iter->current_stmt = new_buf;
             }
             iter->current_stmt[cur_len++] = ch;
@@ -1864,7 +1864,7 @@ static char *sql_iterator_next(struct flintdb_sql_iterator *iter, char **e) {
                 iter->stmt_capacity *= 2;
                 char *new_buf = REALLOC(iter->current_stmt, iter->stmt_capacity);
                 if (!new_buf)
-                    THROW(e, "Out of memory");
+                    THROW(e, ERR_OUT_OF_MEMORY);
                 iter->current_stmt = new_buf;
             }
             iter->current_stmt[cur_len++] = ch;

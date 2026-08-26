@@ -740,7 +740,7 @@ static i64 wal_recover(struct wal *me, char **e) {
     
     // Track transaction states
     tx_committed = hashmap_new(256, hashmap_int_hash, hashmap_int_cmpr);
-    if (!tx_committed) THROW(e, "Out of memory");
+    if (!tx_committed) THROW(e, ERR_OUT_OF_MEMORY);
     
     i64 position = scan_start;
     
@@ -1221,7 +1221,7 @@ static i64 wal_storage_write_at(struct storage *me, i64 offset, struct buffer *i
                 struct dirty_page *backup = CALLOC(1, (size_t)sizeof(struct dirty_page) + (size_t)size);
                 if (!backup) {
                     old_data->free(old_data);
-                    THROW(e, "Out of memory");
+                    THROW(e, ERR_OUT_OF_MEMORY);
                 }
                 backup->offset = offset;
                 backup->data_size = size;
@@ -1281,7 +1281,7 @@ static u8 wal_storage_delete(struct storage *me, i64 offset, char **e) {
             struct dirty_page *backup = CALLOC(1, (size_t)sizeof(struct dirty_page) + (size_t)size);
             if (!backup) {
                 old_data->free(old_data);
-                THROW(e, "Out of memory");
+                THROW(e, ERR_OUT_OF_MEMORY);
             }
             backup->offset = offset;
             backup->data_size = size;
@@ -1467,7 +1467,7 @@ static struct buffer* wal_storage_head(struct storage *me, i64 offset, i32 lengt
 
 static struct storage* wal_wrap_storage(struct storage* origin, struct wal* wal, int (*callback)(const void *obj, i64 offset), const void *callback_obj, char** e) {
     struct wal_storage* ws = CALLOC(1, sizeof(struct wal_storage));
-    if (!ws) THROW(e, "Out of memory");
+    if (!ws) THROW(e, ERR_OUT_OF_MEMORY);
 
     ws->origin = origin;
     ws->logger = wal->impl;
@@ -1515,7 +1515,7 @@ struct storage* wal_wrap(struct wal* wal, struct storage_opts* opts, int (*refre
 
     origin = CALLOC(1, sizeof(struct storage));
     // TRACE("wal_wrap: opening origin storage");
-    if (!origin) THROW(e, "Out of memory");
+    if (!origin) THROW(e, ERR_OUT_OF_MEMORY);
 
     if (storage_open(origin, *opts, e) != 0) THROW_S(e);
     if (wal == &WAL_NONE) {
@@ -1618,10 +1618,10 @@ struct wal* wal_open(const char *path, const struct flintdb_meta *meta, char** e
     }
 
     w = CALLOC(1, sizeof(struct wal));
-    if (!w) THROW(e, "Out of memory");
+    if (!w) THROW(e, ERR_OUT_OF_MEMORY);
 
     impl = CALLOC(1, sizeof(struct wal_impl));
-    if (!impl) THROW(e, "Out of memory");
+    if (!impl) THROW(e, ERR_OUT_OF_MEMORY);
 
     // Set mode: TRUNCATE (default) or LOG
     // Compression is always enabled for better I/O performance

@@ -1529,7 +1529,7 @@ struct flintdb_row *flintdb_row_cast(struct flintdb_row *src, struct flintdb_met
     // Create a new row with the target meta
     r = (struct flintdb_row *)CALLOC(1, sizeof(struct flintdb_row));
     if (!r)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
 
     row_init(meta, r, e);
     if (e && *e)
@@ -2649,7 +2649,7 @@ static int text_split_fast_unquoted(struct text_formatter_priv *priv, const char
                 fieldstr = (char *)MALLOC((size_t)flen + 1);
                 use_pool = 0;
             }
-            if (!fieldstr) { THROW(e, "Out of memory"); }
+            if (!fieldstr) { THROW(e, ERR_OUT_OF_MEMORY); }
             if (flen) simd_memcpy(fieldstr, p, flen);
             fieldstr[flen] = '\0';
         }
@@ -2658,14 +2658,14 @@ static int text_split_fast_unquoted(struct text_formatter_priv *priv, const char
             cap <<= 1;
             char **na = (char **)REALLOC(arr, cap * sizeof(char *));
             if (!na) {
-                THROW(e, "Out of memory");
+                THROW(e, ERR_OUT_OF_MEMORY);
             }
             arr = na;
             priv->temp_fields = arr;
             priv->temp_fields_cap = cap;
             // grow flags in tandem
             unsigned char *nf = (unsigned char *)REALLOC(flags, cap * sizeof(unsigned char));
-            if (!nf) { THROW(e, "Out of memory"); }
+            if (!nf) { THROW(e, ERR_OUT_OF_MEMORY); }
             // zero initialize new region
             memset(nf + old_cap, 0, (size_t)(cap - old_cap));
             flags = nf;
@@ -2728,7 +2728,7 @@ static int text_split(struct text_formatter_priv *priv, const char *line, u32 li
     } else {
         sbcap = 1024;
         sb = (char *)MALLOC(sbcap);
-        if (!sb) THROW(e, "Out of memory");
+        if (!sb) THROW(e, ERR_OUT_OF_MEMORY);
         sb_borrowed = 0;
     }
     u32 sbn = 0;
@@ -2757,18 +2757,18 @@ static int text_split(struct text_formatter_priv *priv, const char *line, u32 li
                 fieldstr = (char *)MALLOC((size_t)sbn + 1);                              \
                 use_pool = 0;                                                            \
             }                                                                            \
-            if (!fieldstr) THROW(e, "Out of memory");                                             \
+            if (!fieldstr) THROW(e, ERR_OUT_OF_MEMORY);                                             \
             simd_memcpy(fieldstr, sb, sbn + 1);                                               \
         }                                                                                \
         if (cnt >= cap) {                                                                \
             u32 old_cap = cap;                                                           \
             cap <<= 1;                                                                   \
             arr = (char **)REALLOC(arr, cap * sizeof(char *));                           \
-            if (!arr) THROW(e, "Out of memory");                                                  \
+            if (!arr) THROW(e, ERR_OUT_OF_MEMORY);                                                  \
             priv->temp_fields = arr;                                                     \
             priv->temp_fields_cap = cap;                                                 \
             unsigned char *nf = (unsigned char *)REALLOC(flags, cap * sizeof(unsigned char)); \
-            if (!nf) THROW(e, "Out of memory");                                                   \
+            if (!nf) THROW(e, ERR_OUT_OF_MEMORY);                                                   \
             memset(nf + old_cap, 0, (size_t)(cap - old_cap));                            \
             flags = nf;                                                                  \
             priv->temp_is_pool = flags;                                                  \
@@ -2833,7 +2833,7 @@ static int text_split(struct text_formatter_priv *priv, const char *line, u32 li
                         // switch to heap buffer and grow
                         u32 newcap = (sbcap < 4096) ? 8192 : (sbcap << 1);                  
                         char *nsb = (char *)MALLOC(newcap);                                  
-                        if (!nsb) THROW(e, "Out of memory");                                          
+                        if (!nsb) THROW(e, ERR_OUT_OF_MEMORY);                                          
                         if (sbn) simd_memcpy(nsb, sb, sbn);                                       
                         sb = nsb;                                                            
                         sbcap = newcap;                                                      
@@ -2841,7 +2841,7 @@ static int text_split(struct text_formatter_priv *priv, const char *line, u32 li
                     } else {                                                                 
                         u32 newcap = (sbcap < 4096) ? 8192 : (sbcap << 1);                  
                         char *nsb = (char *)REALLOC(sb, newcap);                             
-                        if (!nsb) THROW(e, "Out of memory");                                          
+                        if (!nsb) THROW(e, ERR_OUT_OF_MEMORY);                                          
                         sb = nsb;                                                            
                         sbcap = newcap;                                                      
                     }                                                                        
@@ -2994,7 +2994,7 @@ static int text_encode(struct formatter *me, struct flintdb_row *r, struct buffe
                 u32 need = bl * 2;
                 char *hex = (char *)MALLOC(need);
                 if (!hex)
-                    THROW(e, "Out of memory");
+                    THROW(e, ERR_OUT_OF_MEMORY);
                 static const char *HX = "0123456789abcdef";
                 for (u32 k = 0; k < bl; k++) {
                     unsigned char b = (unsigned char)bp[k];

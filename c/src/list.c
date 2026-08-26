@@ -39,13 +39,13 @@ static int arraylist_add(struct list *me, valtype item, void (*dealloc)(valtype)
             new_capacity = me->length + 1;
         }
         new_a = (void **)REALLOC(me->a, sizeof(void *) * new_capacity);
-        if (!new_a) THROW(e, "Out of memory");
+        if (!new_a) THROW(e, ERR_OUT_OF_MEMORY);
         me->a = new_a;
         me->capacity = new_capacity;
     }
 
     ent = (struct entry *)CALLOC(1, sizeof(struct entry));
-    if (!ent) THROW(e, "Out of memory");
+    if (!ent) THROW(e, ERR_OUT_OF_MEMORY);
 
     ent->item = item;
     ent->dealloc = dealloc;
@@ -163,7 +163,7 @@ static void arraylist_FLINTDB_RDONLY_clear(struct list *me) {
 
 struct list * arraylist_strings_wrap(int argc, const char **argv, char **e) {
     struct list *me = arraylist_new(argc > 0 ? argc : 0);
-    if (!me) THROW(e, "Out of memory");
+    if (!me) THROW(e, ERR_OUT_OF_MEMORY);
 
     for (int i = 0; i < argc; i++) {
         arraylist_add(me, (valtype)argv[i], NULL, e);
@@ -189,14 +189,14 @@ struct list * arraylist_string_split(const char *string, const char *token, char
     if (!token) THROW(e, "Token is NULL");
 
     me = arraylist_new(16);
-    if (!me) THROW(e, "Out of memory");
+    if (!me) THROW(e, ERR_OUT_OF_MEMORY);
 
     size_t token_len = strlen(token);
 
     // Fast path: empty token -> return whole string as single item
     if (token_len == 0) {
         char *tok_copy = STRDUP(string);
-        if (!tok_copy) THROW(e, "Out of memory");
+        if (!tok_copy) THROW(e, ERR_OUT_OF_MEMORY);
         arraylist_add(me, (valtype)tok_copy, arraylist_string_dealloc, e);
         if (e && *e) THROW_S(e);
         return me;
@@ -205,14 +205,14 @@ struct list * arraylist_string_split(const char *string, const char *token, char
     // Single-character delimiter: keep existing strtok_r semantics (collapses repeats)
     if (token_len == 1) {
         copy = STRDUP(string);
-        if (!copy) THROW(e, "Out of memory");
+        if (!copy) THROW(e, ERR_OUT_OF_MEMORY);
 
         char *saveptr = NULL;
         char *tok = strtok_r(copy, token, &saveptr);
         while (tok) {
             if (*tok != '\0') { // skip empty segments to mimic strtok behavior
                 char *tok_copy = STRDUP(tok);
-                if (!tok_copy) THROW(e, "Out of memory");
+                if (!tok_copy) THROW(e, ERR_OUT_OF_MEMORY);
                 arraylist_add(me, (valtype)tok_copy, arraylist_string_dealloc, e);
                 if (e && *e) THROW_S(e);
             }
@@ -232,7 +232,7 @@ struct list * arraylist_string_split(const char *string, const char *token, char
         size_t seg_len = (size_t)(pos - start);
         if (seg_len > 0) {
             char *seg = (char *)MALLOC(seg_len + 1);
-            if (!seg) THROW(e, "Out of memory");
+            if (!seg) THROW(e, ERR_OUT_OF_MEMORY);
             memcpy(seg, start, seg_len);
             seg[seg_len] = '\0';
             arraylist_add(me, (valtype)seg, arraylist_string_dealloc, e);
@@ -247,7 +247,7 @@ struct list * arraylist_string_split(const char *string, const char *token, char
     // Remainder after the last token
     if (*start != '\0') {
         char *seg = STRDUP(start);
-        if (!seg) THROW(e, "Out of memory");
+        if (!seg) THROW(e, ERR_OUT_OF_MEMORY);
         arraylist_add(me, (valtype)seg, arraylist_string_dealloc, e);
         if (e && *e) THROW_S(e);
         found_any = 1;
@@ -256,7 +256,7 @@ struct list * arraylist_string_split(const char *string, const char *token, char
     // If token wasn't found at all and string wasn't empty, return the whole string
     if (!found_any && *string != '\0') {
         char *seg = STRDUP(string);
-        if (!seg) THROW(e, "Out of memory");
+        if (!seg) THROW(e, ERR_OUT_OF_MEMORY);
         arraylist_add(me, (valtype)seg, arraylist_string_dealloc, e);
         if (e && *e) THROW_S(e);
     }

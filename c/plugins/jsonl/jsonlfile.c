@@ -407,11 +407,11 @@ struct flintdb_genericfile *jsonlfile_open(const char *file, enum flintdb_open_m
     
     f = CALLOC(1, sizeof(struct flintdb_genericfile));
     if (!f)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     
     priv = CALLOC(1, sizeof(struct jsonlfile_priv));
     if (!priv)
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     
     priv->mode = mode;
     strncpy(priv->file, file, PATH_MAX - 1);

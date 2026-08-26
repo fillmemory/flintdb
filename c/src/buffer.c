@@ -333,7 +333,7 @@ struct buffer *buffer_slice(struct buffer *in, i32 offset, i32 length, char **e)
     }
     out = slice_struct_acquire();
     if (!out) {
-        THROW(e, "Out of memory");
+        THROW(e, ERR_OUT_OF_MEMORY);
     }
     buffer_slice_to(in, offset, length, out, e);
     if (e && *e) {
