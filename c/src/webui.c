@@ -280,7 +280,7 @@ static char *build_json_error(const char *msg, i64 *out_len) {
     p_cJSON_AddItemToArray(header_arr, p_cJSON_CreateString("ERROR"));
     p_cJSON_AddItemToArray(root, header_arr);
     cJSON *row_arr = p_cJSON_CreateArray();
-    p_cJSON_AddItemToArray(row_arr, p_cJSON_CreateString(msg ? msg : "unknown"));
+    p_cJSON_AddItemToArray(row_arr, p_cJSON_CreateString(ERR_OR_UNKNOWN(msg)));
     p_cJSON_AddItemToArray(root, row_arr);
     char *json_str = p_cJSON_PrintUnformatted(root);
     p_cJSON_Delete(root);

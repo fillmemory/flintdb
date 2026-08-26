@@ -1547,7 +1547,7 @@ struct storage* wal_wrap(struct wal* wal, struct storage_opts* opts, int (*refre
     return wrapped;
 
 EXCEPTION:    
-    WARN("wal_wrap: exception occurred, cleaning up : %s", e && *e ? *e : "unknown");
+    WARN("wal_wrap: exception occurred, cleaning up : %s", ERR_OR_UNKNOWN(e ? *e : NULL));
     if (wrapped) {
         if (wal != &WAL_NONE) {
             wal_storage_close_internal((struct wal_storage*)wrapped);

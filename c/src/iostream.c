@@ -96,7 +96,7 @@ static ssize_t stream_gzip_read(struct stream *s, char *data, size_t size, char 
     if (n < 0) {
         int errnum = 0;
         const char *msg = gzerror(p->gz, &errnum);
-        if (e) THROW(e, "gzread failed: %s", msg ? msg : "unknown"); 
+        if (e) THROW(e, "gzread failed: %s", ERR_OR_UNKNOWN(msg)); 
         return -1;
     }
     return (ssize_t)n;
@@ -116,7 +116,7 @@ static ssize_t stream_gzip_write(struct stream *s, const char *data, size_t size
             int errnum = 0;
             const char *msg = gzerror(p->gz, &errnum);
             if (e) {
-                THROW(e, "gzwrite failed: %s", msg ? msg : "unknown");
+                THROW(e, "gzwrite failed: %s", ERR_OR_UNKNOWN(msg));
             }
             return -1;
         }

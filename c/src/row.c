@@ -1487,7 +1487,7 @@ struct flintdb_row *flintdb_row_from_argv(struct flintdb_meta *meta, u16 argc, c
 
         int col = flintdb_column_at(meta, k);
         if (col < 0)
-            THROW(e, "unknown column: %s", k);
+            THROW(e, ERR_UNKNOWN_COLUMN ": %s", k);
         if (col >= r->length)
             THROW(e, "column index out of range: %d", col);
 

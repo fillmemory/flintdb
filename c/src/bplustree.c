@@ -1665,7 +1665,7 @@ int bplustree_init(
     strncpy_safe(opts.type, type, sizeof(opts.type));
 
     me->storage = wal_wrap(wal, &opts, bplustree_wal_refresh, me, e);
-    if (e && *e) THROW(e, "wal_wrap failed: %s", *e ? *e : "unknown");
+    if (e && *e) THROW(e, "wal_wrap failed: %s", ERR_OR_UNKNOWN(*e));
     if (me->storage == NULL) THROW(e, "CALLOC failed");
 
     cache_limit = (cache_limit <= 0) ? DEFAULT_BPLUSTREE_CACHE_LIMIT : cache_limit;
@@ -1674,12 +1674,12 @@ int bplustree_init(
     me->cache = lruhashmap_new(cache_limit * 2, cache_limit, &hashmap_int_hash, &hashmap_i64_cmpr);
 
     me->header = me->storage->head(me->storage, 0, HEAD_BYTES, e);
-    if (e && *e) THROW(e, "storage head failed: %s", *e ? *e : "unknown");
+    if (e && *e) THROW(e, "storage head failed: %s", ERR_OR_UNKNOWN(*e));
     if (me->header == NULL) THROW(e, "storage head returned NULL");
 
     struct buffer h = {0};
     me->header->slice(me->header, 0, HEAD_BYTES, &h, e);
-    if (e && *e) THROW(e, "header slice failed: %s", *e ? *e : "unknown");
+    if (e && *e) THROW(e, "header slice failed: %s", ERR_OR_UNKNOWN(*e));
 
     i8 x = h.i8_get(&h, e);
     h.clear(&h);
@@ -1691,13 +1691,13 @@ int bplustree_init(
 
         me->count = h.i64_get(&h, e);
         bplustree_root_get(me, e);
-        if (e && *e) THROW(e, "bplustree_root_get failed: %s", *e ? *e : "unknown");
+        if (e && *e) THROW(e, "bplustree_root_get failed: %s", ERR_OR_UNKNOWN(*e));
     } else {
         // New B+Tree
         h.array_put(&h, magic, 4, e);
         h.i64_put(&h, 0L, e); // count
         bplustree_root_set(me, NULL, e);
-        if (e && *e) THROW(e, "bplustree_root_set failed: %s", *e ? *e : "unknown");
+        if (e && *e) THROW(e, "bplustree_root_set failed: %s", ERR_OR_UNKNOWN(*e));
     }
 
     return 0;

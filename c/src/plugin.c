@@ -417,7 +417,7 @@ int plugin_scan_directory(const char *dir, char **e) {
             loaded++;
         } else {
             DEBUG("plugin_scan_directory: failed to load '%s': %s", 
-                  plugin_path, err ? err : "unknown error");
+                  plugin_path, ERR_OR_UNKNOWN_ERROR(err));
             // Do NOT free err: it points to a thread-local buffer (see THROW in runtime.h)
             // Just ignore or reset the pointer.
             err = NULL;

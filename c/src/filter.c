@@ -660,7 +660,7 @@ static struct filter *parse_condition(const char **s, struct flintdb_meta *meta,
     // find column index using column_at
     int column_index = flintdb_column_at(meta, column_name);
     if (column_index < 0) {
-        THROW(e, "unknown column '%s'", column_name);
+        THROW(e, ERR_UNKNOWN_COLUMN " '%s'", column_name);
     }
     
     enum arithmetic_operator op = parse_operator(s, e);

@@ -608,7 +608,7 @@ static struct flintdb_genericfile *textfile_open(const char *file, enum flintdb_
 
     enum fileformat fmt = detect_file_format(file);
     if (fmt == FORMAT_UNKNOWN)
-        THROW(e, "Unknown file format for file: %s", file);
+        THROW(e, ERR_UNKNOWN_FILE_FORMAT " for file: %s", file);
     if (fmt == FORMAT_BIN)
         THROW(e, "Binary format not supported for file: %s", file);
 

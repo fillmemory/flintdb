@@ -3791,7 +3791,7 @@ int main(int argc, char **argv) {
     const char *gzpath = "../java/temp/tpch/lineitem.tbl.gz";
     struct bufio *b = file_bufio_open(gzpath, FLINTDB_RDONLY, 64 * 1024, &e);
     if (e || !b)
-        THROW(&e, "bufio_open failed: %s", e ? e : "unknown error");
+        THROW(&e, "bufio_open failed: %s", ERR_OR_UNKNOWN_ERROR(e));
 
     STOPWATCH_START(watch);
     i64 lines = 0;
@@ -3825,7 +3825,7 @@ int main(int argc, char **argv) {
 
     f = flintdb_genericfile_open("../c/temp/tpch_lineitem.tsv.gz", FLINTDB_RDONLY, NULL, &e);
     if (e || !f)
-        THROW(&e, "%s", e ? e : "unknown error");
+        THROW(&e, "%s", ERR_OR_UNKNOWN_ERROR(e));
 
     i64 nrows = f->rows(f, &e);
     if (e)
@@ -3834,7 +3834,7 @@ int main(int argc, char **argv) {
     // Iterate all rows from source file and insert into the table
     struct flintdb_cursor_row *cur = f->find(f, NULL, &e);
     if (e || !cur)
-        THROW(&e, "find cursor failed: %s", e ? e : "unknown error");
+        THROW(&e, "find cursor failed: %s", ERR_OR_UNKNOWN_ERROR(e));
 
     STOPWATCH_START(watch);
     i64 rows = 0;
@@ -4464,16 +4464,16 @@ int main(int argc, char **argv) {
 
     t = flintdb_table_open("../c/temp/c/tpch_lineitem"TABLE_NAME_SUFFIX, FLINTDB_RDWR, &meta, &e);
     if (e || !t)
-        THROW(&e, "table_open failed: %s", e ? e : "unknown error");
+        THROW(&e, "table_open failed: %s", ERR_OR_UNKNOWN_ERROR(e));
 
     f = flintdb_genericfile_open("../c/temp/tpch/lineitem.tbl.gz", FLINTDB_RDONLY, NULL, &e);
     if (e || !f)
-        THROW(&e, "genericfile_open failed: %s", e ? e : "unknown error");
+        THROW(&e, "genericfile_open failed: %s", ERR_OR_UNKNOWN_ERROR(e));
 
     // Iterate all rows from source file and insert into the table
     struct flintdb_cursor_row *cur = f->find(f, NULL, &e);
     if (e || !cur)
-        THROW(&e, "find cursor failed: %s", e ? e : "unknown error");
+        THROW(&e, "find cursor failed: %s", ERR_OR_UNKNOWN_ERROR(e));
 
     STOPWATCH_START(watch);
     i64 rows = 0;
@@ -4557,7 +4557,7 @@ int main(int argc, char **argv) {
 
     t = flintdb_table_open("../c/temp/c/tpch_lineitem"TABLE_NAME_SUFFIX, FLINTDB_RDONLY, NULL, &e);
     if (e || !t)
-        THROW(&e, "table_open failed: %s", e ? e : "unknown error");
+        THROW(&e, "table_open failed: %s", ERR_OR_UNKNOWN_ERROR(e));
 
     i64 nrows = t->rows(t, &e);
     if (e)
@@ -4920,12 +4920,12 @@ int main(int argc, char **argv) {
 
     f = flintdb_genericfile_open("../c/temp/tpch/lineitem.tbl.gz", FLINTDB_RDONLY, NULL, &e);
     if (e || !f)
-        THROW(&e, "genericfile_open failed: %s", e ? e : "unknown error");
+        THROW(&e, "genericfile_open failed: %s", ERR_OR_UNKNOWN_ERROR(e));
 
     // Iterate all rows from source file and insert into the table
     struct flintdb_cursor_row *cur = f->find(f, NULL, &e);
     if (e || !cur)
-        THROW(&e, "find cursor failed: %s", e ? e : "unknown error");
+        THROW(&e, "find cursor failed: %s", ERR_OR_UNKNOWN_ERROR(e));
 
     unlink("../c/temp/c/tpch_lineitem.sqlite"); // remove existing
 

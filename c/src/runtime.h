@@ -45,6 +45,13 @@
 #define ERROR_BUFSZ 2048
 extern __thread char TL_ERROR[ERROR_BUFSZ]; // thread-local error buffer
 #define ERR_OUT_OF_MEMORY "Out of memory"
+#define ERR_UNKNOWN "unknown"
+#define ERR_UNKNOWN_ERROR "unknown error"
+#define ERR_UNKNOWN_COLUMN "unknown column"
+#define ERR_UNKNOWN_FILE_FORMAT "Unknown file format"
+#define ERR_UNKNOWN_AGGREGATE_FUNCTION "Unknown aggregate function"
+#define ERR_OR_UNKNOWN(s) ((s) ? (s) : ERR_UNKNOWN)
+#define ERR_OR_UNKNOWN_ERROR(s) ((s) ? (s) : ERR_UNKNOWN_ERROR)
 // Usage: char *e = NULL; ... THROW(&e, "Error"); ... EXCEPTION: fprintf(stderr, "Error: %s\n", e);
 #define THROW(e, format, ...) { snprintf(TL_ERROR, ERROR_BUFSZ-1, "%s:%d %s " format, __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__); if (e) *e = TL_ERROR; else fprintf(stdout, "UNCAUGHTED: %s\n", TL_ERROR); goto EXCEPTION; }
 #define THROW_S(s) { goto EXCEPTION; } // use existing string s

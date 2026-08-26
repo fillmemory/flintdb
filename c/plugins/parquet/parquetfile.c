@@ -694,7 +694,7 @@ static i64 parquetfile_write(struct flintdb_genericfile *me, struct flintdb_row 
                 free(schema);
             }
             priv->arrow_schema = NULL;
-            THROW(e, "Failed to open Parquet writer: %s - %s", priv->file, error_msg ? error_msg : "unknown error");
+            THROW(e, "Failed to open Parquet writer: %s - %s", priv->file, ERR_OR_UNKNOWN_ERROR(error_msg));
         }
         if (error_msg) {
             free(error_msg);
@@ -816,12 +816,12 @@ static struct flintdb_row *parquetfile_cursor_next(struct flintdb_cursor_row *cu
 
         // Defensive checks: avoid calling NULL function pointers (segfault at 0x0)
         if (!cp->stream->get_schema || !cp->stream->get_next) {
-            const char *err = (cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : "unknown");
+            const char *err = (cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : ERR_UNKNOWN);
             THROW(e, "Invalid Arrow stream (missing get_schema/get_next). Parquet plugin ABI mismatch or initialization failure. LastError: %s", err);
         }
 
         if (cp->stream->get_schema(cp->stream, &cp->schema) != 0) {
-            const char *err = cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : "unknown";
+            const char *err = cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : ERR_UNKNOWN;
             THROW(e, "Failed to get schema from Arrow stream: %s", err);
         }
     }
@@ -841,12 +841,12 @@ static struct flintdb_row *parquetfile_cursor_next(struct flintdb_cursor_row *cu
 
             // Get next batch from stream
             if (!cp->stream->get_next) {
-                const char *err = (cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : "unknown");
+                const char *err = (cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : ERR_UNKNOWN);
                 THROW(e, "Invalid Arrow stream (missing get_next). LastError: %s", err);
             }
             int status = cp->stream->get_next(cp->stream, &cp->current_batch);
             if (status != 0) {
-                const char *err = cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : "unknown";
+                const char *err = cp->stream->get_last_error ? cp->stream->get_last_error(cp->stream) : ERR_UNKNOWN;
                 THROW(e, "Failed to get next batch from Arrow stream: %s", err);
             }
 
@@ -1185,7 +1185,7 @@ static struct flintdb_cursor_row *parquetfile_find(const struct flintdb_genericf
     char *error_msg = NULL;
     void *arrow_reader = g_arrow.reader_open_file(priv->file, &error_msg);
     if (!arrow_reader) {
-        THROW(e, "Failed to open Parquet reader: %s - %s", priv->file, error_msg ? error_msg : "unknown error");
+        THROW(e, "Failed to open Parquet reader: %s - %s", priv->file, ERR_OR_UNKNOWN_ERROR(error_msg));
     }
     if (error_msg) {
         free(error_msg);
@@ -1214,7 +1214,7 @@ static struct flintdb_cursor_row *parquetfile_find(const struct flintdb_genericf
 
     // Validate stream function pointers early to avoid null call crashes later.
     if (!cp->stream_storage->get_schema || !cp->stream_storage->get_next) {
-        const char *err = (cp->stream_storage->get_last_error ? cp->stream_storage->get_last_error(cp->stream_storage) : "unknown");
+        const char *err = (cp->stream_storage->get_last_error ? cp->stream_storage->get_last_error(cp->stream_storage) : ERR_UNKNOWN);
         THROW(e, "Invalid Arrow stream returned by parquet plugin (missing get_schema/get_next). LastError: %s", err);
     }
 
@@ -1318,7 +1318,7 @@ static struct flintdb_meta parquetfile_meta_from_schema(const char *file, char *
     char *error_msg = NULL;
     reader = g_arrow.reader_open_file(file, &error_msg);
     if (!reader) {
-        THROW(e, "Failed to open Parquet reader for schema: %s - %s", file, error_msg ? error_msg : "unknown error");
+        THROW(e, "Failed to open Parquet reader for schema: %s - %s", file, ERR_OR_UNKNOWN_ERROR(error_msg));
     }
     if (error_msg) {
         free(error_msg);
@@ -1329,7 +1329,7 @@ static struct flintdb_meta parquetfile_meta_from_schema(const char *file, char *
     }
 
     if (stream.get_schema(&stream, &schema) != 0) {
-        const char *err = stream.get_last_error ? stream.get_last_error(&stream) : "unknown";
+        const char *err = stream.get_last_error ? stream.get_last_error(&stream) : ERR_UNKNOWN;
         THROW(e, "Failed to get schema from Arrow stream: %s", err);
     }
 
@@ -1405,7 +1405,7 @@ static void parquetfile_close(struct flintdb_genericfile *me) {
                 DEBUG("Flushing %d remaining rows on close", priv->buffer_size);
                 char *flush_error = NULL;
                 if (parquetfile_flush_buffer(priv, &flush_error) != 0) {
-                    WARN("Failed to flush buffer on close: %s", flush_error ? flush_error : "unknown error");
+                    WARN("Failed to flush buffer on close: %s", ERR_OR_UNKNOWN_ERROR(flush_error));
                     if (flush_error)
                         FREE(flush_error);
                 }

@@ -433,7 +433,7 @@ static struct flintdb_aggregate_func *agg_func_new(enum sql_agg_fn fn, const cha
     case SQL_AGG_DISTINCT_HLL_COUNT:
         return flintdb_func_distinct_hll_count(col, alias, VARIANT_NULL, cond, e);
     default:
-        THROW(e, "Unknown aggregate function: %s", agg_fn_name(fn));
+        THROW(e, ERR_UNKNOWN_AGGREGATE_FUNCTION ": %s", agg_fn_name(fn));
     }
 EXCEPTION:
     return NULL;
@@ -485,7 +485,7 @@ int sql_bound_aggregates(const struct sql_bound *b, const struct flintdb_meta *m
         if (it->kind != SQL_ITEM_AGG)
             THROW(e, "Malformed aggregate expression: %s", it->expr);
         if (it->agg == SQL_AGG_UNKNOWN)
-            THROW(e, "Unknown aggregate function: %s", it->expr);
+            THROW(e, ERR_UNKNOWN_AGGREGATE_FUNCTION ": %s", it->expr);
 
         funcs[aggr_count] = agg_func_new(it->agg, it->name, sql_select_item_label(it), e);
         if (e && *e)
