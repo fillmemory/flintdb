@@ -57,6 +57,55 @@ extern int row_bytes(const struct flintdb_meta *m);
  * Row pool is not used here. Pool keys by meta pointer; priv->meta is a
  * copy freed in filesort_close, so pooled rows would dangle / mix schemas
  * if the next sorter reused that address. Use flintdb_row_new and free.
+ *
+ * On-disk file (FlintDB storage, same engine as table .bin)
+ * ---------------------------------------------------------
+ * One file: the path passed to flintdb_filesort_new(). Callers:
+ *   sql_exec  <tmpdir>/flintdb_sort_<epoch>.tmp
+ *   tests     temp/test-sortable.sort
+ * No sidecar index. offsets[] is RAM-only; a crash leaves an unused temp
+ * payload file. (Java FileSorter also keeps offsets in memory; C does not
+ * write a second file.)
+ *
+ * Integers are little-endian (buffer memcpy of host i16/i32/i64).
+ *
+ *   [0, 16384)     file header (HEADER_BYTES / FLINTDB_FILE_HEADER_BYTES)
+ *   [16384, eof)   data blocks
+ *
+ * File header field layout is in storage.c (Storage file format). filesort
+ * does not interpret it; storage_open does. Blocks begin at byte 16384.
+ *
+ * One physical block = BLOCK_HEADER_BYTES (16) + payload_cap:
+ *   1B  status     '+' occupied / '-' empty
+ *   1B  mark       'D' first block of a record / 'N' overflow continuation
+ *   2B  data_len   payload bytes in THIS block
+ *   4B  total_len  remaining record bytes from this block
+ *   8B  next       next block INDEX, or -1
+ *   payload_cap bytes
+ *
+ * offsets[i] / rowid is a block INDEX (0, 1, 2, ...), not a file byte
+ * offset. Byte position = 16384 + index * physical_block.
+ *
+ * payload_cap (see flintdb_filesort_new / compact_safe):
+ *   opts.block_bytes = row_bytes(meta)   // max FORMAT_BIN size for the schema
+ *   if row_bytes >= 4080:
+ *     compact = 4080, physical_block = 4096 (16 + 4080)
+ *     a row longer than 4080 spans blocks via next ('N')
+ *   else:
+ *     compact = -1, physical_block = 16 + row_bytes
+ *     encoded row fits in one block (row_bytes is the schema max)
+ *
+ * FORMAT_BIN row payload (row.c bin_encode; same as table rows):
+ *   i16 ncol
+ *   for each column:
+ *     i16 type     VARIANT_NULL (0) if null — then no payload
+ *     varlen (STRING, DECIMAL, BYTES, BLOB): i16 n + n bytes
+ *       STRING is not padded to column width
+ *     fixed: INT8/UINT8=1  INT16/UINT16=2  INT32/UINT32/FLOAT=4
+ *            INT64/DOUBLE/TIME=8  DATE=3  UUID/IPV6=16
+ *
+ * filesort_add appends one record (write → new block index).
+ * filesort_sort never write_at / delete / relocates those blocks.
  */
 
 
@@ -66,7 +115,7 @@ struct flintdb_filesort_priv {
 	struct flintdb_meta meta;    // copy of table meta; valid until filesort_close
 
     i32 row_bytes;              // cached row byte size
-	i64 *offsets;                // permutation of storage rowids; sort reorders this only
+	i64 *offsets;                // RAM-only permutation of block indexes; not stored in the file
 	i64 rows;                    // number of rows
 	i64 cap;                     // capacity of offsets array
 };
@@ -315,6 +364,9 @@ EXCEPTION:
     return -1;
 }
 
+// Map schema max row size to storage compact mode.
+// >= 4080: 4KB physical blocks (16-byte header + 4080 payload), overflow via 'N'.
+// <  4080: one block of 16 + bytes, compact disabled (-1).
 i16 compact_safe(int bytes) {
     if (bytes >= 4080) return 4080; // storage block header (16) + data (4080) = 4096
     return -1;
@@ -335,11 +387,12 @@ struct flintdb_filesort *flintdb_filesort_new(const char *file, const struct fli
 
 	priv->meta = *m; // copy meta
 
-    // Setup formatter (binary format to match table/storage layout)
+    // FORMAT_BIN: same on-disk row encoding as table .bin (see file comment).
     if (formatter_init(FORMAT_BIN, &priv->meta, &priv->formatter, e) != 0)
         THROW_S(e);
 
-    // Setup storage with block size based on row bytes
+    // Single mmap storage file at `file`. block_bytes = schema max BIN size;
+    // compact_safe may clamp the physical block to 4096 (overflow chain).
     struct storage_opts opts = {0};
     opts.block_bytes = row_bytes(&priv->meta);
     // opts.block_bytes = MIN(64 * 1024, row_bytes(&priv->meta)); // limit to 64KB block size
