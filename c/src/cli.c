@@ -4,8 +4,11 @@
 
 // Include standard headers first (before any project headers)
 // to ensure _GNU_SOURCE takes effect
+#include <ctype.h>
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -43,10 +46,24 @@
 #define MAX_PRETTY_ROWS 10000
 #define MAX_PRETTY_COLS 100
 
+#define REPL_META_NONE 0
+#define REPL_META_EXIT 1
+#define REPL_META_HELP 2
+
+// REPL: SIGINT cancels the current input instead of exiting
+static volatile sig_atomic_t cli_interrupted = 0;
+static volatile sig_atomic_t cli_repl_active = 0;
 
 // Signal handler for graceful shutdown
 static void signal_handler(int signum) {
-    // fprintf(stderr, "\nReceived signal %d, cleaning up...\n", signum);
+    if (cli_repl_active && signum == SIGINT) {
+        cli_interrupted = 1;
+        {
+            ssize_t n = write(STDERR_FILENO, "^C\n", 3);
+            (void)n;
+        }
+        return;
+    }
     flintdb_cleanup(NULL);
     exit(signum == SIGINT ? 130 : 1);
 }
@@ -74,6 +91,10 @@ static void sql_iterator_free(struct flintdb_sql_iterator *iter);
 
 // Forward declarations
 static i64 execute_cli(FILE *out, int argc, char *argv[], char **e);
+static i64 run_repl(FILE *out, int pretty, int status, int head, int rownum, char **e);
+static int execute_one_statement(struct bufio *bufout, const char *stmt, int stmt_idx, int pretty, int status,
+                                 int head, int rownum, struct flintdb_transaction **transaction, i64 *affected,
+                                 char **e);
 static void usage(const char *progname);
 
 // Utility functions
@@ -137,9 +158,22 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    // Register signal handlers for graceful shutdown
+    // Register signal handlers for graceful shutdown.
+    // No SA_RESTART so REPL fgets() returns EINTR on Ctrl-C.
+#ifdef _WIN32
     signal(SIGINT, signal_handler);  // Ctrl-C
     signal(SIGTERM, signal_handler); // kill command
+#else
+    {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = signal_handler;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        sigaction(SIGINT, &sa, NULL);
+        sigaction(SIGTERM, &sa, NULL);
+    }
+#endif
 
     // Check for web UI mode before normal CLI execution
     for (int i = 1; i < argc; i++) {
@@ -176,6 +210,7 @@ int main(int argc, char *argv[]) {
 static void usage(const char *progname) {
     const char *CMD = progname ? progname : "./bin/db";
     printf("Usage: \"%s\" [options]\n\n", CMD);
+    printf("With no SQL and a terminal, starts an interactive prompt.\n\n");
     printf(" options:\n");
     printf(" \t<SQL>     \tSELECT|INSERT|DELETE|UPDATE|DESC|META|SHOW\n");
     printf(" \t-pretty   \tpretty print when sql is SELECT\n");
@@ -189,6 +224,7 @@ static void usage(const char *progname) {
     printf(" \t-version \tshow version information\n");
     printf(" \t-help     \tshow this help\n\n");
     printf(" examples:\n");
+    printf("\t%s\n", CMD);
     printf("\t%s \"SELECT * FROM temp/tpch_lineitem"TABLE_NAME_SUFFIX" USE INDEX(PRIMARY DESC) WHERE l_orderkey > 1 LIMIT 0, 10\" -rownum -pretty\n", CMD);
     printf("\t%s \"SELECT * FROM temp/tpch_lineitem.tsv.gz WHERE l_orderkey > 1 LIMIT 0, 10\"\n", CMD);
     printf("\t%s \"SELECT * FROM temp/file"TABLE_NAME_SUFFIX" INTO temp/output.tsv.gz\"\n", CMD);
@@ -207,184 +243,317 @@ static void usage(const char *progname) {
     printf("\n");
 }
 
-/**
- * Execute CLI commands
- */
-static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
-    char *sql = NULL;
-    char *sql_file = NULL;
-    int pretty = 0;
-    int status = 0;
-    int head = 1;
-    int rownum = 0;
-    /* Declare result early to avoid uninitialized warning on THROW goto */
-    struct flintdb_sql_result *result = NULL;
-    struct bufio *bufout = NULL; // Buffered output wrapper
-    struct flintdb_sql_iterator *iter = NULL;
-    struct flintdb_transaction *transaction = NULL;
-    i64 affected = 0;
-
-    char buf[65536]; // General purpose buffer (increased for large SQL output like META)
-    size_t buf_len = sizeof(buf);
-    char num_buf[64], time_buf[64], ops_buf[64]; // For formatting numbers and time
-
-    // Parse arguments
-    for (int i = 1; i < argc; i++) {
-        const char *s = argv[i];
-        if (strcmp(s, "-help") == 0) {
-            usage(argv[0]);
+static int cmd_eq(const char *a, const char *b) {
+    if (!a || !b)
+        return 0;
+    for (; *a && *b; a++, b++) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b))
             return 0;
-        } else if (strcmp(s, "-version") == 0) {
-            printf("%s version %s (build: %s, git: %s)\n", PRODUCT_NAME, VERSION, BUILD_TIME, GIT_REVISION);
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+static int buffer_is_blank(const char *s) {
+    if (!s)
+        return 1;
+    while (*s) {
+        if (!isspace((unsigned char)*s))
             return 0;
-        } else if (strcmp(s, "-pretty") == 0) {
-            pretty = 1;
-        } else if (strcmp(s, "-status") == 0) {
-            status = 1;
-        } else if (strcmp(s, "-nohead") == 0) {
-            head = 0;
-        } else if (strcmp(s, "-rownum") == 0) {
-            rownum = 1;
-        } else if (strcmp(s, "-sql") == 0) {
-            if (i + 1 < argc) {
-                sql = argv[++i];
-            } else {
-                THROW(e, "-sql requires an argument");
+        s++;
+    }
+    return 1;
+}
+
+static int repl_meta_kind(const char *s) {
+    char tmp[64];
+    size_t n = 0;
+
+    if (!s)
+        return REPL_META_NONE;
+    while (*s && isspace((unsigned char)*s))
+        s++;
+    while (s[n] && n + 1 < sizeof(tmp)) {
+        tmp[n] = s[n];
+        n++;
+    }
+    if (s[n])
+        return REPL_META_NONE;
+    tmp[n] = '\0';
+    while (n > 0 && isspace((unsigned char)tmp[n - 1]))
+        tmp[--n] = '\0';
+    if (n > 0 && tmp[n - 1] == ';') {
+        tmp[--n] = '\0';
+        while (n > 0 && isspace((unsigned char)tmp[n - 1]))
+            tmp[--n] = '\0';
+    }
+    if (n == 0)
+        return REPL_META_NONE;
+    if (cmd_eq(tmp, "exit") || cmd_eq(tmp, "quit") || cmd_eq(tmp, "\\q") || cmd_eq(tmp, "\\exit"))
+        return REPL_META_EXIT;
+    if (cmd_eq(tmp, "help") || cmd_eq(tmp, "\\h") || cmd_eq(tmp, "\\help"))
+        return REPL_META_HELP;
+    return REPL_META_NONE;
+}
+
+/* 1 if s has a ';' outside quotes/comments. stmt_len is bytes before that ';'. */
+static int sql_has_complete_stmt(const char *s, size_t *stmt_len) {
+    char quote = 0;
+    char comment_end = 0;
+    char prev = 0;
+    const char *p;
+
+    if (!s)
+        return 0;
+    for (p = s; *p; p++) {
+        char ch = *p;
+        char next = p[1];
+
+        if (quote == 0 && comment_end == 0) {
+            if (ch == '-' && next == '-') {
+                comment_end = '\n';
+                prev = '-';
+                p++;
+                continue;
             }
-        } else if (strcmp(s, "-f") == 0) {
-            if (i + 1 < argc) {
-                sql_file = argv[++i];
-            } else {
-                THROW(e, "-f requires a file path");
-            }
-        } else if (strcmp(s, "-log") == 0) {
-            // TODO: Enable detailed logging
-        } else if (s[0] == '-') {
-            // Unknown option - ignore with warning
-            fprintf(stderr, "Warning: Unknown option '%s' - ignoring\n", s);
-        } else {
-            // Treat as SQL if no explicit -sql flag
-            if (sql == NULL && sql_file == NULL) {
-                sql = (char *)s;
+            if (ch == '/' && next == '*') {
+                comment_end = '*';
+                prev = '*';
+                p++;
+                continue;
             }
         }
-    }
-
-    // If no SQL provided but stdin is available, read from stdin
-    if (sql == NULL && sql_file == NULL) {
-        if (argc <= 1 && isatty(STDIN_FILENO)) {
-            // No arguments and stdin is a terminal - show usage
-            usage(argv[0]);
-            return 0;
-        } else if (!isatty(STDIN_FILENO)) {
-            // stdin is not a terminal - read from stdin
-            sql_file = "-"; // Special marker for stdin
-        } else {
-            THROW(e, "SQL statement or file must be specified");
-        }
-    }
-
-    if (sql != NULL && sql_file != NULL) {
-        THROW(e, "Cannot specify both -sql and -f options");
-    }
-
-    // Wrap stdout with buffered writer (avoid fprintf per-call overhead)
-    // Using custom bufio provides ~10x better throughput than line-buffered stdio
-    if (out == stdout || out == stderr) {
-        int fd = fileno(out);
-        bufout = bufio_wrap_fd(fd, FLINTDB_RDWR, CLI_BUFIO_OUTPUT_MAX, e); // 64KB buffer
-        if (e && *e)
-            THROW_S(e);
-    }
-
-    if (sql_file) {
-        iter = sql_iterator_new_from_file(sql_file, e);
-    } else {
-        iter = sql_iterator_new(sql, e);
-    }
-    if (e && *e)
-        THROW_S(e);
-
-    i64 total_affected = 0;
-    int has_error = 0;
-    int stmt_idx = 0;
-    char *stmt = NULL;
-
-    while ((stmt = sql_iterator_next(iter, e)) != NULL) {
-        if (e && *e) {
-            FREE(stmt);
-            THROW_S(e);
-        }
-
-        if (stmt_idx > 0 && status) {
-            bufio_print_newline(bufout, e); // blank line between statements
-        }
-
-        // Execute SQL
-        STOPWATCH_START(watch);
-        result = flintdb_sql_exec(stmt, transaction, e);
-        time_dur(time_elapsed(&watch), time_buf, sizeof(time_buf));
-        snprintf(ops_buf, sizeof(ops_buf), "%.0f", result ? time_ops(result->affected, &watch) : 0);
-
-        FREE(stmt); // Free statement after execution
-
-        if (e && *e) {
-            snprintf(buf, sizeof(buf), "Error in statement %d: %s\n", stmt_idx + 1, *e);
-            bufio_print(bufout, buf, e);
-            *e = NULL; // Clear error to continue
-            has_error = 1;
-            stmt_idx++;
+        if (comment_end == '\n') {
+            if (ch == '\n')
+                comment_end = 0;
+            prev = ch;
             continue;
         }
-        if (!result) {
-            snprintf(buf, sizeof(buf), "Error in statement %d: Failed to execute SQL\n", stmt_idx + 1);
-            bufio_print(bufout, buf, e);
-            has_error = 1;
-            stmt_idx++;
+        if (comment_end == '*') {
+            if (ch == '*' && next == '/') {
+                comment_end = 0;
+                prev = '/';
+                p++;
+                continue;
+            }
+            prev = ch;
             continue;
         }
-        
-        // Keep transaction for next statement if any
-        transaction = result->transaction;
+        if (quote != 0) {
+            if (prev != '\\' && ch == quote)
+                quote = 0;
+            prev = ch;
+            continue;
+        }
+        if (ch == '\'' || ch == '"' || ch == '`') {
+            quote = ch;
+            prev = ch;
+            continue;
+        }
+        if (ch == ';') {
+            if (stmt_len)
+                *stmt_len = (size_t)(p - s);
+            return 1;
+        }
+        prev = ch;
+    }
+    return 0;
+}
 
-        // Handle different result types
-        if (result->row_cursor) {
-            // SELECT query with row cursor
-            struct pretty_table *table = NULL;
+static int sql_buffer_append(char **buf, size_t *len, size_t *cap, const char *line, char **e) {
+    size_t n = line ? strlen(line) : 0;
+    size_t need = *len + n + 2; /* newline + NUL */
 
-            // Check if we have column information
-            if (result->column_count == 0 || result->column_names == NULL) {
-                // No column information available
-                fprintf(stderr, "Warning: No column information in result\n");
-                affected = 0;
-                goto DONE;
+    if (need > *cap) {
+        size_t ncap = *cap ? *cap : 256;
+        char *p;
+        while (ncap < need)
+            ncap *= 2;
+        p = REALLOC(*buf, ncap);
+        if (!p)
+            THROW(e, "Out of memory");
+        *buf = p;
+        *cap = ncap;
+    }
+    if (n)
+        memcpy(*buf + *len, line, n);
+    *len += n;
+    (*buf)[(*len)++] = '\n';
+    (*buf)[*len] = '\0';
+    return 0;
+
+EXCEPTION:
+    return -1;
+}
+
+static char *sql_buffer_take_stmt(char **buf, size_t *len, size_t *cap, char **e) {
+    size_t stmt_len = 0;
+    char *stmt;
+    size_t rest_off;
+    size_t rest;
+
+    (void)cap;
+    if (!buf || !*buf || !sql_has_complete_stmt(*buf, &stmt_len))
+        return NULL;
+    stmt = MALLOC(stmt_len + 1);
+    if (!stmt)
+        THROW(e, "Out of memory");
+    memcpy(stmt, *buf, stmt_len);
+    stmt[stmt_len] = '\0';
+    rest_off = stmt_len + 1; /* skip ';' */
+    rest = *len > rest_off ? *len - rest_off : 0;
+    memmove(*buf, *buf + rest_off, rest);
+    (*buf)[rest] = '\0';
+    *len = rest;
+    return stmt;
+
+EXCEPTION:
+    return NULL;
+}
+
+static char *repl_read_line(char **e) {
+    char chunk[1024];
+    char *line = NULL;
+    size_t len = 0;
+    size_t cap = 0;
+
+    for (;;) {
+        size_t n;
+        size_t need;
+        char *p;
+
+        if (!fgets(chunk, sizeof(chunk), stdin)) {
+            if (cli_interrupted) {
+                FREE(line);
+                return NULL;
             }
-
-            if (pretty) {
-                table = pretty_table_new(result->column_count);
-                // Add header row
-                pretty_table_add_row(table, result->column_names, result->column_count);
-            } else if (head) {
-                // Print TSV header
-                for (int i = 0; i < result->column_count; i++) {
-                    if (i > 0)
-                        bufio_print_tab(bufout, e);
-                    bufio_print(bufout, result->column_names[i] ? result->column_names[i] : "", e);
+            if (ferror(stdin) && errno == EINTR) {
+                clearerr(stdin);
+                if (cli_interrupted) {
+                    FREE(line);
+                    return NULL;
                 }
-                bufio_print_newline(bufout, e);
+                continue;
             }
+            return line; /* EOF: NULL if nothing read, else last partial line */
+        }
+        n = strlen(chunk);
+        need = len + n + 1;
+        if (need > cap) {
+            size_t ncap = cap ? cap : 256;
+            while (ncap < need)
+                ncap *= 2;
+            p = REALLOC(line, ncap);
+            if (!p) {
+                FREE(line);
+                THROW(e, "Out of memory");
+            }
+            line = p;
+            cap = ncap;
+        }
+        memcpy(line + len, chunk, n + 1);
+        len += n;
+        if (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+            while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+                line[--len] = '\0';
+            return line;
+        }
+    }
 
-            // Iterate through rows
-            i64 row_count = 0;
+EXCEPTION:
+    return NULL;
+}
+
+static void repl_print_help(struct bufio *bufout, char **e) {
+    bufio_print(bufout, "Enter SQL statements terminated by a semicolon (;).\n", e);
+    bufio_print(bufout, "Commands:\n", e);
+    bufio_print(bufout, "  help, \\h          Show this help\n", e);
+    bufio_print(bufout, "  exit, quit, \\q    Exit\n", e);
+    bufio_print(bufout, "\n", e);
+    bufio_print(bufout, "SQL: SELECT, INSERT, REPLACE, UPDATE, DELETE, DESC, META, SHOW,\n", e);
+    bufio_print(bufout, "     CREATE, DROP, ALTER TABLE, BEGIN TRANSACTION\n", e);
+}
+
+static void repl_reset_accum(char **accum, size_t *len, size_t *cap) {
+    FREE(*accum);
+    *accum = NULL;
+    *len = 0;
+    *cap = 0;
+}
+
+/**
+ * Execute one SQL statement and print the result.
+ * Returns 0 on success, 1 on SQL error (printed, e cleared), -1 on fatal (e set).
+ */
+static int execute_one_statement(struct bufio *bufout, const char *stmt, int stmt_idx, int pretty, int status,
+                                 int head, int rownum, struct flintdb_transaction **transaction, i64 *affected,
+                                 char **e) {
+    struct flintdb_sql_result *result = NULL;
+    struct pretty_table *table = NULL;
+    char buf[65536];
+    size_t buf_len = sizeof(buf);
+    char num_buf[64], time_buf[64], ops_buf[64];
+    i64 row_count = 0;
+
+    if (affected)
+        *affected = 0;
+
+    STOPWATCH_START(watch);
+    result = flintdb_sql_exec(stmt, transaction ? *transaction : NULL, e);
+    time_dur(time_elapsed(&watch), time_buf, sizeof(time_buf));
+    snprintf(ops_buf, sizeof(ops_buf), "%.0f", result ? time_ops(result->affected, &watch) : 0);
+
+    if (e && *e) {
+        if (stmt_idx >= 0)
+            snprintf(buf, sizeof(buf), "Error in statement %d: %s\n", stmt_idx + 1, *e);
+        else
+            snprintf(buf, sizeof(buf), "Error: %s\n", *e);
+        bufio_print(bufout, buf, e);
+        *e = NULL;
+        if (result) {
+            result->close(result);
+            result = NULL;
+        }
+        return 1;
+    }
+    if (!result) {
+        if (stmt_idx >= 0)
+            snprintf(buf, sizeof(buf), "Error in statement %d: Failed to execute SQL\n", stmt_idx + 1);
+        else
+            snprintf(buf, sizeof(buf), "Error: Failed to execute SQL\n");
+        bufio_print(bufout, buf, e);
+        return 1;
+    }
+
+    if (transaction)
+        *transaction = result->transaction;
+
+    if (result->row_cursor) {
+        if (result->column_count == 0 || result->column_names == NULL) {
+            fprintf(stderr, "Warning: No column information in result\n");
+            result->close(result);
+            return 0;
+        }
+
+        if (pretty) {
+            table = pretty_table_new(result->column_count);
+            pretty_table_add_row(table, result->column_names, result->column_count);
+        } else if (head) {
+            for (int i = 0; i < result->column_count; i++) {
+                if (i > 0)
+                    bufio_print_tab(bufout, e);
+                bufio_print(bufout, result->column_names[i] ? result->column_names[i] : "", e);
+            }
+            bufio_print_newline(bufout, e);
+        }
+
+        {
             struct flintdb_row *r;
-
             while ((r = result->row_cursor->next(result->row_cursor, e)) != NULL) {
                 if (e && *e)
                     THROW_S(e);
                 row_count++;
 
                 if (pretty) {
-                    // For pretty mode we still need to collect strings (width calculation)
                     char **row_data = (char **)CALLOC(result->column_count, sizeof(char *));
                     if (!row_data)
                         THROW(e, "Out of memory");
@@ -431,75 +600,317 @@ static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
                     bufio_print_newline(bufout, e);
                 }
             }
-
-            // Print pretty table if enabled
-            if (pretty && table) {
-                pretty_table_print(table, bufout, e);
-                if (e && *e)
-                    THROW_S(e);
-                pretty_table_free(table);
-            }
-
-            // Print statistics if requested
-            if (status || pretty) {
-                format_number(num_buf, sizeof(num_buf), row_count);
-                snprintf(buf, sizeof(buf), "%s rows, %s\n", num_buf, time_buf);
-                bufio_print(bufout, buf, e);
-            }
-
-            // Ensure all buffered output is written before closing
-            affected = row_count;
-        } else {
-            // Non-SELECT query (INSERT, UPDATE, DELETE, etc.)
-            affected = result->affected;
-
-            if (status) {
-                format_number(num_buf, sizeof(num_buf), affected);
-                if (affected < 2)
-                    snprintf(buf, sizeof(buf), "%s rows affected, %s\n", num_buf, time_buf);
-                else
-                    snprintf(buf, sizeof(buf), "%s rows affected, %s, %sops\n", num_buf, time_buf, ops_buf);
-                bufio_print(bufout, buf, e);
-            }
         }
 
-        total_affected += affected;
-        if (result) {
-            result->close(result);
-            result = NULL;
+        if (pretty && table) {
+            pretty_table_print(table, bufout, e);
+            if (e && *e)
+                THROW_S(e);
+            pretty_table_free(table);
+            table = NULL;
         }
-        stmt_idx++;
-    } // end while loop
 
-    if (has_error) {
-        affected = -1;
+        if (status || pretty) {
+            format_number(num_buf, sizeof(num_buf), row_count);
+            snprintf(buf, sizeof(buf), "%s rows, %s\n", num_buf, time_buf);
+            bufio_print(bufout, buf, e);
+        }
+
+        if (affected)
+            *affected = row_count;
     } else {
-        affected = total_affected;
+        i64 n = result->affected;
+        if (status) {
+            format_number(num_buf, sizeof(num_buf), n);
+            if (n < 2)
+                snprintf(buf, sizeof(buf), "%s rows affected, %s\n", num_buf, time_buf);
+            else
+                snprintf(buf, sizeof(buf), "%s rows affected, %s, %sops\n", num_buf, time_buf, ops_buf);
+            bufio_print(bufout, buf, e);
+        }
+        if (affected)
+            *affected = n;
     }
 
-    // LOG("Total affected rows: %lld", (long long)total_affected);
-DONE:
-    if (transaction) 
+    result->close(result);
+    return 0;
+
+EXCEPTION:
+    if (table)
+        pretty_table_free(table);
+    if (result)
+        result->close(result);
+    return -1;
+}
+
+static i64 run_repl(FILE *out, int pretty, int status, int head, int rownum, char **e) {
+    struct bufio *bufout = NULL;
+    struct flintdb_transaction *transaction = NULL;
+    char *accum = NULL;
+    size_t accum_len = 0;
+    size_t accum_cap = 0;
+    i64 total_affected = 0;
+    char banner[256];
+
+    cli_repl_active = 1;
+    cli_interrupted = 0;
+
+    if (out == stdout || out == stderr) {
+        bufout = bufio_wrap_fd(fileno(out), FLINTDB_RDWR, CLI_BUFIO_OUTPUT_MAX, e);
+        if (e && *e)
+            THROW_S(e);
+    }
+
+    snprintf(banner, sizeof(banner), "%s version %s (build: %s, git: %s)\n", PRODUCT_NAME, VERSION, BUILD_TIME,
+             GIT_REVISION);
+    bufio_print(bufout, banner, e);
+    bufio_print(bufout, "Type 'help' or '\\h'. Statements end with ';'. Exit with 'exit' or Ctrl-D.\n\n", e);
+    if (bufout)
+        bufout->flush(bufout, e);
+
+    for (;;) {
+        char *line;
+        int meta;
+
+        bufio_print(bufout, buffer_is_blank(accum) ? "flintdb> " : "    -> ", e);
+        if (bufout)
+            bufout->flush(bufout, e);
+
+        line = repl_read_line(e);
+        if (e && *e)
+            THROW_S(e);
+
+        if (cli_interrupted) {
+            cli_interrupted = 0;
+            FREE(line);
+            repl_reset_accum(&accum, &accum_len, &accum_cap);
+            clearerr(stdin);
+            continue;
+        }
+
+        if (!line) {
+            bufio_print(bufout, "\nBye\n", e);
+            if (bufout)
+                bufout->flush(bufout, e);
+            break;
+        }
+
+        if (buffer_is_blank(accum)) {
+            meta = repl_meta_kind(line);
+            if (meta == REPL_META_EXIT) {
+                FREE(line);
+                bufio_print(bufout, "Bye\n", e);
+                if (bufout)
+                    bufout->flush(bufout, e);
+                break;
+            }
+            if (meta == REPL_META_HELP) {
+                FREE(line);
+                repl_print_help(bufout, e);
+                if (bufout)
+                    bufout->flush(bufout, e);
+                continue;
+            }
+            if (buffer_is_blank(line)) {
+                FREE(line);
+                continue;
+            }
+        }
+
+        if (sql_buffer_append(&accum, &accum_len, &accum_cap, line, e) != 0) {
+            FREE(line);
+            THROW_S(e);
+        }
+        FREE(line);
+
+        {
+            char *stmt;
+            while ((stmt = sql_buffer_take_stmt(&accum, &accum_len, &accum_cap, e)) != NULL) {
+                char *t = stmt;
+                while (*t && isspace((unsigned char)*t))
+                    t++;
+                if (*t) {
+                    i64 n = 0;
+                    int er = execute_one_statement(bufout, t, -1, pretty, status, head, rownum, &transaction, &n, e);
+                    if (er < 0) {
+                        FREE(stmt);
+                        THROW_S(e);
+                    }
+                    if (er == 0)
+                        total_affected += n;
+                    if (bufout)
+                        bufout->flush(bufout, e);
+                }
+                FREE(stmt);
+            }
+            if (e && *e)
+                THROW_S(e);
+        }
+
+        meta = repl_meta_kind(accum);
+        if (meta == REPL_META_EXIT) {
+            bufio_print(bufout, "Bye\n", e);
+            if (bufout)
+                bufout->flush(bufout, e);
+            break;
+        }
+        if (meta == REPL_META_HELP) {
+            repl_print_help(bufout, e);
+            if (bufout)
+                bufout->flush(bufout, e);
+            repl_reset_accum(&accum, &accum_len, &accum_cap);
+        }
+    }
+
+    cli_repl_active = 0;
+    if (transaction)
+        transaction->close(transaction);
+    FREE(accum);
+    if (bufout)
+        bufout->close(bufout);
+    return total_affected;
+
+EXCEPTION:
+    cli_repl_active = 0;
+    if (transaction)
+        transaction->close(transaction);
+    FREE(accum);
+    if (bufout)
+        bufout->close(bufout);
+    return -1;
+}
+
+/**
+ * Execute CLI commands
+ */
+static i64 execute_cli(FILE *out, int argc, char *argv[], char **e) {
+    char *sql = NULL;
+    char *sql_file = NULL;
+    int pretty = 0;
+    int status = 0;
+    int head = 1;
+    int rownum = 0;
+    struct bufio *bufout = NULL;
+    struct flintdb_sql_iterator *iter = NULL;
+    struct flintdb_transaction *transaction = NULL;
+    i64 affected = 0;
+
+    for (int i = 1; i < argc; i++) {
+        const char *s = argv[i];
+        if (strcmp(s, "-help") == 0) {
+            usage(argv[0]);
+            return 0;
+        } else if (strcmp(s, "-version") == 0) {
+            printf("%s version %s (build: %s, git: %s)\n", PRODUCT_NAME, VERSION, BUILD_TIME, GIT_REVISION);
+            return 0;
+        } else if (strcmp(s, "-pretty") == 0) {
+            pretty = 1;
+        } else if (strcmp(s, "-status") == 0) {
+            status = 1;
+        } else if (strcmp(s, "-nohead") == 0) {
+            head = 0;
+        } else if (strcmp(s, "-rownum") == 0) {
+            rownum = 1;
+        } else if (strcmp(s, "-sql") == 0) {
+            if (i + 1 < argc) {
+                sql = argv[++i];
+            } else {
+                THROW(e, "-sql requires an argument");
+            }
+        } else if (strcmp(s, "-f") == 0) {
+            if (i + 1 < argc) {
+                sql_file = argv[++i];
+            } else {
+                THROW(e, "-f requires a file path");
+            }
+        } else if (strcmp(s, "-log") == 0) {
+            // TODO: Enable detailed logging
+        } else if (s[0] == '-') {
+            fprintf(stderr, "Warning: Unknown option '%s' - ignoring\n", s);
+        } else {
+            if (sql == NULL && sql_file == NULL) {
+                sql = (char *)s;
+            }
+        }
+    }
+
+    if (sql == NULL && sql_file == NULL) {
+        if (isatty(STDIN_FILENO)) {
+            pretty = 1;
+            status = 1;
+            return run_repl(out, pretty, status, head, rownum, e);
+        }
+        sql_file = "-";
+    }
+
+    if (sql != NULL && sql_file != NULL) {
+        THROW(e, "Cannot specify both -sql and -f options");
+    }
+
+    if (out == stdout || out == stderr) {
+        int fd = fileno(out);
+        bufout = bufio_wrap_fd(fd, FLINTDB_RDWR, CLI_BUFIO_OUTPUT_MAX, e);
+        if (e && *e)
+            THROW_S(e);
+    }
+
+    if (sql_file) {
+        iter = sql_iterator_new_from_file(sql_file, e);
+    } else {
+        iter = sql_iterator_new(sql, e);
+    }
+    if (e && *e)
+        THROW_S(e);
+
+    {
+        i64 total_affected = 0;
+        int has_error = 0;
+        int stmt_idx = 0;
+        char *stmt = NULL;
+
+        while ((stmt = sql_iterator_next(iter, e)) != NULL) {
+            int er;
+            i64 n = 0;
+
+            if (e && *e) {
+                FREE(stmt);
+                THROW_S(e);
+            }
+
+            if (stmt_idx > 0 && status)
+                bufio_print_newline(bufout, e);
+
+            er = execute_one_statement(bufout, stmt, stmt_idx, pretty, status, head, rownum, &transaction, &n, e);
+            FREE(stmt);
+            if (er < 0)
+                THROW_S(e);
+            if (er > 0)
+                has_error = 1;
+            else
+                total_affected += n;
+            stmt_idx++;
+        }
+
+        affected = has_error ? -1 : total_affected;
+    }
+
+    if (transaction)
         transaction->close(transaction);
     if (iter)
         sql_iterator_free(iter);
-    if (result)
-        result->close(result);
-    if (bufout) 
-        bufout->close(bufout); // flush and close
+    if (bufout)
+        bufout->close(bufout);
 
     return affected;
 
 EXCEPTION:
-    if (transaction) 
+    if (transaction)
         transaction->close(transaction);
     if (iter)
         sql_iterator_free(iter);
-    if (result)
-        result->close(result);
-    if (bufout) 
-        bufout->close(bufout); // flush and close
-    
+    if (bufout)
+        bufout->close(bufout);
+
     return -1;
 }
 

@@ -98,6 +98,7 @@ Table writes use a C11 (C) / `AtomicInteger` (Java) spinlock. The C buffer pool 
 
 ```bash
 cd c && ./build.sh
+./bin/flintdb              # interactive SQL prompt
 ./bin/flintdb "SELECT * FROM data.flintdb LIMIT 10" -pretty
 ./bin/flintdb "INSERT INTO data.flintdb FROM input.tsv.gz"
 ./bin/flintdb -webui          # C, port 3334 (cJSON)

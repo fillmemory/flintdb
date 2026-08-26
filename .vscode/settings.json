@@ -4,5 +4,10 @@
     "**/c/src/*.h": "c"
   },
   "C_Cpp.autoAddFileAssociations": false,
-  "clangd.fallbackFlags": ["-xc", "-std=gnu17", "-D_GNU_SOURCE"]
+  "clangd.fallbackFlags": [
+    "-xc",
+    "-std=gnu17",
+    "-D_GNU_SOURCE"
+  ],
+  "java.compile.nullAnalysis.mode": "disabled"
 }
