@@ -14,9 +14,16 @@
 #include <unistd.h>
 
 #ifdef _WIN32
+#include <conio.h>
 #include <fcntl.h>
 #include <io.h>
 #include <windows.h>
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
+#else
+#include <sys/select.h>
+#include <termios.h>
 #endif
 
 // Now include project headers (runtime_win32.h will handle POSIX declarations)
@@ -49,6 +56,19 @@
 #define REPL_META_NONE 0
 #define REPL_META_EXIT 1
 #define REPL_META_HELP 2
+
+#define REPL_HIST_MAX 500
+
+#define REPL_KEY_UP 256
+#define REPL_KEY_DOWN 257
+#define REPL_KEY_LEFT 258
+#define REPL_KEY_RIGHT 259
+#define REPL_KEY_HOME 260
+#define REPL_KEY_END 261
+#define REPL_KEY_ENTER 262
+#define REPL_KEY_BACKSPACE 263
+#define REPL_KEY_EOF 264
+#define REPL_KEY_INTR 265
 
 // REPL: SIGINT cancels the current input instead of exiting
 static volatile sig_atomic_t cli_interrupted = 0;
@@ -99,6 +119,8 @@ static void usage(const char *progname);
 
 // Utility functions
 static void format_number(char *buf, size_t size, i64 num);
+static int utf8_next_cp(const char *s, unsigned int *cp);
+static int string_display_width(const char *s);
 
 // Buffered output helpers (avoid fprintf overhead)
 static inline int bufio_print(struct bufio *b, const char *s, char **e) {
@@ -129,6 +151,12 @@ static struct pretty_table *pretty_table_new(int col_count);
 static void pretty_table_free(struct pretty_table *table);
 static void pretty_table_add_row(struct pretty_table *table, char **row_data, int col_count);
 static void pretty_table_print(struct pretty_table *table, struct bufio *bufout, char **e);
+
+struct repl_history {
+    char **items;
+    int count;
+    int cap;
+};
 
 extern int webui_run(int argc, char **argv, char **e); // in webui.c
 
@@ -410,7 +438,308 @@ EXCEPTION:
     return NULL;
 }
 
-static char *repl_read_line(char **e) {
+#ifdef _WIN32
+static DWORD repl_orig_conmode;
+static DWORD repl_orig_outmode;
+static int repl_saved_outmode;
+#else
+static struct termios repl_orig_termios;
+#endif
+static int repl_raw_active = 0;
+static int repl_atexit_registered = 0;
+
+static void repl_tty_restore(void) {
+    if (!repl_raw_active)
+        return;
+#ifdef _WIN32
+    SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), repl_orig_conmode);
+    if (repl_saved_outmode)
+        SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), repl_orig_outmode);
+#else
+    tcsetattr(STDIN_FILENO, TCSANOW, &repl_orig_termios);
+#endif
+    repl_raw_active = 0;
+}
+
+static int repl_tty_raw(void) {
+#ifdef _WIN32
+    HANDLE hin = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE hout = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD inmode, outmode;
+    if (!GetConsoleMode(hin, &inmode))
+        return -1;
+    repl_orig_conmode = inmode;
+    inmode &= ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
+    if (!SetConsoleMode(hin, inmode))
+        return -1;
+    if (GetConsoleMode(hout, &outmode)) {
+        repl_orig_outmode = outmode;
+        repl_saved_outmode = 1;
+        SetConsoleMode(hout, outmode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    } else {
+        repl_saved_outmode = 0;
+    }
+#else
+    struct termios raw;
+    if (tcgetattr(STDIN_FILENO, &repl_orig_termios) < 0)
+        return -1;
+    raw = repl_orig_termios;
+    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN);
+    raw.c_iflag &= ~(ICRNL | IXON);
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) < 0)
+        return -1;
+#endif
+    repl_raw_active = 1;
+    if (!repl_atexit_registered) {
+        atexit(repl_tty_restore);
+        repl_atexit_registered = 1;
+    }
+    return 0;
+}
+
+static void repl_write_n(const char *s, size_t n) {
+    if (!s || n == 0)
+        return;
+    {
+        ssize_t w = write(STDOUT_FILENO, s, n);
+        (void)w;
+    }
+}
+
+static void repl_write_str(const char *s) {
+    if (s)
+        repl_write_n(s, strlen(s));
+}
+
+static size_t repl_utf8_prev(const char *s, size_t pos) {
+    if (pos == 0)
+        return 0;
+    pos--;
+    while (pos > 0 && ((unsigned char)s[pos] & 0xC0) == 0x80)
+        pos--;
+    return pos;
+}
+
+static size_t repl_utf8_next(const char *s, size_t pos, size_t len) {
+    unsigned int cp;
+    int n;
+    if (pos >= len)
+        return len;
+    n = utf8_next_cp(s + pos, &cp);
+    if (n < 1)
+        n = 1;
+    pos += (size_t)n;
+    return pos > len ? len : pos;
+}
+
+static int repl_line_reserve(char **buf, size_t *cap, size_t need, char **e) {
+    size_t ncap;
+    char *p;
+    if (need <= *cap)
+        return 0;
+    ncap = *cap ? *cap : 64;
+    while (ncap < need)
+        ncap *= 2;
+    p = REALLOC(*buf, ncap);
+    if (!p)
+        THROW(e, "Out of memory");
+    *buf = p;
+    *cap = ncap;
+    return 0;
+EXCEPTION:
+    return -1;
+}
+
+static int repl_line_set(char **buf, size_t *len, size_t *cap, size_t *cursor, const char *s, char **e) {
+    size_t n = s ? strlen(s) : 0;
+    if (repl_line_reserve(buf, cap, n + 1, e) != 0)
+        return -1;
+    if (n)
+        memcpy(*buf, s, n);
+    (*buf)[n] = '\0';
+    *len = n;
+    *cursor = n;
+    return 0;
+}
+
+static void repl_refresh(const char *prompt, const char *buf, size_t cursor) {
+    char seq[32];
+    int rest_w;
+    repl_write_str("\r");
+    repl_write_str(prompt ? prompt : "");
+    repl_write_str(buf ? buf : "");
+    repl_write_str("\033[K");
+    rest_w = buf ? string_display_width(buf + cursor) : 0;
+    if (rest_w > 0) {
+        snprintf(seq, sizeof(seq), "\033[%dD", rest_w);
+        repl_write_str(seq);
+    }
+}
+
+#ifndef _WIN32
+static int repl_wait_input_ms(int ms) {
+    fd_set rfds;
+    struct timeval tv;
+    FD_ZERO(&rfds);
+    FD_SET(STDIN_FILENO, &rfds);
+    tv.tv_sec = 0;
+    tv.tv_usec = ms * 1000L;
+    return select(STDIN_FILENO + 1, &rfds, NULL, NULL, &tv);
+}
+
+static int repl_read_byte(unsigned char *c) {
+    for (;;) {
+        ssize_t n = read(STDIN_FILENO, c, 1);
+        if (n == 1)
+            return 0;
+        if (n == 0)
+            return -1;
+        if (errno == EINTR) {
+            if (cli_interrupted)
+                return -1;
+            continue;
+        }
+        return -1;
+    }
+}
+#endif
+
+static int repl_read_key(void) {
+#ifdef _WIN32
+    int c = _getch();
+    if (cli_interrupted)
+        return REPL_KEY_INTR;
+    if (c == 0 || c == 224) {
+        int c2 = _getch();
+        if (c2 == 72)
+            return REPL_KEY_UP;
+        if (c2 == 80)
+            return REPL_KEY_DOWN;
+        if (c2 == 75)
+            return REPL_KEY_LEFT;
+        if (c2 == 77)
+            return REPL_KEY_RIGHT;
+        if (c2 == 71)
+            return REPL_KEY_HOME;
+        if (c2 == 79)
+            return REPL_KEY_END;
+        return 0;
+    }
+    if (c == 3) {
+        cli_interrupted = 1;
+        return REPL_KEY_INTR;
+    }
+    if (c == 4)
+        return REPL_KEY_EOF;
+    if (c == 8 || c == 127)
+        return REPL_KEY_BACKSPACE;
+    if (c == '\r' || c == '\n')
+        return REPL_KEY_ENTER;
+    if (c == 1)
+        return REPL_KEY_HOME;
+    if (c == 5)
+        return REPL_KEY_END;
+    return c;
+#else
+    unsigned char c;
+    if (repl_read_byte(&c) != 0)
+        return cli_interrupted ? REPL_KEY_INTR : REPL_KEY_EOF;
+    if (c == 3 || cli_interrupted)
+        return REPL_KEY_INTR;
+    if (c == 4)
+        return REPL_KEY_EOF;
+    if (c == 8 || c == 127)
+        return REPL_KEY_BACKSPACE;
+    if (c == '\r' || c == '\n')
+        return REPL_KEY_ENTER;
+    if (c == 1)
+        return REPL_KEY_HOME;
+    if (c == 5)
+        return REPL_KEY_END;
+    if (c != 0x1b)
+        return (int)c;
+
+    if (repl_wait_input_ms(50) <= 0)
+        return 0x1b;
+    if (repl_read_byte(&c) != 0)
+        return cli_interrupted ? REPL_KEY_INTR : 0x1b;
+    if (c != '[' && c != 'O')
+        return 0x1b;
+    if (repl_read_byte(&c) != 0)
+        return cli_interrupted ? REPL_KEY_INTR : 0x1b;
+    if (c == 'A')
+        return REPL_KEY_UP;
+    if (c == 'B')
+        return REPL_KEY_DOWN;
+    if (c == 'C')
+        return REPL_KEY_RIGHT;
+    if (c == 'D')
+        return REPL_KEY_LEFT;
+    if (c == 'H')
+        return REPL_KEY_HOME;
+    if (c == 'F')
+        return REPL_KEY_END;
+    if (c >= '0' && c <= '9') {
+        unsigned char til;
+        while (repl_wait_input_ms(50) > 0) {
+            if (repl_read_byte(&til) != 0)
+                break;
+            if (til == '~' || (til >= 'A' && til <= 'Z'))
+                break;
+        }
+    }
+    return 0;
+#endif
+}
+
+static int repl_history_add(struct repl_history *h, const char *line, char **e) {
+    char *copy;
+    if (!h || !line || buffer_is_blank(line))
+        return 0;
+    if (repl_meta_kind(line) == REPL_META_EXIT)
+        return 0;
+    if (h->count > 0 && strcmp(h->items[h->count - 1], line) == 0)
+        return 0;
+    if (h->count >= REPL_HIST_MAX) {
+        FREE(h->items[0]);
+        memmove(h->items, h->items + 1, (size_t)(h->count - 1) * sizeof(char *));
+        h->count--;
+    }
+    if (h->count >= h->cap) {
+        int ncap = h->cap ? h->cap * 2 : 32;
+        char **p;
+        if (ncap > REPL_HIST_MAX)
+            ncap = REPL_HIST_MAX;
+        p = REALLOC(h->items, (size_t)ncap * sizeof(char *));
+        if (!p)
+            THROW(e, "Out of memory");
+        h->items = p;
+        h->cap = ncap;
+    }
+    copy = STRDUP(line);
+    if (!copy)
+        THROW(e, "Out of memory");
+    h->items[h->count++] = copy;
+    return 0;
+EXCEPTION:
+    return -1;
+}
+
+static void repl_history_free(struct repl_history *h) {
+    int i;
+    if (!h)
+        return;
+    for (i = 0; i < h->count; i++)
+        FREE(h->items[i]);
+    FREE(h->items);
+    h->items = NULL;
+    h->count = 0;
+    h->cap = 0;
+}
+
+static char *repl_read_line_fgets(char **e) {
     char chunk[1024];
     char *line = NULL;
     size_t len = 0;
@@ -463,11 +792,145 @@ EXCEPTION:
     return NULL;
 }
 
+static char *repl_read_line_edit(const char *prompt, struct repl_history *hist, char **e) {
+    char *buf = NULL;
+    char *draft = NULL;
+    size_t len = 0;
+    size_t cap = 0;
+    size_t cursor = 0;
+    int hist_pos = hist ? hist->count : 0;
+
+    if (repl_line_reserve(&buf, &cap, 64, e) != 0)
+        return NULL;
+    buf[0] = '\0';
+    repl_write_str(prompt);
+
+    for (;;) {
+        int k = repl_read_key();
+
+        if (k == REPL_KEY_INTR) {
+            FREE(buf);
+            FREE(draft);
+            return NULL;
+        }
+        if (k == REPL_KEY_EOF) {
+            if (len == 0) {
+                FREE(buf);
+                FREE(draft);
+                return NULL;
+            }
+            continue;
+        }
+        if (k == REPL_KEY_ENTER) {
+            repl_write_str("\n");
+            FREE(draft);
+            return buf;
+        }
+        if (k == REPL_KEY_UP) {
+            if (!hist || hist->count == 0)
+                continue;
+            if (hist_pos == hist->count) {
+                FREE(draft);
+                draft = STRDUP(buf);
+                if (!draft)
+                    THROW(e, "Out of memory");
+            }
+            if (hist_pos > 0) {
+                hist_pos--;
+                if (repl_line_set(&buf, &len, &cap, &cursor, hist->items[hist_pos], e) != 0)
+                    THROW_S(e);
+                repl_refresh(prompt, buf, cursor);
+            }
+            continue;
+        }
+        if (k == REPL_KEY_DOWN) {
+            if (!hist || hist_pos >= hist->count)
+                continue;
+            hist_pos++;
+            if (hist_pos == hist->count) {
+                if (repl_line_set(&buf, &len, &cap, &cursor, draft ? draft : "", e) != 0)
+                    THROW_S(e);
+            } else if (repl_line_set(&buf, &len, &cap, &cursor, hist->items[hist_pos], e) != 0) {
+                THROW_S(e);
+            }
+            repl_refresh(prompt, buf, cursor);
+            continue;
+        }
+        if (k == REPL_KEY_LEFT) {
+            if (cursor > 0) {
+                cursor = repl_utf8_prev(buf, cursor);
+                repl_refresh(prompt, buf, cursor);
+            }
+            continue;
+        }
+        if (k == REPL_KEY_RIGHT) {
+            if (cursor < len) {
+                cursor = repl_utf8_next(buf, cursor, len);
+                repl_refresh(prompt, buf, cursor);
+            }
+            continue;
+        }
+        if (k == REPL_KEY_HOME) {
+            if (cursor != 0) {
+                cursor = 0;
+                repl_refresh(prompt, buf, cursor);
+            }
+            continue;
+        }
+        if (k == REPL_KEY_END) {
+            if (cursor != len) {
+                cursor = len;
+                repl_refresh(prompt, buf, cursor);
+            }
+            continue;
+        }
+        if (k == REPL_KEY_BACKSPACE || k == 21 /* Ctrl-U */) {
+            if (k == 21) {
+                buf[0] = '\0';
+                len = 0;
+                cursor = 0;
+                repl_refresh(prompt, buf, cursor);
+                continue;
+            }
+            if (cursor > 0) {
+                size_t prev = repl_utf8_prev(buf, cursor);
+                memmove(buf + prev, buf + cursor, len - cursor + 1);
+                len -= cursor - prev;
+                cursor = prev;
+                repl_refresh(prompt, buf, cursor);
+            }
+            continue;
+        }
+        if (k >= 32 && k < 256) {
+            unsigned char ch = (unsigned char)k;
+            if (repl_line_reserve(&buf, &cap, len + 2, e) != 0)
+                THROW_S(e);
+            memmove(buf + cursor + 1, buf + cursor, len - cursor + 1);
+            buf[cursor] = (char)ch;
+            len++;
+            cursor++;
+            repl_refresh(prompt, buf, cursor);
+        }
+    }
+
+EXCEPTION:
+    FREE(buf);
+    FREE(draft);
+    return NULL;
+}
+
+static char *repl_read_line(const char *prompt, struct repl_history *hist, char **e) {
+    if (repl_raw_active)
+        return repl_read_line_edit(prompt, hist, e);
+    return repl_read_line_fgets(e);
+}
+
 static void repl_print_help(struct bufio *bufout, char **e) {
     bufio_print(bufout, "Enter SQL statements terminated by a semicolon (;).\n", e);
     bufio_print(bufout, "Commands:\n", e);
     bufio_print(bufout, "  help, \\h          Show this help\n", e);
     bufio_print(bufout, "  exit, quit, \\q    Exit\n", e);
+    bufio_print(bufout, "  Up/Down           Recall previous lines\n", e);
     bufio_print(bufout, "\n", e);
     bufio_print(bufout, "SQL: SELECT, INSERT, REPLACE, UPDATE, DELETE, DESC, META, SHOW,\n", e);
     bufio_print(bufout, "     CREATE, DROP, ALTER TABLE, BEGIN TRANSACTION\n", e);
@@ -646,6 +1109,7 @@ EXCEPTION:
 static i64 run_repl(FILE *out, int pretty, int status, int head, int rownum, char **e) {
     struct bufio *bufout = NULL;
     struct flintdb_transaction *transaction = NULL;
+    struct repl_history hist = {0};
     char *accum = NULL;
     size_t accum_len = 0;
     size_t accum_cap = 0;
@@ -661,6 +1125,9 @@ static i64 run_repl(FILE *out, int pretty, int status, int head, int rownum, cha
             THROW_S(e);
     }
 
+    if (isatty(STDIN_FILENO) && isatty(STDOUT_FILENO))
+        repl_tty_raw();
+
     snprintf(banner, sizeof(banner), "%s version %s (build: %s, git: %s)\n", PRODUCT_NAME, VERSION, BUILD_TIME,
              GIT_REVISION);
     bufio_print(bufout, banner, e);
@@ -671,12 +1138,17 @@ static i64 run_repl(FILE *out, int pretty, int status, int head, int rownum, cha
     for (;;) {
         char *line;
         int meta;
+        const char *prompt = buffer_is_blank(accum) ? "flintdb> " : "    -> ";
 
-        bufio_print(bufout, buffer_is_blank(accum) ? "flintdb> " : "    -> ", e);
         if (bufout)
             bufout->flush(bufout, e);
+        if (!repl_raw_active) {
+            bufio_print(bufout, prompt, e);
+            if (bufout)
+                bufout->flush(bufout, e);
+        }
 
-        line = repl_read_line(e);
+        line = repl_read_line(prompt, &hist, e);
         if (e && *e)
             THROW_S(e);
 
@@ -693,6 +1165,11 @@ static i64 run_repl(FILE *out, int pretty, int status, int head, int rownum, cha
             if (bufout)
                 bufout->flush(bufout, e);
             break;
+        }
+
+        if (repl_history_add(&hist, line, e) != 0) {
+            FREE(line);
+            THROW_S(e);
         }
 
         if (buffer_is_blank(accum)) {
@@ -763,6 +1240,8 @@ static i64 run_repl(FILE *out, int pretty, int status, int head, int rownum, cha
     }
 
     cli_repl_active = 0;
+    repl_tty_restore();
+    repl_history_free(&hist);
     if (transaction)
         transaction->close(transaction);
     FREE(accum);
@@ -772,6 +1251,8 @@ static i64 run_repl(FILE *out, int pretty, int status, int head, int rownum, cha
 
 EXCEPTION:
     cli_repl_active = 0;
+    repl_tty_restore();
+    repl_history_free(&hist);
     if (transaction)
         transaction->close(transaction);
     FREE(accum);
