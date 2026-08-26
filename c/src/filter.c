@@ -512,8 +512,9 @@ static struct filter *filter_clone(struct filter *f, char **e) {
 /**
  * @brief Split a WHERE filter into a filter_plan for one index
  *
- * access:    sargable conditions that drive the B+Tree cursor (may be NULL)
- * residual:  remaining conditions evaluated after fetch (may be NULL)
+ * Java: Filter.compile(meta, index, where) returns Comparable<Row>[] { access, residual }
+ * with Filter.ALL for a missing slot. This function is the C split half of that
+ * (parse is filter_compile). NULL here == Java ALL.
  *
  * For example with PRIMARY KEY (l_orderkey, l_quantity):
  * - "l_orderkey = 1001 AND l_comment = 'test'"

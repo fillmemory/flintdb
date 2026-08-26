@@ -283,7 +283,7 @@ static void tx_close(struct flintdb_transaction *me) {
 struct find_context {
     struct flintdb_table *table;
     struct limit limit;
-    struct filter_plan *plan;
+    struct filter_plan *plan;            // Java: Comparable<Row>[] { filter[0] access, filter[1] residual }
     enum order order;
     i8 index;
     struct flintdb_cursor_i64 *base_cursor; // B+Tree cursor

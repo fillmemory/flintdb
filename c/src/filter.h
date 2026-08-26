@@ -80,9 +80,26 @@ struct filter {
     } data;
 };
 
+/*
+ * filter_plan — C counterpart of Java Filter.compile()'s Comparable<Row>[]
+ *
+ * Java (Filter.java, TableImpl.find):
+ *   Comparable<Row>[] f = Filter.compile(meta, index, where);
+ *   f[0]  indexable  — Sorter.find / B+Tree  (Filter.ALL if none)
+ *   f[1]  residual   — compareTo after fetch (Filter.ALL if none)
+ *
+ * C:
+ *   filter_compile(where) then filter_split(..., index)
+ *   plan->access     same role as f[0]  (NULL if none)
+ *   plan->residual   same role as f[1]  (NULL if none)
+ *
+ * Java has no struct: a 2-slot array is the plan. C names the slots.
+ * Empty predicate: Java Filter.ALL (compareTo always 0); C NULL (skip the check).
+ * Do not treat C NULL as "error"; it means "this stage is a no-op", like ALL.
+ */
 struct filter_plan {
-    struct filter *access;    // B+Tree seek/range (NULL if none)
-    struct filter *residual;  // post-filter after fetch (NULL if index covers WHERE)
+    struct filter *access;    // B+Tree seek/range (NULL if none) — Java filter[0]
+    struct filter *residual;  // post-filter after fetch (NULL if covered) — Java filter[1]
 };
 
 struct filter * filter_compile(const char *s, struct flintdb_meta *meta, char **e);
